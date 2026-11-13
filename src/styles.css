@@ -1,0 +1,25 @@
+/* Perfect 10: the game draws itself on one canvas, so the page only has to get out of the way. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #0d0b14;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+#root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas.game {
+  display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}

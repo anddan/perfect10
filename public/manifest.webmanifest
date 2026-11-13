@@ -1,0 +1,14 @@
+{
+  "name": "Perfect 10",
+  "short_name": "Perfect 10",
+  "description": "Mattespelet där kaffekoppar ska fyllas till exakt 10.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0b14",
+  "theme_color": "#0d0b14",
+  "icons": [
+    {"src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

@@ -16,8 +16,34 @@ export const CUP_START_Y = 566;
 /** A number that gets this far down without landing in a cup hits the desk and is gone. */
 export const MISS_Y = 618;
 
-/** A cup that reaches exactly this is a perfect 10. */
+/** A cup that reaches exactly this (or exactly minus this, when minus numbers are in the game) is a perfect 10. */
 export const TARGET = 10;
+
+/** How many levels there are on each of the book's level pages (3 on every row, four rows). */
+export const STAGES = 12;
+
+/** How many things the tutorial lets you try. */
+export const TUTORIAL_STEPS = 4;
+
+/** A tapped number first hops up at this speed (units per second), then gravity pulls it down into the cup. */
+export const DIVE_HOP = 320;
+export const DIVE_GRAVITY = 1800;
+
+/** Bonus balls: how many seconds the slow motion lasts, how slow the numbers fall in it, and the points a points ball gives per level. */
+export const SLOW_SECONDS = 6;
+export const SLOW_FACTOR = 0.4;
+export const BONUS_POINTS = 100;
+
+/** The hard parts of a chapter: chains come from this level of it (4 to 9), and ghost numbers from this one (7 to 9). */
+export const CHAIN_FROM_STAGE = 4;
+export const GHOST_FROM_STAGE = 7;
+/** The last row of a chapter (levels 10 to 12) brings ice numbers: they have to be tapped this many times to crack the ice. */
+export const ICE_FROM_STAGE = 10;
+export const ICE_HITS = 2;
+/** Seconds one ghost number takes to go from seen to hidden and back. */
+export const GHOST_PERIOD = 2.6;
+/** How far apart (game units) the two numbers of a chain can be before the chain is pulled straight. */
+export const CHAIN_LENGTH = 100;
 
 /** How close (game units) a finger has to be to a number to tap it. */
 export const TAP_RADIUS = 34;

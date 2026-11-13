@@ -66,6 +66,14 @@ export function playEvent(e: GameEvent): void {
     case "tap":
       tone(500, 0.12, {type: "triangle", slide: 300, vol: 0.1});
       break;
+    case "ice":
+      if (e.broke) {
+        tone(1500, 0.14, {type: "triangle", slide: -700, vol: 0.12});
+        tone(2200, 0.1, {type: "square", slide: -1200, vol: 0.05, delay: 0.03});
+      } else {
+        tone(1900, 0.06, {type: "square", slide: -500, vol: 0.06});
+      }
+      break;
     case "land":
       tone(320, 0.16, {slide: -200, vol: 0.2});
       tone(180, 0.1, {vol: 0.1, delay: 0.04});
@@ -81,6 +89,12 @@ export function playEvent(e: GameEvent): void {
       break;
     case "miss":
       tone(140, 0.08, {type: "triangle", vol: 0.08});
+      break;
+    case "bonus":
+      [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.18, {type: "triangle", vol: 0.14, delay: i * 0.06}));
+      break;
+    case "won":
+      [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, 0.28, {type: "triangle", vol: 0.16, delay: 0.1 + i * 0.1}));
       break;
     case "gameOver":
       [392, 330, 262, 196].forEach((f, i) => tone(f, 0.35, {type: "triangle", vol: 0.16, delay: 0.3 + i * 0.18}));

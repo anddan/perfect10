@@ -2,6 +2,9 @@
 // The rules never look at these; they only react to what the engine says happened.
 import {CUP_H, TARGET} from "../game/constants";
 import type {GameEvent, GameState} from "../game/types";
+import {drawStar} from "./draw";
+import {t} from "./i18n";
+import {segmentCenter, segmentFilledBy} from "./progress";
 
 interface Steam {
   x: number;
@@ -50,7 +53,8 @@ interface FloatText {
 }
 
 const COFFEE = ["#3b2314", "#5a3a22", "#7a4f2e", "#2a170c"];
-const CONFETTI = ["#ffd54a", "#ff7a59", "#6ee7b7", "#7dd3fc", "#f9a8d4", "#ffffff"];
+const ICE = ["#ffffff", "#d8f1ff", "#a9d8f5", "#7fbfe8"];
+const CONFETTI =["#ffd54a", "#ff7a59", "#6ee7b7", "#7dd3fc", "#f9a8d4", "#ffffff"];
 
 /** A soft white blob, drawn once and stamped for every puff of steam. */
 function makeSteamSprite(): HTMLCanvasElement {
@@ -66,7 +70,30 @@ function makeSteamSprite(): HTMLCanvasElement {
   return c;
 }
 
+/** A golden star that flies from a cup that reached 10 to its place in the progress bar. */
+interface Flyer {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  seg: number;
+  age: number;
+  life: number;
+}
+
+/** Where a flying star is, `t` (0 to 1) of the way: a curve that rises first and then comes down onto the bar. */
+function flyerAt(f: Flyer, t: number): {x: number; y: number} {
+  const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  const cx = (f.x0 + f.x1) / 2 + (f.x1 - f.x0) * 0.12;
+  const cy = Math.min(f.y0, f.y1) - 170;
+  const u = 1 - e;
+  return {x: u * u * f.x0 + 2 * u * e * cx + e * e * f.x1, y: u * u * f.y0 + 2 * u * e * cy + e * e * f.y1};
+}
+
 export class Fx {
+  private flyers: Flyer[] = [];
+  /** The segment of the progress bar that has just been filled, and how much of its pop is left (1 down to 0). */
+  pop = {seg: -1, t: 0};
   private steam: Steam[] = [];
   private drops: Drop[] = [];
   private confetti: Confetti[] = [];
@@ -79,7 +106,7 @@ export class Fx {
     const rnd = Math.random;
     switch (e.t) {
       case "land": {
-        const n = 10 + e.v;
+        const n = 10 + (e.op !== "add" ? 8 : Math.abs(e.v));
         for (let i = 0; i < n; i++) {
           this.drops.push({
             x: e.x + (rnd() - 0.5) * 20,
@@ -92,7 +119,32 @@ export class Fx {
             color: COFFEE[Math.floor(rnd() * COFFEE.length)],
           });
         }
-        this.texts.push({x: e.x, y: e.y - 18, text: `+${e.v}`, age: 0, life: 0.9, color: "#ffe9a8", size: 20});
+        this.texts.push(
+          e.op === "mul"
+            ? {x: e.x, y: e.y - 18, text: `\u00D7${e.v}`, age: 0, life: 0.9, color: "#a9d4ff", size: 22}
+            : e.op === "div"
+            ? {x: e.x, y: e.y - 18, text: `\u00F7${e.v}`, age: 0, life: 0.9, color: "#ffe28a", size: 22}
+            : e.v < 0
+            ? {x: e.x, y: e.y - 18, text: `−${-e.v}`, age: 0, life: 0.9, color: "#ffb3ab", size: 20}
+            : {x: e.x, y: e.y - 18, text: `+${e.v}`, age: 0, life: 0.9, color: "#ffe9a8", size: 20}
+        );
+        break;
+      }
+      case "ice": {
+        // Ice cracks (a few shards), or breaks (a lot of them).
+        const n = e.broke ? 18 : 7;
+        for (let i = 0; i < n; i++) {
+          this.drops.push({
+            x: e.x + (rnd() - 0.5) * 30,
+            y: e.y + (rnd() - 0.5) * 30,
+            vx: (rnd() - 0.5) * (e.broke ? 260 : 150),
+            vy: -(40 + rnd() * (e.broke ? 190 : 100)),
+            age: 0,
+            life: 0.4 + rnd() * 0.35,
+            r: 1.6 + rnd() * 2.2,
+            color: ICE[Math.floor(rnd() * ICE.length)],
+          });
+        }
         break;
       }
       case "levelUp": {
@@ -111,12 +163,55 @@ export class Fx {
             color: CONFETTI[Math.floor(rnd() * CONFETTI.length)],
           });
         }
-        this.texts.push({x: c.x, y: c.y - 60, text: "PERFEKT 10!", age: 0, life: 1.3, color: "#ffd54a", size: 22});
+        this.texts.push({x: c.x, y: c.y - 60, text: t("perfect10"), age: 0, life: 1.3, color: "#ffd54a", size: 22});
+        if (g.mode !== "tutorial") {
+          const seg = segmentFilledBy(g, e.level);
+          const end = segmentCenter(g, seg);
+          this.flyers.push({x0: c.x, y0: c.y - CUP_H / 2, x1: end.x, y1: end.y, seg, age: 0, life: 0.7});
+        }
+        break;
+      }
+      case "bonus": {
+        // A bonus ball is collected: golden sparks, and what it gave.
+        for (let i = 0; i < 26; i++) {
+          this.confetti.push({
+            x: e.x + (rnd() - 0.5) * 12,
+            y: e.y,
+            vx: (rnd() - 0.5) * 300,
+            vy: -(100 + rnd() * 260),
+            rot: rnd() * 6,
+            vr: (rnd() - 0.5) * 14,
+            age: 0,
+            life: 0.6 + rnd() * 0.5,
+            color: i % 3 === 0 ? "#ffffff" : "#ffd54a",
+          });
+        }
+        const [text, color] =
+          e.kind === "life" ? [t("bonusLife"), "#ffb3c6"] : e.kind === "points" ? [`+${e.amount}`, "#e2c8ff"] : [t("bonusSlow"), "#b8ecff"];
+        this.texts.push({x: e.x, y: e.y - 24, text, age: 0, life: 1.2, color, size: 22});
+        break;
+      }
+      case "won": {
+        // A level of the book is cleared: confetti from both sides of the screen.
+        for (let i = 0; i < 120; i++) {
+          const left = i % 2 === 0;
+          this.confetti.push({
+            x: left ? 10 : 350,
+            y: 330 + rnd() * 120,
+            vx: (left ? 1 : -1) * (120 + rnd() * 260),
+            vy: -(280 + rnd() * 420),
+            rot: rnd() * 6,
+            vr: (rnd() - 0.5) * 14,
+            age: 0,
+            life: 1.6 + rnd() * 1,
+            color: CONFETTI[Math.floor(rnd() * CONFETTI.length)],
+          });
+        }
         break;
       }
       case "revive": {
         const c = g.cups.find((k) => k.id === e.cupId);
-        if (c) this.texts.push({x: c.x, y: c.y - 60, text: "Tillbaka!", age: 0, life: 1.3, color: "#9ff0c4", size: 20});
+        if (c) this.texts.push({x: c.x, y: c.y - 60, text: t("back"), age: 0, life: 1.3, color: "#9ff0c4", size: 20});
         break;
       }
       case "bust": {
@@ -134,7 +229,7 @@ export class Fx {
             color: COFFEE[Math.floor(rnd() * COFFEE.length)],
           });
         }
-        this.texts.push({x: c.x, y: c.y - 60, text: "Över 10!", age: 0, life: 1.2, color: "#ff8a80", size: 20});
+        this.texts.push({x: c.x, y: c.y - 60, text: t("over10"), age: 0, life: 1.2, color: "#ff8a80", size: 20});
         break;
       }
       case "miss": {
@@ -157,11 +252,37 @@ export class Fx {
     }
   }
 
+  /** How many stars are still on their way to the progress bar: its segments do not light up before they arrive. */
+  get pending(): number {
+    return this.flyers.length;
+  }
+
   update(g: GameState, dt: number): void {
     const rnd = Math.random;
+    this.pop.t = Math.max(0, this.pop.t - dt * 1.8);
+    for (const f of this.flyers) {
+      f.age += dt;
+      if (f.age < f.life) continue;
+      // It has arrived: the segment pops, and sparks fly up from it.
+      this.pop = {seg: f.seg, t: 1};
+      for (let i = 0; i < 18; i++) {
+        this.confetti.push({
+          x: f.x1 + (rnd() - 0.5) * 10,
+          y: f.y1,
+          vx: (rnd() - 0.5) * 240,
+          vy: -(120 + rnd() * 260),
+          rot: rnd() * 6,
+          vr: (rnd() - 0.5) * 14,
+          age: 0,
+          life: 0.5 + rnd() * 0.5,
+          color: i % 3 === 0 ? "#ffffff" : "#ffd54a",
+        });
+      }
+    }
+    this.flyers = this.flyers.filter((f) => f.age < f.life);
     // Every living cup steams more and more the closer it gets to 10.
     for (const c of g.cups) {
-      const v = c.showTen > 0 && c.value === 0 ? TARGET : c.value;
+      const v = c.showTen > 0 && c.value === 0 ? TARGET : Math.abs(c.value);
       if (c.dead || v <= 0) continue;
       const acc = (this.emit.get(c.id) ?? 0) + (1.2 + v * v * 0.2) * dt;
       let n = Math.floor(acc);
@@ -220,6 +341,21 @@ export class Fx {
     this.confetti = [];
     this.texts = [];
     this.emit.clear();
+    this.flyers = [];
+    this.pop = {seg: -1, t: 0};
+  }
+
+  /** The stars on their way to the progress bar, each with a short golden trail. */
+  drawFlyers(ctx: CanvasRenderingContext2D): void {
+    for (const f of this.flyers) {
+      const t = Math.min(1, f.age / f.life);
+      for (let k = 5; k >= 0; k--) {
+        const p = flyerAt(f, Math.max(0, t - k * 0.035));
+        ctx.globalAlpha = k === 0 ? 1 : 0.32 - k * 0.05;
+        drawStar(ctx, p.x, p.y, k === 0 ? 11 : 9 - k, true);
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   drawSteam(ctx: CanvasRenderingContext2D): void {

@@ -4,6 +4,8 @@ export const H = 640;
 
 /** The four columns the numbers fall in (x centres). */
 export const COLS = [45, 135, 225, 315] as const;
+/** The first chapter has only three columns (and three cups), in the middle of the screen. */
+export const PLUS_COLS = [90, 180, 270] as const;
 
 /** Where the desk begins (the cups stand on it). */
 export const DESK_Y = 458;
@@ -30,20 +32,34 @@ export const DIVE_HOP = 320;
 export const DIVE_GRAVITY = 1800;
 
 /** Bonus balls: how many seconds the slow motion lasts, how slow the numbers fall in it, and the points a points ball gives per level. */
-export const SLOW_SECONDS = 6;
-export const SLOW_FACTOR = 0.4;
+export const SLOW_SECONDS = 10;
+export const SLOW_FACTOR = 0.25;
 export const BONUS_POINTS = 100;
 
-/** The hard parts of a chapter: chains come from this level of it (4 to 9), and ghost numbers from this one (7 to 9). */
-export const CHAIN_FROM_STAGE = 4;
-export const GHOST_FROM_STAGE = 7;
-/** The last row of a chapter (levels 10 to 12) brings ice numbers: they have to be tapped this many times to crack the ice. */
-export const ICE_FROM_STAGE = 10;
+/** How many taps it takes to crack the ice a number is frozen in. */
 export const ICE_HITS = 2;
 /** Seconds one ghost number takes to go from seen to hidden and back. */
 export const GHOST_PERIOD = 2.6;
 /** How far apart (game units) the two numbers of a chain can be before the chain is pulled straight. */
 export const CHAIN_LENGTH = 100;
+
+/** Seconds the progress bar gets to finish its effect (the star that flies to it, and its pop) before the CLEARED card comes up. */
+export const WIN_DELAY = 1.7;
+
+/** A perfect 10 within this many seconds of the one before it builds a combo: the points of the perfect 10 go times 2, then times 3, and so on. */
+export const COMBO_SECONDS = 5;
+/** The bonus of a perfect 10 that is part of a combo (times the level and times the combo): twice the 50 of an ordinary perfect 10. */
+export const COMBO_BONUS = 100;
+
+/**
+ * The pull-down screen (like the projector screen of a classroom) that wipes away every number in the air: how many you can keep,
+ * how long it takes to come down, how long it stays down, how long it takes to roll up again, and how far down it reaches.
+ */
+export const SCREEN_MAX = 3;
+export const SWEEP_DOWN = 0.55;
+export const SWEEP_HOLD = 0.3;
+export const SWEEP_UP = 0.5;
+export const SWEEP_EDGE = 520;
 
 /** How close (game units) a finger has to be to a number to tap it. */
 export const TAP_RADIUS = 34;

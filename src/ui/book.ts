@@ -2,10 +2,12 @@
 // Page 1 is the tutorial, page 2 the plus levels (nine, three on every row), page 3 the plus and minus levels,
 // and the last page is the endless game. Every page of the book is in its own room (see background.ts).
 import {W, STAGES} from "../game/constants";
-import {goalFor} from "../game/engine";
+import {goalFor, starsFor} from "../game/engine";
 import type {GameState, Mode} from "../game/types";
 import {roomOfMode, type Room} from "./background";
 import {t} from "./i18n";
+import {playerName} from "./profile";
+import {drawTrophy} from "./settings";
 import {
   type Button,
   FONT,
@@ -13,25 +15,39 @@ import {
   INK,
   TAU,
   drawBall,
+  drawStar,
   drawButton,
+  logoTitle,
   registerHit,
   roundRect,
   softShadow,
   text,
-  title,
   ui,
   write,
 } from "./draw";
+
+/** The holes along the left edge of the pages (their middle, measured from the left edge of the page and from the top), and the metal spiral that goes through them. */
+const SPIRAL_AT = [60, 138, 216, 294, 372, 450];
+const HOLE_X = 13;
+const HOLE_R = 4.6;
 
 /** Where the book is (game units): nearly the whole screen, so a whole page is shown. */
 export const BOOK = {x: 14, y: 62, w: 332, h: 514};
 
 /** What each page of the book is. */
-export const PAGE_MODES: Mode[] = ["tutorial", "plus", "mixed", "times", "divide", "endless"];
+export const PAGE_MODES: Mode[] = ["tutorial", "plus", "mixed", "times", "divide", "space", "endless"];
 
-/** Which chapter of the book a game is in (1 to 4). */
+/** The chapters of the book, with twelve levels each, in order. */
+export const CHAPTER_MODES = ["plus", "mixed", "times", "divide", "space"] as const;
+export type ChapterMode = (typeof CHAPTER_MODES)[number];
+
+export function isChapter(mode: Mode): mode is ChapterMode {
+  return (CHAPTER_MODES as readonly Mode[]).includes(mode);
+}
+
+/** Which chapter of the book a game is in (1 to 5). */
 export function chapterOf(mode: Mode): number {
-  return mode === "plus" ? 1 : mode === "mixed" ? 2 : mode === "times" ? 3 : 4;
+  return Math.max(0, (CHAPTER_MODES as readonly Mode[]).indexOf(mode)) + 1;
 }
 const LAST = PAGE_MODES.length - 1;
 
@@ -52,9 +68,13 @@ export interface Book {
   unlockAll: boolean;
   /** The most cups that have been filled in a level (the dots on its tile light up for them), as "plus-3" and so on. */
   bestCups: Map<string, number>;
+  /** The most points that have been got in a cleared level (shown under its number), as "plus-3" and so on. */
+  bestScores: Map<string, number>;
+  /** How many times a page has been turned (to the next or the previous page): the sound of a page turning goes by it. */
+  turns: number;
 }
 
-export function createBook(page = 0, cleared: Iterable<string> = [], unlockAll = false, bestCups: Record<string, number> = {}): Book {
+export function createBook(page = 0, cleared: Iterable<string> = [], unlockAll = false, bestCups: Record<string, number> = {}, bestScores: Record<string, number> = {}): Book {
   const p = Math.min(LAST, Math.max(0, page));
   return {
     pos: p,
@@ -66,6 +86,8 @@ export function createBook(page = 0, cleared: Iterable<string> = [], unlockAll =
     cleared: new Set(cleared),
     unlockAll,
     bestCups: new Map(Object.entries(bestCups)),
+    bestScores: new Map(Object.entries(bestScores)),
+    turns: 0,
   };
 }
 
@@ -81,6 +103,14 @@ export function markProgress(b: Book, mode: Mode, stage: number, cups: number): 
   return true;
 }
 
+/** Remembers the points got in a cleared level: only if that is more than before. Returns whether it was. */
+export function markScore(b: Book, mode: Mode, stage: number, score: number): boolean {
+  const key = clearedKey(mode, stage);
+  if (score <= (b.bestScores.get(key) ?? 0)) return false;
+  b.bestScores.set(key, score);
+  return true;
+}
+
 export function markCleared(b: Book, mode: Mode, stage: number): void {
   b.cleared.add(clearedKey(mode, stage));
 }
@@ -90,18 +120,49 @@ export function pageOfMode(mode: Mode): number {
   return Math.max(0, PAGE_MODES.indexOf(mode));
 }
 
+/** The most stars there are in a chapter (three in each of its twelve levels), and how many of them open the next chapter (at least: more is fine). */
+export const CHAPTER_STARS = 3 * STAGES;
+export const STARS_TO_OPEN = 24;
+/** How many stars, all chapters added together (180 at most), open the endless game. */
+export const STARS_FOR_ENDLESS = 120;
+
+/** The stars got in a level (the points of its best try): none until it has been cleared. */
+export function starsOfLevel(b: Book, mode: Mode, stage: number): number {
+  const key = clearedKey(mode, stage);
+  return b.cleared.has(key) ? starsFor(mode, stage, b.bestScores.get(key) ?? 0) : 0;
+}
+
+/** The stars got in all the levels of a chapter (0 to 36). */
+export function chapterStars(b: Book, mode: ChapterMode): number {
+  let n = 0;
+  for (let s = 1; s <= STAGES; s++) n += starsOfLevel(b, mode, s);
+  return n;
+}
+
+/** The stars got in all the chapters together (0 to 180). */
+export function totalStars(b: Book): number {
+  return CHAPTER_MODES.reduce((n, m) => n + chapterStars(b, m), 0);
+}
+
 /**
  * Whether a level can be played. The levels come one after the other: the first plus level is open, every other
- * level opens when the one before it has been cleared, and the first level of a chapter when the last level of the
- * chapter before it has. The tutorial and the endless game are always open.
+ * level opens when the one before it has been cleared, and the first level of a chapter when at least 24 of the 36 stars of the
+ * chapter before it have been got (a level that has been cleared stays open). The endless game opens when 120 stars have been got in
+ * all the chapters together. The tutorial is always open.
  */
 export function isUnlocked(b: Book, mode: Mode, stage: number): boolean {
   if (b.unlockAll) return true;
-  if (mode === "plus") return stage <= 1 || b.cleared.has(clearedKey("plus", stage - 1));
-  if (mode === "mixed") return b.cleared.has(clearedKey(stage <= 1 ? "plus" : "mixed", stage <= 1 ? STAGES : stage - 1));
-  if (mode === "times") return b.cleared.has(clearedKey(stage <= 1 ? "mixed" : "times", stage <= 1 ? STAGES : stage - 1));
-  if (mode === "divide") return b.cleared.has(clearedKey(stage <= 1 ? "times" : "divide", stage <= 1 ? STAGES : stage - 1));
-  return true;
+  if (mode === "endless") return totalStars(b) >= STARS_FOR_ENDLESS;
+  const chapter = CHAPTER_MODES.indexOf(mode as ChapterMode);
+  if (chapter < 0) return true;
+  if (stage <= 1) return chapter === 0 || b.cleared.has(clearedKey(mode, 1)) || chapterStars(b, CHAPTER_MODES[chapter - 1]) >= STARS_TO_OPEN;
+  return b.cleared.has(clearedKey(mode, stage - 1));
+}
+
+/** The game that follows another, if it is open (the next chapter may be shut for want of stars). */
+export function openNextGame(b: Book, mode: Mode, stage: number): {mode: Mode; stage: number} | undefined {
+  const next = nextGame(mode, stage);
+  return next && isUnlocked(b, next.mode, next.stage) ? next : undefined;
 }
 
 /** The room behind a page of the book. */
@@ -112,11 +173,10 @@ export function roomOfPage(page: number): Room {
 /** The game that follows another in the book: level after level, then the next page, ending in the endless game. */
 export function nextGame(mode: Mode, stage: number): {mode: Mode; stage: number} | undefined {
   if (mode === "tutorial") return {mode: "plus", stage: 1};
-  if (mode === "plus") return stage < STAGES ? {mode, stage: stage + 1} : {mode: "mixed", stage: 1};
-  if (mode === "mixed") return stage < STAGES ? {mode, stage: stage + 1} : {mode: "times", stage: 1};
-  if (mode === "times") return stage < STAGES ? {mode, stage: stage + 1} : {mode: "divide", stage: 1};
-  if (mode === "divide") return stage < STAGES ? {mode, stage: stage + 1} : {mode: "endless", stage: 0};
-  return undefined;
+  const chapter = CHAPTER_MODES.indexOf(mode as ChapterMode);
+  if (chapter < 0) return undefined;
+  if (stage < STAGES) return {mode, stage: stage + 1};
+  return chapter + 1 < CHAPTER_MODES.length ? {mode: CHAPTER_MODES[chapter + 1], stage: 1} : {mode: "endless", stage: 0};
 }
 
 /**
@@ -126,7 +186,12 @@ export function nextGame(mode: Mode, stage: number): {mode: Mode; stage: number}
 export function currentPage(b: Book): number {
   if (!b.cleared.has(clearedKey("tutorial", 0))) return 0;
   let game: {mode: Mode; stage: number} | undefined = {mode: "plus", stage: 1};
-  while (game && game.mode !== "endless" && b.cleared.has(clearedKey(game.mode, game.stage))) game = nextGame(game.mode, game.stage);
+  while (game && game.mode !== "endless" && b.cleared.has(clearedKey(game.mode, game.stage))) {
+    const next = nextGame(game.mode, game.stage);
+    // The next chapter is shut (too few stars): stay in the chapter where the stars are to be got.
+    if (next && next.mode !== "endless" && !isUnlocked(b, next.mode, next.stage)) return pageOfMode(game.mode);
+    game = next;
+  }
   return pageOfMode(game ? game.mode : "endless");
 }
 
@@ -140,9 +205,18 @@ export function showPage(b: Book, page: number): void {
 
 /** Turns to a page. From a button, the page first lifts and trembles a moment before it is pulled all the way through. */
 export function goToPage(b: Book, page: number, fromButton = false): void {
-  b.target = Math.min(LAST, Math.max(0, Math.round(page)));
-  b.windupFrom = b.pos;
-  b.windup = fromButton && Math.abs(b.target - b.pos) > 0.5 ? WINDUP : 0;
+  const target = Math.min(LAST, Math.max(0, Math.round(page)));
+  if (target !== b.target) b.turns++;
+  // The wind-up only comes when the book is lying still: if a page is already on its way (quick presses on the buttons) it just carries on
+  // towards the new page, instead of starting the wind-up over and over so that the page sticks.
+  const resting = b.windup <= 0 && Math.abs(b.target - b.pos) < 0.01;
+  b.target = target;
+  if (resting) {
+    b.windupFrom = b.pos;
+    b.windup = fromButton && Math.abs(b.target - b.pos) > 0.5 ? WINDUP : 0;
+  } else {
+    b.windup = 0;
+  }
 }
 
 export function beginDrag(b: Book): void {
@@ -153,11 +227,13 @@ export function beginDrag(b: Book): void {
 
 /** The finger has moved `dx` game units sideways since the drag began: dragging left turns the page forwards. */
 export function dragBy(b: Book, dx: number): void {
+  if (!b.dragging) return;
   b.pos = Math.min(LAST, Math.max(0, b.dragFrom - dx / BOOK.w));
 }
 
 /** The finger let go: the page turns the rest of the way if it has gone far enough, otherwise it falls back. */
 export function endDrag(b: Book): void {
+  if (!b.dragging) return;
   const from = Math.round(b.dragFrom);
   const moved = b.pos - b.dragFrom;
   b.dragging = false;
@@ -190,7 +266,42 @@ export function updateBook(b: Book, dt: number): void {
 // ---- Small pictures for the pages -----------------------------------------------------
 
 /** A little coffee cup: (x, y) is the middle of the cup. */
-function drawCupIcon(ctx: CanvasRenderingContext2D, x: number, y: number, label: string, ink: string, dead = false, scale = 1): void {
+/** The handle of a cup, as a glossy ring like the level tiles: light at the top, darker at the bottom, a white shine and a bright rim. */
+function drawGlossyHandle(ctx: CanvasRenderingContext2D): void {
+  const cx = 23.5;
+  const cy = -1;
+  const ring = new Path2D();
+  ring.moveTo(cx + 8.5, cy);
+  ring.ellipse(cx, cy, 8.5, 10.5, 0, 0, TAU);
+  ring.moveTo(cx + 3.6, cy);
+  ring.ellipse(cx, cy, 3.6, 5.6, 0, 0, TAU);
+  ctx.save();
+  const body = ctx.createLinearGradient(0, cy - 10.5, 0, cy + 10.5);
+  body.addColorStop(0, "#fffdf6");
+  body.addColorStop(1, "#b9b09a");
+  ctx.fillStyle = body;
+  ctx.fill(ring, "evenodd");
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = "rgba(60,40,15,0.55)";
+  ctx.stroke(ring);
+  ctx.clip(ring, "evenodd");
+  const shine = ctx.createLinearGradient(0, cy - 10.5, 0, cy + 3);
+  shine.addColorStop(0, "rgba(255,255,255,0.95)");
+  shine.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = shine;
+  ctx.fillRect(cx - 9, cy - 11, 18, 14);
+  // A white swoosh along the upper outer edge.
+  ctx.strokeStyle = "rgba(255,255,255,0.95)";
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, 6.2, 8.4, 0, -Math.PI * 0.45, Math.PI * 0.12);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawCupIcon(ctx: CanvasRenderingContext2D, x: number, y: number, label: string, ink: string, dead = false, scale = 1, glossyHandle = false): void {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
@@ -202,11 +313,15 @@ function drawCupIcon(ctx: CanvasRenderingContext2D, x: number, y: number, label:
   ctx.beginPath();
   ctx.ellipse(0, 16, 23, 5.5, 0, 0, TAU);
   ctx.fill();
-  ctx.strokeStyle = dead ? "#6f6b66" : "#b3aa97";
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.ellipse(18, 1, 7, 8, 0, -Math.PI / 2, Math.PI / 2);
-  ctx.stroke();
+  if (glossyHandle) {
+    drawGlossyHandle(ctx);
+  } else {
+    ctx.strokeStyle = dead ? "#6f6b66" : "#b3aa97";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(18, 1, 7, 8, 0, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+  }
   const body = ctx.createLinearGradient(-19, 0, 19, 0);
   body.addColorStop(0, dead ? "#6a6661" : "#c4bba6");
   body.addColorStop(0.35, dead ? "#b0aca6" : "#fffdf6");
@@ -236,46 +351,88 @@ function drawCupIcon(ctx: CanvasRenderingContext2D, x: number, y: number, label:
 }
 
 /** An arrow with a head at both ends, for "swap places". */
-function drawSwapArrow(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+function drawSwapArrow(ctx: CanvasRenderingContext2D, x: number, y: number, half = 11): void {
+  const head = half * 0.45;
   ctx.strokeStyle = "#5b4a36";
   ctx.lineWidth = 2.4;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.beginPath();
-  ctx.moveTo(x - 11, y);
-  ctx.lineTo(x + 11, y);
-  ctx.moveTo(x - 11, y);
-  ctx.lineTo(x - 6, y - 4.5);
-  ctx.moveTo(x - 11, y);
-  ctx.lineTo(x - 6, y + 4.5);
-  ctx.moveTo(x + 11, y);
-  ctx.lineTo(x + 6, y - 4.5);
-  ctx.moveTo(x + 11, y);
-  ctx.lineTo(x + 6, y + 4.5);
+  ctx.moveTo(x - half, y);
+  ctx.lineTo(x + half, y);
+  ctx.moveTo(x - half, y);
+  ctx.lineTo(x - half + head, y - 4.5);
+  ctx.moveTo(x - half, y);
+  ctx.lineTo(x - half + head, y + 4.5);
+  ctx.moveTo(x + half, y);
+  ctx.lineTo(x + half - head, y - 4.5);
+  ctx.moveTo(x + half, y);
+  ctx.lineTo(x + half - head, y + 4.5);
   ctx.stroke();
 }
 
 /** A round green badge with a check mark, for what has been cleared. */
 function drawCheck(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
-  const g = ctx.createLinearGradient(0, y - r, 0, y + r);
-  g.addColorStop(0, "#7df09c");
-  g.addColorStop(1, "#1f9f4e");
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, TAU);
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "#0f5a2a";
-  ctx.stroke();
-  ctx.strokeStyle = "#ffffff";
-  ctx.lineWidth = Math.max(2.4, r * 0.28);
-  ctx.lineCap = "round";
+  // A check mark painted with a brush: a short stroke down, then a long sweep up that thins out to a tail. The brush is
+  // thickest near the turn, its edges are a little uneven, and it leaves a few lighter streaks.
+  const pt = (a: number, b: number, c: number, d: number, t: number): number => {
+    const u = 1 - t;
+    return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+  };
+  const X = [x - r * 0.95, x - r * 0.72, x - r * 0.46, x - r * 0.28, x - r * 0.02, x + r * 0.52, x + r * 1.02];
+  const Y = [y + r * 0.02, y + r * 0.22, y + r * 0.56, y + r * 0.8, y + r * 0.18, y - r * 0.55, y - r * 0.96];
+  const along = (t: number): {x: number; y: number} => {
+    // The first half of t is the stroke down, the second half the sweep up.
+    const first = t < 0.3;
+    const u = first ? t / 0.3 : (t - 0.3) / 0.7;
+    const i = first ? 0 : 3;
+    return {x: pt(X[i], X[i + 1], X[i + 2], X[i + 3], u), y: pt(Y[i], Y[i + 1], Y[i + 2], Y[i + 3], u)};
+  };
+  const N = 44;
+  const left: {x: number; y: number}[] = [];
+  const right: {x: number; y: number}[] = [];
+  const mid: {x: number; y: number; nx: number; ny: number; w: number}[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const p = along(t);
+    const q = along(Math.min(1, t + 0.01));
+    const o = along(Math.max(0, t - 0.01));
+    const dx = q.x - o.x;
+    const dy = q.y - o.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    // How wide the brush is here: full soon after the start, a bit thinner at the turn, then thinning to a tail.
+    const profile = t < 0.12 ? 0.55 + 3.7 * t : t < 0.3 ? 1 : Math.max(0.22, 1 - 0.8 * Math.pow((t - 0.3) / 0.7, 1.3));
+    const w = r * 0.5 * profile;
+    const rough = 1 + 0.09 * Math.sin(t * 41) + 0.06 * Math.sin(t * 97 + 1);
+    const rough2 = 1 + 0.09 * Math.sin(t * 53 + 2) + 0.06 * Math.sin(t * 89);
+    left.push({x: p.x + nx * w * 0.5 * rough, y: p.y + ny * w * 0.5 * rough});
+    right.push({x: p.x - nx * w * 0.5 * rough2, y: p.y - ny * w * 0.5 * rough2});
+    mid.push({x: p.x, y: p.y, nx, ny, w});
+  }
+  const shape = () => {
+    ctx.beginPath();
+    ctx.moveTo(left[0].x, left[0].y);
+    for (const p of left) ctx.lineTo(p.x, p.y);
+    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+    ctx.closePath();
+  };
+  ctx.save();
   ctx.lineJoin = "round";
-  ctx.beginPath();
-  ctx.moveTo(x - r * 0.42, y + r * 0.02);
-  ctx.lineTo(x - r * 0.1, y + r * 0.34);
-  ctx.lineTo(x + r * 0.46, y - r * 0.3);
-  ctx.stroke();
+  ctx.lineCap = "round";
+  shape();
+  ctx.fillStyle = "#17a845";
+  ctx.fill();
+  // Streaks left by the bristles.
+  ctx.strokeStyle = "rgba(190,255,205,0.45)";
+  ctx.lineWidth = Math.max(0.6, r * 0.045);
+  for (const k of [-0.22, 0.05, 0.26]) {
+    ctx.beginPath();
+    mid.slice(2, N - 5).forEach((m, i) => (i === 0 ? ctx.moveTo : ctx.lineTo).call(ctx, m.x + m.nx * m.w * k, m.y + m.ny * m.w * k));
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /** An infinity sign drawn as a thick golden loop. */
@@ -318,29 +475,35 @@ function drawTutorialRow(ctx: CanvasRenderingContext2D, i: number, y: number, do
       title: t("r4t"),
       lines: [t("r4a"), t("r4b")],
       icon: (cx, cy) => {
-        drawCupIcon(ctx, cx - 22, cy, "", INK, false, 0.62);
-        drawSwapArrow(ctx, cx, cy - 2);
-        drawCupIcon(ctx, cx + 22, cy, "", INK, false, 0.62);
+        // Two small cups with a glossy handle each, and the arrow between them (they are a little closer to the left than the other
+        // icons, so that the handle of the right cup does not run into the text).
+        drawCupIcon(ctx, cx - 26, cy, "", INK, false, 0.5, true);
+        drawSwapArrow(ctx, cx - 0.5, cy - 2, 8);
+        drawCupIcon(ctx, cx + 23, cy, "", INK, false, 0.5, true);
       },
     },
   ];
   const row = rows[i];
-  // The number of the step, in a round badge.
-  const g = ctx.createLinearGradient(0, y - 15, 0, y + 15);
-  g.addColorStop(0, "#ffe98f");
-  g.addColorStop(1, "#e8a91c");
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(46, y, 15, 0, TAU);
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "#8a5208";
-  ctx.stroke();
-  write(ctx, String(i + 1), 46, y + 1, 18, "#43270a", "center", 700);
+  if (done) {
+    // A step that has been cleared has a check mark where its number was, with no badge round it.
+    drawCheck(ctx, 46, y + 1, 14);
+  } else {
+    // The number of the step, in a round badge.
+    const g = ctx.createLinearGradient(0, y - 15, 0, y + 15);
+    g.addColorStop(0, "#ffe98f");
+    g.addColorStop(1, "#e8a91c");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(46, y, 15, 0, TAU);
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#8a5208";
+    ctx.stroke();
+    write(ctx, String(i + 1), 46, y + 1, 18, "#43270a", "center", 700);
+  }
   row.icon(104, y);
   write(ctx, row.title, 146, y - 18, 19, INK, "left", 700);
   row.lines.forEach((line, k) => write(ctx, line, 146, y + 4 + k * 18, 14.5, "#5b4a36", "left", 600));
-  if (done) drawCheck(ctx, 304, y - 18, 11);
 }
 
 function drawTutorialPage(ctx: CanvasRenderingContext2D, b: Book, time: number): void {
@@ -348,7 +511,8 @@ function drawTutorialPage(ctx: CanvasRenderingContext2D, b: Book, time: number):
   write(ctx, t("tutLabel"), w / 2, 38, 14, "#8a6d3b", "center", 700);
   write(ctx, t("tutorial"), w / 2, 82, 46, "#43270a", "center", 700);
   write(ctx, t("tutSub"), w / 2, 122, 16, "#5b4a36", "center", 600);
-  for (let i = 0; i < 4; i++) drawTutorialRow(ctx, i, 176 + i * 68, b.cleared.has(clearedKey("tutorial", 0)));
+  // (the last row sits a little higher, away from the button)
+  for (let i = 0; i < 4; i++) drawTutorialRow(ctx, i, 176 + i * 68 - (i === 3 ? 5 : 0), b.cleared.has(clearedKey("tutorial", 0)));
   drawButton(ctx, "play:tutorial:0", {x: w / 2 - 112, y: BOOK.h - 92, w: 224, h: 56}, b.cleared.has(clearedKey("tutorial", 0)) ? t("playAgain") : t("startTutorial"), "primary", {
     pulse: time,
     size: 22,
@@ -392,7 +556,84 @@ function drawLock(ctx: CanvasRenderingContext2D, x: number, y: number, k = 1): v
 
 /** The colour (hue) of a level's tile: every chapter has its own run of colours, from the first level to the last. */
 function stageHue(mode: Mode, stage: number): number {
-  return mode === "plus" ? 134 - (stage - 1) * 14 : mode === "mixed" ? 205 + (stage - 1) * 15 : mode === "divide" ? 335 - (stage - 1) * 7 : 168 + (stage - 1) * 10;
+  return mode === "plus"
+    ? 134 - (stage - 1) * 14
+    : mode === "mixed"
+      ? 205 + (stage - 1) * 15
+      : mode === "divide"
+        ? 335 - (stage - 1) * 7
+        : mode === "space"
+          ? 275 + (stage - 1) * 4
+          : 168 + (stage - 1) * 10;
+}
+
+/**
+ * The sky on a tile of the space chapter (drawn inside the tile): a soft nebula, a scatter of stars and one thing out there
+ * (a ringed planet, a moon or a comet). Every tile has its own stars.
+ */
+function drawNightSky(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, stage: number, hue: number): void {
+  let a = stage * 7919 + 13;
+  const rnd = () => {
+    a = (a * 1664525 + 1013904223) % 4294967296;
+    return a / 4294967296;
+  };
+  for (const [fx, fy, rad, h] of [
+    [0.25 + rnd() * 0.2, 0.7, 0.7, hue + 40],
+    [0.75, 0.3 + rnd() * 0.2, 0.6, hue - 60],
+  ] as const) {
+    const neb = ctx.createRadialGradient(x + s * fx, y + s * fy, 0, x + s * fx, y + s * fy, s * rad);
+    neb.addColorStop(0, `hsla(${h} 90% 60% / 0.4)`);
+    neb.addColorStop(1, `hsla(${h} 90% 60% / 0)`);
+    ctx.fillStyle = neb;
+    ctx.fillRect(x, y, s, s);
+  }
+  for (let i = 0; i < 16; i++) {
+    const sx = x + rnd() * s;
+    const sy = y + rnd() * s;
+    ctx.fillStyle = `rgba(255,255,255,${0.35 + rnd() * 0.6})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 0.5 + rnd() * 0.9, 0, TAU);
+    ctx.fill();
+  }
+  // One thing out there, in the lower right (the number and the dots keep to the middle).
+  const px = x + s * 0.8;
+  const py = y + s * 0.78;
+  const kind = stage % 3;
+  if (kind === 0) {
+    ctx.fillStyle = "#e9b878";
+    ctx.beginPath();
+    ctx.arc(px, py, s * 0.075, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(245,225,185,0.9)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.ellipse(px, py, s * 0.13, s * 0.036, -0.4, 0, TAU);
+    ctx.stroke();
+  } else if (kind === 1) {
+    ctx.fillStyle = "#dfe3ee";
+    ctx.beginPath();
+    ctx.arc(px, py, s * 0.07, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = `hsl(${hue} 50% 14%)`;
+    ctx.beginPath();
+    ctx.arc(px + s * 0.03, py - s * 0.02, s * 0.065, 0, TAU);
+    ctx.fill();
+  } else {
+    const tail = ctx.createLinearGradient(px, py, px + s * 0.22, py - s * 0.2);
+    tail.addColorStop(0, "rgba(255,255,255,0.9)");
+    tail.addColorStop(1, "rgba(160,220,255,0)");
+    ctx.strokeStyle = tail;
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + s * 0.22, py - s * 0.2);
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(px, py, 2.6, 0, TAU);
+    ctx.fill();
+  }
 }
 
 /**
@@ -408,18 +649,21 @@ function drawTile(
   cleared: boolean,
   doneCups: number,
   locked: boolean,
-  s = 88
+  s = 88,
+  score = 0
 ): void {
   const id = `play:${mode}:${stage}`;
   const k = s / 88; // how much smaller than the biggest size the tile is drawn
   const hue = stageHue(mode, stage);
-  /** A colour of this tile: grey when locked, otherwise in its own hue. */
-  const col = (sat: number, light: number) => (locked ? `hsl(${hue} 6% ${light - 6}%)` : `hsl(${hue} ${sat}% ${light}%)`);
+  const space = mode === "space";
+  /** A colour of this tile: grey when locked, otherwise in its own hue (and darker, like the night sky, in the space chapter). */
+  const col = (sat: number, light: number) =>
+    locked ? `hsl(${hue} 6% ${light - 6}%)` : space ? `hsl(${hue} ${Math.round(sat * 0.7)}% ${Math.round(light * 0.42)}%)` : `hsl(${hue} ${sat}% ${light}%)`;
   const pressed = !locked && ui.pressed === id;
   const dy = pressed ? 4 : 0;
   if (!locked) registerHit(ctx, id, {x, y, w: s, h: s});
 
-  // A glossy tile of glass: a rich colour, a bright hard-edged shine over the top half, a spot of light and a glow along the bottom.
+  // A glossy tile of glass: a rich colour, a bright hard-edged shine over the top half and a glow along the bottom.
   const face = ctx.createLinearGradient(0, y + dy, 0, y + dy + s);
   face.addColorStop(0, col(85, 60));
   face.addColorStop(0.5, col(82, 46));
@@ -436,10 +680,11 @@ function drawTile(
   glow.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(x, y + dy, s, s);
-  // The shine: the top half, with a gently curved lower edge.
+  if (space && !locked) drawNightSky(ctx, x, y + dy, s, stage, hue);
+  // The shine: the top half, with a gently curved lower edge (a softer one on the night sky).
   const shine = ctx.createLinearGradient(0, y + dy, 0, y + dy + s * 0.52);
-  shine.addColorStop(0, locked ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.85)");
-  shine.addColorStop(1, locked ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.22)");
+  shine.addColorStop(0, locked ? "rgba(255,255,255,0.45)" : space ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.85)");
+  shine.addColorStop(1, locked ? "rgba(255,255,255,0.1)" : space ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.22)");
   ctx.fillStyle = shine;
   ctx.beginPath();
   ctx.moveTo(x, y + dy);
@@ -448,16 +693,18 @@ function drawTile(
   ctx.quadraticCurveTo(x + s / 2, y + dy + s * 0.58, x, y + dy + s * 0.4);
   ctx.closePath();
   ctx.fill();
-  // A spot of light in the top left corner.
-  ctx.fillStyle = locked ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.95)";
-  ctx.beginPath();
-  ctx.ellipse(x + s * 0.24, y + dy + s * 0.14, s * 0.11, s * 0.05, -0.5, 0, TAU);
-  ctx.fill();
   ctx.restore();
   ctx.lineWidth = 2;
-  ctx.strokeStyle = cleared ? "#ffd54a" : col(62, 24);
+  ctx.strokeStyle = cleared ? "#ffd54a" : space && !locked ? "#8fd8ff" : col(62, 24);
+  if (space && !locked) {
+    // The edge of a tile of space glows a little.
+    ctx.shadowColor = "rgba(130,210,255,0.85)";
+    ctx.shadowBlur = 8;
+  }
   roundRect(ctx, x, y + dy, s, s, 18 * k);
   ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
   ctx.strokeStyle = locked ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.6)";
   ctx.lineWidth = 1.5;
   roundRect(ctx, x + 2, y + dy + 2, s - 4, s - 4, 16 * k);
@@ -467,7 +714,17 @@ function drawTile(
     drawLock(ctx, x + s / 2, y + dy + s / 2 - 6 * k, k);
     return;
   }
-  text(ctx, String(stage), x + s / 2, y + dy + 38 * k, Math.round(42 * k), "#ffffff", "center", `hsl(${hue} 70% 18%)`);
+  if (space) {
+    ctx.shadowColor = "rgba(150,220,255,0.9)";
+    ctx.shadowBlur = 10;
+  }
+  text(ctx, String(stage), x + s / 2, y + dy + s * 0.55, 42 * 1.05 * k, "#ffffff", "center", space ? "rgba(8,6,40,0.95)" : `hsl(${hue} 70% 18%)`);
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
+  // The points got in the level, as three stars above its number: gold for the ones the points are worth, dark for the rest
+  // (and all dark in a level that has not been cleared).
+  const stars = cleared ? starsFor(mode, stage, score) : 0;
+  for (let i = 0; i < 3; i++) drawStar(ctx, x + s / 2 + (i - 1) * 21 * k, y + dy + s * 0.19, 8.4 * 1.05 * k, i < stars, true, true);
   // One little dot for every cup the level needs.
   const goal = goalFor(mode, stage);
   for (let i = 0; i < goal; i++) {
@@ -480,7 +737,6 @@ function drawTile(
     ctx.fill();
     ctx.stroke();
   }
-  if (cleared) drawCheck(ctx, x + s - 8 * k, y + dy + 8 * k, 13 * k);
 }
 
 // ---- The signs of the chapters ------------------------------------------------------------
@@ -525,22 +781,74 @@ function barPoints(cx: number, cy: number, half: number, thick: number): Pt[] {
 }
 
 /** How wide the sign of a chapter is. */
-function signWidth(mode: "plus" | "mixed" | "times" | "divide"): number {
+function signWidth(mode: ChapterMode): number {
+  if (mode === "space") return 2 * 17 + SIGN_LINE;
   if (mode === "times") return 2 * (SIGN_ARM + SIGN_THICK) * Math.SQRT1_2 + SIGN_LINE;
   return 2 * SIGN_ARM + SIGN_LINE;
 }
 
 /**
- * The sign of a chapter, centred on (cx, cy): see-through, with soft corners and a thin border in the colour (hue) of one of
- * the level tiles.
+ * Fills the shape that is the current path like a glossy tile: the colour is lighter at the top and darker at the bottom (down to
+ * the colour at the bottom of the tile), a soft shine fades out from the top and a bright rim runs just inside the upper edge.
+ * The border is drawn by the caller.
  */
-function drawSign(ctx: CanvasRenderingContext2D, mode: "plus" | "mixed" | "times" | "divide", cx: number, cy: number, hue: number): void {
+function fillGlossy(ctx: CanvasRenderingContext2D, hue: number, night: boolean, x0: number, y0: number, x1: number, y1: number): void {
+  const h = y1 - y0;
+  const body = ctx.createLinearGradient(0, y0, 0, y1);
+  if (night) {
+    body.addColorStop(0, `hsl(${hue} 60% 28%)`);
+    body.addColorStop(0.5, `hsl(${hue} 56% 19%)`);
+    body.addColorStop(1, `hsl(${hue} 55% 15%)`);
+  } else {
+    body.addColorStop(0, `hsl(${hue} 85% 58%)`);
+    body.addColorStop(0.5, `hsl(${hue} 80% 44%)`);
+    body.addColorStop(1, `hsl(${hue} 78% 36%)`);
+  }
+  ctx.fillStyle = body;
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  // Only one thing on top of the colour: a white gloss over the upper part of the shape, cut off by a line that runs from the lower
+  // left up to the upper right (a little below the middle). A shape that is flat or wide gets a flatter line, since it goes by its size.
+  const w = x1 - x0;
+  const slope = (0.5 * h) / w; // (how much the line rises for every step to the right)
+  const edge = (x: number): number => y0 + h * 0.75 - (x - x0) * slope;
+  const gloss = ctx.createLinearGradient(0, y0, 0, y0 + h * 0.75);
+  gloss.addColorStop(0, "rgba(255,255,255,0.85)");
+  gloss.addColorStop(1, "rgba(255,255,255,0.5)");
+  ctx.fillStyle = gloss;
+  // (its own path, so that the path of the shape itself stays the current one: the border the caller draws runs along it)
+  const above = new Path2D();
+  above.moveTo(x0 - 6, edge(x0 - 6));
+  above.lineTo(x1 + 6, edge(x1 + 6));
+  above.lineTo(x1 + 6, y0 - 6);
+  above.lineTo(x0 - 6, y0 - 6);
+  above.closePath();
+  ctx.fill(above);
+  ctx.restore();
+}
+
+/**
+ * The sign of a chapter, centred on (cx, cy): with soft corners, filled with the colour at the bottom of a level tile and
+ * with that tile's dark border (hue is the colour of one of the level tiles).
+ */
+function drawSign(ctx: CanvasRenderingContext2D, mode: ChapterMode, cx: number, cy: number, hue: number): void {
   ctx.save();
   ctx.lineJoin = "round";
   ctx.lineWidth = SIGN_LINE + 0.5;
-  ctx.strokeStyle = `hsl(${hue} 78% 46%)`;
-  const shape = (pts: Pt[]) => {
-    softShape(ctx, pts, SIGN_SOFT);
+  // The colours of level 3 of the chapter: the colour at the bottom of its tile, with its dark border (no white).
+  const night = mode === "space";
+  ctx.fillStyle = night ? `hsl(${hue} 55% 15%)` : `hsl(${hue} 78% 36%)`;
+  ctx.strokeStyle = night ? `hsl(${hue} 43% 10%)` : `hsl(${hue} 62% 24%)`;
+  const border = ctx.strokeStyle;
+  /** A shape made of these points (with this much rounding): glossy, with the dark border round it. */
+  const shape = (pts: Pt[], soft = SIGN_SOFT) => {
+    softShape(ctx, pts, soft);
+    const xs = pts.map((q) => q[0]);
+    const ys = pts.map((q) => q[1]);
+    fillGlossy(ctx, hue, night, Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
+    ctx.strokeStyle = border;
+    ctx.lineWidth = SIGN_LINE + 0.5;
     ctx.stroke();
   };
   if (mode === "plus") {
@@ -551,19 +859,50 @@ function drawSign(ctx: CanvasRenderingContext2D, mode: "plus" | "mixed" | "times
     shape(barPoints(cx, cy + 17, SIGN_ARM, SIGN_THICK));
   } else if (mode === "times") {
     shape(plusPoints(cx, cy, SIGN_ARM, SIGN_THICK, Math.PI / 4));
+  } else if (mode === "space") {
+    // A five-pointed star, with only a little rounding at its points so that it still looks like a star.
+    shape(
+      Array.from({length: 10}, (_, k): Pt => {
+        const ang = (k * Math.PI) / 5 - Math.PI / 2;
+        const rad = k % 2 === 0 ? 18 : 7.6;
+        return [cx + rad * Math.cos(ang), cy + 1 + rad * Math.sin(ang)];
+      }),
+      1.6
+    );
   } else {
     // Divide: a bar with a ring above it and a ring under it.
     shape(barPoints(cx, cy, SIGN_ARM, SIGN_THICK - 1));
     for (const dy of [-13, 13]) {
       ctx.beginPath();
       ctx.arc(cx, cy + dy, 4.5, 0, TAU);
+      fillGlossy(ctx, hue, night, cx - 4.5, cy + dy - 4.5, cx + 4.5, cy + dy + 4.5);
+      ctx.strokeStyle = border;
+      ctx.lineWidth = SIGN_LINE + 0.5;
       ctx.stroke();
     }
   }
   ctx.restore();
 }
 
-function drawLevelsPage(ctx: CanvasRenderingContext2D, b: Book, mode: "plus" | "mixed" | "times" | "divide"): void {
+/**
+ * A line of text with a small gold star in front of it, centred on cx: it says how many stars open something. If it is wider than the
+ * page it is made smaller to fit.
+ */
+function writeWithStar(ctx: CanvasRenderingContext2D, s: string, cx: number, y: number, size: number, color: string): void {
+  const gap = 6;
+  const widthAt = (px: number) => {
+    ctx.font = `600 ${px}px ${FONT}`;
+    return px * 1.1 + gap + ctx.measureText(s).width;
+  };
+  const room = BOOK.w - 28;
+  const fit = Math.min(size, size * (room / widthAt(size)));
+  const r = fit * 0.55;
+  const x0 = cx - widthAt(fit) / 2;
+  drawStar(ctx, x0 + r, y, r, true, true, true);
+  write(ctx, s, x0 + r * 2 + gap, y, fit, color, "left", 600);
+}
+
+function drawLevelsPage(ctx: CanvasRenderingContext2D, b: Book, mode: ChapterMode): void {
   const w = BOOK.w;
   const chapter = chapterOf(mode);
   const info = {
@@ -571,10 +910,15 @@ function drawLevelsPage(ctx: CanvasRenderingContext2D, b: Book, mode: "plus" | "
     mixed: {title: t("ch2"), size: 38, color: "#2c5f8a", sub: t("sub2")},
     times: {title: t("ch3"), size: 46, color: "#2a57b8", sub: t("sub3")},
     divide: {title: t("ch4"), size: 46, color: "#b07a00", sub: t("sub4")},
+    space: {title: t("ch5"), size: 46, color: "#4a3fa0", sub: t("sub5")},
   }[mode];
   write(ctx, t("chapter", {n: chapter}), w / 2, 38, 14, "#8a6d3b", "center", 700);
-  // The name of the chapter, and after it its sign (+, plus and minus, times or divide): see-through with a thin border in
-  // the colour of the chapter's level 3.
+  // The stars got in the chapter, out of all of them, in the top right corner (24 of them open the next chapter).
+  const got = chapterStars(b, mode);
+  write(ctx, `${got}/${CHAPTER_STARS}`, w - 38, 22, 15, "#5b4a36", "right", 700);
+  drawStar(ctx, w - 24, 22, 8.5, true, true, true);
+  // The name of the chapter, and after it its sign (+, plus and minus, times, divide or a star): filled with the
+  // colour of the chapter's level 3 (the bottom of its tile) and its dark border.
   ctx.font = `700 ${info.size}px ${FONT}`;
   const gapW = 12;
   const wordW = ctx.measureText(info.title).width;
@@ -599,14 +943,20 @@ function drawLevelsPage(ctx: CanvasRenderingContext2D, b: Book, mode: "plus" | "
       b.cleared.has(clearedKey(mode, i + 1)),
       b.bestCups.get(clearedKey(mode, i + 1)) ?? 0,
       !isUnlocked(b, mode, i + 1),
-      size
+      size,
+      b.bestScores.get(clearedKey(mode, i + 1)) ?? 0
     );
   }
-  const hint = !isUnlocked(b, mode, 1) ? t("openChapter", {n: chapter - 1}) : t("openNext");
-  write(ctx, hint, w / 2, 497, 15, "#5b4a36", "center", 600);
+  // At the bottom: how many stars open this chapter (if it is shut), or else how many open the next one (the last chapter: the endless game).
+  const hint = !isUnlocked(b, mode, 1)
+    ? t("openChapter", {n: chapter - 1, m: STARS_TO_OPEN})
+    : chapter < CHAPTER_MODES.length
+      ? t("openChapterNext", {n: chapter + 1, m: STARS_TO_OPEN})
+      : t("openEndless", {n: STARS_FOR_ENDLESS});
+  writeWithStar(ctx, hint, w / 2, 497, 15, "#5b4a36");
 }
 
-function drawEndlessPage(ctx: CanvasRenderingContext2D, g: GameState, time: number): void {
+function drawEndlessPage(ctx: CanvasRenderingContext2D, b: Book, g: GameState, time: number): void {
   const w = BOOK.w;
   write(ctx, t("endLabel"), w / 2, 38, 14, "#8a6d3b", "center", 700);
   write(ctx, t("endless"), w / 2, 82, 46, "#a86b10", "center", 700);
@@ -626,9 +976,19 @@ function drawEndlessPage(ctx: CanvasRenderingContext2D, g: GameState, time: numb
   ctx.lineWidth = 2;
   ctx.strokeStyle = "rgba(255,213,74,0.6)";
   ctx.stroke();
-  write(ctx, t("recordLabel"), w / 2, 357, 13, "#e8cf92", "center", 700);
+  // The record, with the name it was made under.
+  const who = playerName();
+  write(ctx, who ? `${t("recordLabel")} \u00B7 ${who}` : t("recordLabel"), w / 2, 357, 13, "#e8cf92", "center", 700);
   text(ctx, String(g.best), w / 2, 382, 30, GOLD);
-  drawButton(ctx, "play:endless:0", {x: w / 2 - 112, y: BOOK.h - 92, w: 224, h: 56}, t("play"), "primary", {pulse: time, size: 24});
+  // The trophy opens the top list.
+  drawButton(ctx, "scores", {x: px + 184 + 10, y: 351, w: 44, h: 44}, "", "round", {draw: drawTrophy});
+  if (isUnlocked(b, "endless", 0)) {
+    drawButton(ctx, "play:endless:0", {x: w / 2 - 112, y: BOOK.h - 92, w: 224, h: 56}, t("play"), "primary", {pulse: time, size: 24});
+  } else {
+    // Endless opens when 120 stars have been got in all the chapters together.
+    drawLock(ctx, w / 2, BOOK.h - 84, 1.1);
+    writeWithStar(ctx, t("openEndless", {n: STARS_FOR_ENDLESS}), w / 2, BOOK.h - 36, 15, "#5b4a36");
+  }
 }
 
 /** The paper of one page, and what is written on it. Drawn at the origin: the caller puts it where it goes. */
@@ -651,17 +1011,31 @@ function paintPage(ctx: CanvasRenderingContext2D, index: number, b: Book, g: Gam
     ctx.lineTo(w, y + 0.5);
     ctx.stroke();
   }
-  // The shade next to the spine.
+  // The shade next to the spine, and the holes the spiral goes through.
   const spine = ctx.createLinearGradient(0, 0, 30, 0);
   spine.addColorStop(0, "rgba(60,40,10,0.3)");
   spine.addColorStop(1, "rgba(60,40,10,0)");
   ctx.fillStyle = spine;
   ctx.fillRect(0, 0, 30, h);
+  for (const hy of SPIRAL_AT) {
+    const hole = ctx.createRadialGradient(HOLE_X, hy - 1.5, 0.5, HOLE_X, hy, HOLE_R);
+    hole.addColorStop(0, "#0e0b07");
+    hole.addColorStop(1, "#3b3022");
+    ctx.fillStyle = hole;
+    ctx.beginPath();
+    ctx.arc(HOLE_X, hy, HOLE_R, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,250,235,0.55)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(HOLE_X, hy, HOLE_R + 0.6, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+  }
 
   const mode = PAGE_MODES[index];
   if (mode === "tutorial") drawTutorialPage(ctx, b, time);
-  else if (mode === "plus" || mode === "mixed" || mode === "times" || mode === "divide") drawLevelsPage(ctx, b, mode);
-  else drawEndlessPage(ctx, g, time);
+  else if (isChapter(mode)) drawLevelsPage(ctx, b, mode);
+  else drawEndlessPage(ctx, b, g, time);
   ctx.restore();
 }
 
@@ -763,10 +1137,10 @@ function drawNav(ctx: CanvasRenderingContext2D, b: Book, time: number): void {
       },
     });
   }
-  // One dot for each page; the one it is on is bright and long.
+  // One dot for each page, in the space between the two buttons (they sit close together now that there are so many pages); the one it is on is bright.
   const here = Math.round(b.pos);
   for (let i = 0; i <= LAST; i++) {
-    const x = W / 2 + (i - LAST / 2) * 18 - 22;
+    const x = (PREV_BUTTON.x + PREV_BUTTON.w + NEXT_BUTTON.x) / 2 + (i - LAST / 2) * 15;
     ctx.fillStyle = i === here ? GOLD : "rgba(243,236,221,0.4)";
     ctx.strokeStyle = "rgba(20,10,4,0.6)";
     ctx.lineWidth = 1.5;
@@ -777,10 +1151,44 @@ function drawNav(ctx: CanvasRenderingContext2D, b: Book, time: number): void {
   }
 }
 
+/** The spiral that holds the booklet together: a wire that comes up over the edge of the cover and goes down into a hole in the pages. */
+function drawSpiral(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  for (const hy of SPIRAL_AT) {
+    const wy = y + hy;
+    const wire = () => {
+      ctx.beginPath();
+      ctx.moveTo(x - 9, wy + 7);
+      ctx.bezierCurveTo(x - 8, wy - 4, x + 5, wy - 8, x + HOLE_X, wy - 0.5);
+    };
+    ctx.lineCap = "round";
+    ctx.lineWidth = 4.6;
+    ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    ctx.save();
+    ctx.translate(1, 2.4);
+    wire();
+    ctx.stroke();
+    ctx.restore();
+    const metal = ctx.createLinearGradient(x - 9, wy - 8, x + 13, wy + 6);
+    metal.addColorStop(0, "#8d949e");
+    metal.addColorStop(0.45, "#f4f6f8");
+    metal.addColorStop(1, "#7b828c");
+    ctx.strokeStyle = metal;
+    wire();
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,0.75)";
+    ctx.save();
+    ctx.translate(0, -1.1);
+    wire();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, time: number): void {
   const {x, y, w, h} = BOOK;
 
-  title(ctx, "PERFECT 10", W / 2, 32, 34);
+  logoTitle(ctx, "PERFECT 10", W / 2, 32, 34);
 
   // The book lying on the table: its shadow, the green leather cover, and the edges of the pages under the top one.
   ctx.fillStyle = "rgba(0,0,0,0.34)";
@@ -816,6 +1224,7 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
     ctx.translate(x, y);
     paintPage(ctx, i + 1, b, g, time);
     ctx.restore();
+    drawSpiral(ctx, x, y);
     drawTurning(ctx, pictureOfPage(i, b, g, time), f, time);
     ui.registering = true;
   } else {
@@ -832,6 +1241,9 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
   rib.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = rib;
   ctx.fillRect(x - 10, y - 8, 16, h + 17);
+
+  // The spiral is in front of the page that lies still; the page that is being turned goes over it.
+  if (!(f > 0.001 && i < LAST)) drawSpiral(ctx, x, y);
 
   drawNav(ctx, b, time);
 }

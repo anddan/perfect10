@@ -1,12 +1,14 @@
 // Draws one frame of the game, in the game's own 360 x 640 coordinates.
-import {CHAIN_LENGTH, CUP_H, DIVE_HOP, H, TARGET, TUTORIAL_STEPS, W} from "../game/constants";
-import {endlessLevel, ghostShow, goalFor} from "../game/engine";
-import type {Cup, GameState, NumberTile} from "../game/types";
+import {CHAIN_LENGTH, COMBO_SECONDS, CUP_H, DIVE_HOP, H, SWEEP_DOWN, TARGET, TUTORIAL_STEPS, W} from "../game/constants";
+import {canContinue, endlessLevel, featureAge, ghostShow, goalFor, starsFor, sweepEdge} from "../game/engine";
+import type {Cup, Feature, GameState, NumberTile} from "../game/types";
 import {type Room, roomOfMode} from "./background";
-import {type Book, chapterOf, drawBook, nextGame, roomOfPage} from "./book";
+import {drawAd} from "./ad";
+import {type Book, chapterOf, drawBook, openNextGame, roomOfPage} from "./book";
 import {
   type Button,
   CHALK,
+  FONT,
   GOLD,
   TAU,
   beginUi,
@@ -15,21 +17,25 @@ import {
   drawButton,
   drawChain,
   drawGhostBack,
+  drawHand,
   drawIce,
-  drawFlag,
   drawPanel,
   drawRibbon,
   drawStar,
   registerHit,
   roundRect,
   signed,
+  softShadow,
   text,
   title,
   ui,
   write,
 } from "./draw";
 import type {Fx} from "./fx";
-import {LANGS, LANG_NAMES, type Key, lang, t} from "./i18n";
+import {GEAR_BUTTON, PAUSE_BUTTON, drawGear, drawPause, drawPauseIcon, drawScores, drawSettings} from "./settings";
+import {deviceId, playerName} from "./profile";
+import {board} from "./scores";
+import {type Key, t} from "./i18n";
 import {BAR, litSegments, segmentLayout} from "./progress";
 import {SLOW_SECONDS} from "../game/constants";
 
@@ -202,55 +208,62 @@ function drawInside(ctx: CanvasRenderingContext2D, c: Cup, level: number): void 
   const ry = (OPEN_RY * rx) / OPEN_RX;
   const cy = OPEN_CY + low * COFFEE_DROP;
   const f = rx / OPEN_RX;
-  const coffee = ctx.createRadialGradient(-6 * f, cy - 1, 1, 0, cy, rx);
-  if (c.dead) {
-    coffee.addColorStop(0, "#4a403d");
-    coffee.addColorStop(1, "#231c1a");
-  } else {
-    coffee.addColorStop(0, "#8a5632");
-    coffee.addColorStop(0.55, "#5b3418");
-    coffee.addColorStop(1, "#2a140a");
-  }
-  ctx.fillStyle = coffee;
-  ctx.beginPath();
-  ctx.ellipse(0, cy, rx, ry, 0, 0, TAU);
-  ctx.fill();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(0, cy, rx, ry, 0, 0, TAU);
-  ctx.clip();
-  // The far wall of the cup shades the coffee: a dark crescent along the back edge.
-  ctx.fillStyle = "rgba(0,0,0,0.42)";
-  ctx.beginPath();
-  ctx.ellipse(0, cy, rx + 1, ry + 1, 0, 0, TAU);
-  ctx.ellipse(0, cy + 3.2, rx + 1, ry + 1, 0, 0, TAU);
-  ctx.fill("evenodd");
-  if (!c.dead) {
-    // A ring of lighter crema close to the edge, and a soft reflection of the window.
-    ctx.strokeStyle = "rgba(205,150,95,0.35)";
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.ellipse(0, cy + 0.6, rx - 3.5, Math.max(0.5, ry - 2), 0, 0, TAU);
-    ctx.stroke();
-    const sheen = ctx.createLinearGradient(-16 * f, cy - 3, 4 * f, cy + 1);
-    sheen.addColorStop(0, "rgba(255,236,205,0)");
-    sheen.addColorStop(0.5, "rgba(255,236,205,0.38)");
-    sheen.addColorStop(1, "rgba(255,236,205,0)");
-    ctx.fillStyle = sheen;
-    ctx.beginPath();
-    ctx.ellipse(-8 * f, cy - 0.5, 13 * f, 2.4, -0.18, 0, TAU);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  // A thin wet line on the wall where the coffee reaches.
-  if (level < 0.97) {
-    ctx.strokeStyle = "rgba(70,40,20,0.45)";
-    ctx.lineWidth = 1;
+  // A cup with 0 in it is empty: no coffee at all (it fades away as the last of it goes).
+  const amount = Math.min(1, level / 0.08);
+  if (amount > 0.01) {
+    ctx.save();
+    ctx.globalAlpha = amount;
+    const coffee = ctx.createRadialGradient(-6 * f, cy - 1, 1, 0, cy, rx);
+    if (c.dead) {
+      coffee.addColorStop(0, "#4a403d");
+      coffee.addColorStop(1, "#231c1a");
+    } else {
+      coffee.addColorStop(0, "#8a5632");
+      coffee.addColorStop(0.55, "#5b3418");
+      coffee.addColorStop(1, "#2a140a");
+    }
+    ctx.fillStyle = coffee;
     ctx.beginPath();
     ctx.ellipse(0, cy, rx, ry, 0, 0, TAU);
-    ctx.stroke();
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(0, cy, rx, ry, 0, 0, TAU);
+    ctx.clip();
+    // The far wall of the cup shades the coffee: a dark crescent along the back edge.
+    ctx.fillStyle = "rgba(0,0,0,0.42)";
+    ctx.beginPath();
+    ctx.ellipse(0, cy, rx + 1, ry + 1, 0, 0, TAU);
+    ctx.ellipse(0, cy + 3.2, rx + 1, ry + 1, 0, 0, TAU);
+    ctx.fill("evenodd");
+    if (!c.dead) {
+      // A ring of lighter crema close to the edge, and a soft reflection of the window.
+      ctx.strokeStyle = "rgba(205,150,95,0.35)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.ellipse(0, cy + 0.6, rx - 3.5, Math.max(0.5, ry - 2), 0, 0, TAU);
+      ctx.stroke();
+      const sheen = ctx.createLinearGradient(-16 * f, cy - 3, 4 * f, cy + 1);
+      sheen.addColorStop(0, "rgba(255,236,205,0)");
+      sheen.addColorStop(0.5, "rgba(255,236,205,0.38)");
+      sheen.addColorStop(1, "rgba(255,236,205,0)");
+      ctx.fillStyle = sheen;
+      ctx.beginPath();
+      ctx.ellipse(-8 * f, cy - 0.5, 13 * f, 2.4, -0.18, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // A thin wet line on the wall where the coffee reaches.
+    if (level < 0.97) {
+      ctx.strokeStyle = "rgba(70,40,20,0.45)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(0, cy, rx, ry, 0, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   if (c.ripple > 0) {
@@ -282,6 +295,32 @@ function drawCupBack(ctx: CanvasRenderingContext2D, c: Cup): void {
   ctx.restore();
 }
 
+/** A big red X on a dead cup (drawn behind its number). */
+function drawDeadX(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  const r = 11;
+  ctx.save();
+  ctx.lineCap = "round";
+  const cross = () => {
+    ctx.beginPath();
+    ctx.moveTo(x - r, y - r);
+    ctx.lineTo(x + r, y + r);
+    ctx.moveTo(x + r, y - r);
+    ctx.lineTo(x - r, y + r);
+  };
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = "rgba(40,6,4,0.85)";
+  cross();
+  ctx.stroke();
+  const red = ctx.createLinearGradient(0, y - r, 0, y + r);
+  red.addColorStop(0, "#ff7a6e");
+  red.addColorStop(1, "#d22a20");
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = red;
+  cross();
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** Everything in front of the numbers: the body and the front lip again (over a number sinking in), and the number on the cup. */
 function drawCupFront(ctx: CanvasRenderingContext2D, c: Cup): void {
   ctx.save();
@@ -294,16 +333,50 @@ function drawCupFront(ctx: CanvasRenderingContext2D, c: Cup): void {
   paintRim(ctx, c);
   ctx.restore();
 
+  // A cup that is held and dragged has a yellow border (round the body and the rim).
+  if (ui.heldCup === c.id) {
+    ctx.save();
+    ctx.lineWidth = 3.5;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#ffd54a";
+    // Only the outside of the cup is outlined, in one line: down the right side, along the bottom, up the left side and over the back
+    // of the rim. Nothing is drawn across the cup (not the front of the rim, and the outline is not closed across the opening).
+    ctx.beginPath();
+    ctx.moveTo(32, -CUP_H + 2);
+    ctx.bezierCurveTo(32, -CUP_H * 0.35, 25, -3, 13, 0);
+    ctx.quadraticCurveTo(0, 5, -13, 0);
+    ctx.bezierCurveTo(-25, -3, -32, -CUP_H * 0.35, -32, -CUP_H + 2);
+    ctx.ellipse(0, -CUP_H + 2, 32, 9, 0, Math.PI, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // The number stands on the cup.
   const showTen = c.showTen > 0 && c.value === 0;
   const ty = -CUP_H * 0.36;
   if (showTen) {
     text(ctx, signed(TARGET * c.tenSign), 0, ty, 26, GOLD);
   } else if (c.dead) {
-    text(ctx, signed(c.value), 0, ty, 24, "#ffd0c8");
+    // A dead cup: the red X behind, and in front what the cup came to (so that it can be seen how far over 10 it went, and learnt from).
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    drawDeadX(ctx, 0, ty);
+    ctx.restore();
+    text(ctx, signed(c.value), 0, ty, 26, "#ffe2dc", "center", "rgba(70,8,4,0.95)");
+  } else if (c.hidden) {
+    // A black number has landed here: the number is hidden behind a dark mist, so it has to be counted in the head.
+    const mist = ctx.createRadialGradient(0, ty, 1, 0, ty, 17);
+    mist.addColorStop(0, "rgba(25,22,32,0.92)");
+    mist.addColorStop(0.65, "rgba(25,22,32,0.6)");
+    mist.addColorStop(1, "rgba(25,22,32,0)");
+    ctx.fillStyle = mist;
+    ctx.beginPath();
+    ctx.arc(0, ty, 17, 0, TAU);
+    ctx.fill();
+    text(ctx, "?", 0, ty, 22, "#cfc8dc", "center", "rgba(10,8,16,0.9)");
   } else {
-    // A minus cup is written in red, so it can be told from a plus cup at a glance.
-    const ink = c.value === 0 ? "rgba(70,48,30,0.45)" : c.value < 0 ? "#9c1d15" : "#3b2414";
+    // A minus cup is written in red and a plus cup in green, so they can be told apart at a glance.
+    const ink = c.value === 0 ? "rgba(70,48,30,0.45)" : c.value < 0 ? "#9c1d15" : "#16783a";
     text(ctx, signed(c.value), 0, ty, 24, ink, "center", "rgba(255,250,238,0.75)");
   }
 
@@ -317,11 +390,15 @@ function drawCupFront(ctx: CanvasRenderingContext2D, c: Cup): void {
 
 // ---- Numbers --------------------------------------------------------------------------
 
+/** How much bigger the falling numbers are drawn than the balls of the book and the presentations (all kinds of them: plain, ghost, ice, steel and bonus balls). */
+const NUMBER_SIZE = 1.265;
+
 /** A falling number: a ball that bobs as it drifts, and leans to one side when it has been tapped. */
 function drawNumber(ctx: CanvasRenderingContext2D, n: NumberTile, time: number): void {
   const bob = n.state === "fall" ? Math.sin(time * 2.4 + n.phase) * 2 : 0;
   ctx.save();
   ctx.translate(n.x + bob, n.y);
+  ctx.scale(NUMBER_SIZE, NUMBER_SIZE);
   // A tapped number leans to one side as it hops (all the way over when it is at the top of the hop).
   if (n.state === "dive") ctx.rotate(n.tilt * TILT * Math.min(1, Math.max(0, (n.speed + DIVE_HOP) / DIVE_HOP)));
   if (n.bonus) {
@@ -352,6 +429,12 @@ function drawChains(ctx: CanvasRenderingContext2D, g: GameState): void {
     const m = g.numbers.find((o) => o.id === n.chain);
     if (m) drawChain(ctx, n.x, n.y, m.x, m.y, CHAIN_LENGTH, g.time);
   }
+  // The second link of a chain of three (from the middle number to the last one).
+  for (const n of g.numbers) {
+    if (n.chain2 === null) continue;
+    const m = g.numbers.find((o) => o.id === n.chain2);
+    if (m) drawChain(ctx, n.x, n.y, m.x, m.y, CHAIN_LENGTH, g.time);
+  }
 }
 
 // ---- Screen furniture -----------------------------------------------------------------
@@ -359,127 +442,22 @@ function drawChains(ctx: CanvasRenderingContext2D, g: GameState): void {
 /** How long (seconds) after a round ends before its buttons work, so a late tap does not skip the screen. */
 export const BUTTON_DELAY = 0.8;
 
-const MUTE: Button = {x: 310, y: 10, w: 38, h: 38};
-const MENU: Button = {x: 266, y: 10, w: 38, h: 38};
-const LANG: Button = {x: 10, y: 10, w: 68, h: 38};
 const AGAIN: Button = {x: 70, y: 334, w: 220, h: 54};
 const TO_BOOK: Button = {x: 70, y: 398, w: 220, h: 46};
+/** How much lower the buttons are on the card when it has a pull-down screen to show. */
+const REWARD_ROOM = 64;
+/** The extra button of a lost round (carry on after an ad): its place, and how much taller the card gets. */
+const CONTINUE: Button = {x: 60, y: 334, w: 240, h: 54};
+const CONTINUE_ROOM = 62;
+const INTRO_OK: Button = {x: 70, y: 452, w: 220, h: 50};
+const INTRO_NEVER: Button = {x: 70, y: 510, w: 220, h: 36};
 
-function speaker(ctx: CanvasRenderingContext2D, cx: number, cy: number, ink: string, muted: boolean): void {
-  ctx.fillStyle = ink;
-  ctx.beginPath();
-  ctx.moveTo(cx - 9, cy - 3.5);
-  ctx.lineTo(cx - 4, cy - 3.5);
-  ctx.lineTo(cx + 2, cy - 9);
-  ctx.lineTo(cx + 2, cy + 9);
-  ctx.lineTo(cx - 4, cy + 3.5);
-  ctx.lineTo(cx - 9, cy + 3.5);
-  ctx.closePath();
-  ctx.fill();
-  ctx.lineCap = "round";
-  ctx.lineWidth = 2.4;
-  if (muted) {
-    ctx.strokeStyle = "#ff8a80";
-    ctx.beginPath();
-    ctx.moveTo(cx + 6, cy - 5);
-    ctx.lineTo(cx + 13, cy + 5);
-    ctx.moveTo(cx + 13, cy - 5);
-    ctx.lineTo(cx + 6, cy + 5);
-    ctx.stroke();
-  } else {
-    ctx.strokeStyle = ink;
-    ctx.beginPath();
-    ctx.arc(cx + 3, cy, 5.5, -0.9, 0.9);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx + 3, cy, 10, -0.9, 0.9);
-    ctx.stroke();
-  }
-}
-
-function hamburger(ctx: CanvasRenderingContext2D, cx: number, cy: number, ink: string): void {
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
-  for (const dy of [-6, 0, 6]) {
-    ctx.beginPath();
-    ctx.moveTo(cx - 8, cy + dy);
-    ctx.lineTo(cx + 8, cy + dy);
-    ctx.stroke();
-  }
-}
 
 /** The sound button (always), and the one that leaves a round and goes back to the book (during a round). */
-function drawTopButtons(ctx: CanvasRenderingContext2D, g: GameState, muted: boolean): void {
-  drawButton(ctx, "mute", MUTE, "", "round", {draw: (c, cx, cy, ink) => speaker(c, cx, cy, ink, muted)});
-  if (g.phase === "play") drawButton(ctx, "menu", MENU, "", "round", {draw: hamburger});
-  // In the book: the language button shows the flag of the language that is on, and opens a list of them.
-  if (g.phase === "menu") {
-    drawButton(ctx, "lang", LANG, "", "round", {
-      draw: (c, cx, cy, ink) => {
-        drawFlag(c, lang(), cx - 25, cy - 10, 30, 20);
-        // An arrow that points down, and up when the list is open.
-        const d = ui.langOpen ? -1 : 1;
-        c.fillStyle = ink;
-        c.beginPath();
-        c.moveTo(cx + 12, cy - 3 * d);
-        c.lineTo(cx + 24, cy - 3 * d);
-        c.lineTo(cx + 18, cy + 4 * d);
-        c.closePath();
-        c.fill();
-      },
-    });
-    if (ui.langOpen) drawLangMenu(ctx, g);
-  } else {
-    ui.langOpen = false;
-  }
-}
-
-const LIST = {x: 10, y: 54, w: 184, pad: 8, rowH: 42, gap: 4};
-
-/** The list of languages that slides down from the language button: a flag and the name of each. */
-function drawLangMenu(ctx: CanvasRenderingContext2D, g: GameState): void {
-  const n = LANGS.length;
-  const h = LIST.pad * 2 + n * LIST.rowH + (n - 1) * LIST.gap;
-  const k = Math.min(1, Math.max(0, (g.time - ui.langAt) / 0.18));
-  const ease = 1 - Math.pow(1 - k, 3);
-  // A tap anywhere else closes it.
-  registerHit(ctx, "langClose", {x: 0, y: 0, w: W, h: H});
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, LIST.y - 4, W, h * ease + 14);
-  ctx.clip();
-  ctx.translate(0, -(1 - ease) * (h + 8));
-  drawPanel(ctx, LIST.x, LIST.y, LIST.w, h, 16);
-  LANGS.forEach((l, i) => {
-    const row = {x: LIST.x + LIST.pad, y: LIST.y + LIST.pad + i * (LIST.rowH + LIST.gap), w: LIST.w - LIST.pad * 2, h: LIST.rowH};
-    const id = `lang:${l}`;
-    registerHit(ctx, id, row);
-    const current = l === lang();
-    const pressed = ui.pressed === id;
-    if (current || pressed) {
-      ctx.fillStyle = pressed ? "rgba(255,255,255,0.16)" : "rgba(255,213,74,0.2)";
-      roundRect(ctx, row.x, row.y, row.w, row.h, 12);
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = current ? "rgba(255,213,74,0.8)" : "rgba(255,255,255,0.3)";
-      ctx.stroke();
-    }
-    drawFlag(ctx, l, row.x + 10, row.y + row.h / 2 - 11, 32, 22);
-    text(ctx, LANG_NAMES[l], row.x + 54, row.y + row.h / 2 + 1, 17, CHALK, "left");
-    if (current) {
-      ctx.strokeStyle = GOLD;
-      ctx.lineWidth = 3;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      ctx.moveTo(row.x + row.w - 26, row.y + row.h / 2);
-      ctx.lineTo(row.x + row.w - 20, row.y + row.h / 2 + 6);
-      ctx.lineTo(row.x + row.w - 10, row.y + row.h / 2 - 6);
-      ctx.stroke();
-    }
-  });
-  ctx.restore();
+function drawTopButtons(ctx: CanvasRenderingContext2D, g: GameState): void {
+  // In a round the pause button is in the corner (with Resume, the sound and Quit); everywhere else it is the gear that opens the settings.
+  if (g.phase === "play") drawButton(ctx, "pause", PAUSE_BUTTON, "", "round", {draw: drawPauseIcon});
+  else drawButton(ctx, "settings", GEAR_BUTTON, "", "round", {draw: drawGear});
 }
 
 /** A row of dots, the first `filled` of them gold. */
@@ -533,6 +511,20 @@ function drawHud(ctx: CanvasRenderingContext2D, g: GameState): void {
   drawPanel(ctx, 10, 10, 136, 46, 14);
   write(ctx, t("score"), 24, 24, 11, "#cdbfa6", "left", 700);
   text(ctx, String(g.score), 24, 42, 22, CHALK, "left");
+  // The combo: how many perfect 10s in a row, and a bar that runs down (the time left to make the next one).
+  if (g.combo >= 1 && g.comboTimer > 0) {
+    const k = g.comboTimer / COMBO_SECONDS;
+    const hot = g.combo >= 2;
+    drawPanel(ctx, 152, 10, 104, 46, 14);
+    write(ctx, t("combo"), 164, 24, 11, hot ? "#ffd98a" : "#cdbfa6", "left", 700);
+    text(ctx, `\u00D7${g.combo}`, 164, 42, hot ? 22 + Math.min(8, g.combo * 2) : 20, hot ? GOLD : CHALK, "left");
+    ctx.fillStyle = "rgba(255,255,255,0.14)";
+    roundRect(ctx, 204, 36, 44, 8, 4);
+    ctx.fill();
+    ctx.fillStyle = k > 0.35 ? "#ffd54a" : "#ff8a4a";
+    roundRect(ctx, 204, 36, Math.max(6, 44 * k), 8, 4);
+    ctx.fill();
+  }
 }
 
 /** A pulsing ring that shows what to touch in the tutorial. */
@@ -551,7 +543,7 @@ function drawHints(ctx: CanvasRenderingContext2D, g: GameState): void {
     ctx.stroke();
   };
   if (g.tutorialStep <= 2) {
-    for (const n of g.numbers) if (n.state === "fall" && n.y > 0) ring(n.x, n.y, 27, 27);
+    for (const n of g.numbers) if (n.state === "fall" && n.y > 0) ring(n.x, n.y, 27 * NUMBER_SIZE, 27 * NUMBER_SIZE);
   } else if (g.tutorialStep === 3) {
     const dead = g.cups.find((c) => c.dead);
     if (dead) ring(dead.x, dead.y - 4, 46, 40);
@@ -575,8 +567,36 @@ function drawBanner(ctx: CanvasRenderingContext2D, g: GameState): void {
   ctx.globalAlpha = 1;
 }
 
+/**
+ * The prize on the card of a level that was cleared with three stars: the ring of the pull-down screen with its number on it
+ * (how many there are now) that pops in after the stars, with a glow that pulses round it, and a line that says what it is.
+ */
+function drawScreenReward(ctx: CanvasRenderingContext2D, g: GameState, y: number): void {
+  const u = Math.min(1, Math.max(0, (g.overTimer - 1.0) / 0.45));
+  if (u <= 0) return;
+  // It overshoots a little, then settles.
+  const pop = 1 + 2.2 * Math.pow(u - 1, 3) + 1.2 * Math.pow(u - 1, 2);
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, u * 2);
+  ctx.translate(W / 2, y);
+  ctx.scale(pop, pop);
+  const pulse = 0.5 + 0.5 * Math.sin(g.overTimer * 5);
+  const glow = ctx.createRadialGradient(0, 0, 8, 0, 0, 90);
+  glow.addColorStop(0, `rgba(255,226,120,${0.3 + 0.2 * pulse})`);
+  glow.addColorStop(1, "rgba(255,226,120,0)");
+  ctx.fillStyle = glow;
+  // (squeezed to an ellipse that is about 50 high: the light has faded out completely where it ends, so there is no straight edge)
+  ctx.save();
+  ctx.scale(1, 0.55);
+  ctx.fillRect(-100, -91, 200, 182);
+  ctx.restore();
+  drawScreenRing(ctx, 0, -6, g.screens, 21);
+  write(ctx, t("screenEarnedNote"), 0, 28, 12, "#e8dcc2", "center", 600);
+  ctx.restore();
+}
+
 /** The card after a round: a ribbon on top, what happened, and the buttons. */
-function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number): void {
+function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number, book: Book): void {
   const won = g.phase === "won";
   ctx.fillStyle = "rgba(8,6,14,0.62)";
   ctx.fillRect(0, 0, W, H);
@@ -589,19 +609,24 @@ function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number): vo
   ctx.translate(-W / 2, -290);
   ctx.globalAlpha = ease;
 
-  drawPanel(ctx, 30, 116, 300, 346, 24);
+  const reward = won && g.screenWon;
+  // A lost round can be carried on after an ad: one more button above the others.
+  const carryOn = !won && canContinue(g);
+  const room = reward ? REWARD_ROOM : carryOn ? CONTINUE_ROOM : 0;
+  drawPanel(ctx, 30, 116, 300, 346 + room, 24);
   if (won) drawRibbon(ctx, W / 2, 86, 210, t(g.mode === "tutorial" ? "doneTutorial" : "cleared"), "#ffe27a", "#d49a14");
   else drawRibbon(ctx, W / 2, 86, 230, t("gameOver"), "#ff8f86", "#c23b30");
 
   if (won) {
-    // Three stars that pop in one after the other.
+    // Three stars that pop in one after the other: the ones the points are worth are gold, the rest are dark.
+    const stars = g.mode === "tutorial" ? 3 : starsFor(g.mode, g.stage, g.score);
     for (let i = 0; i < 3; i++) {
       const t = Math.min(1, Math.max(0, (g.overTimer - 0.25 - i * 0.16) / 0.25));
       const s = t < 1 ? 1.35 - 0.35 * t : 1;
       ctx.save();
       ctx.translate(W / 2 + (i - 1) * 62, 186 - (i === 1 ? 10 : 0));
       ctx.scale(s * t, s * t);
-      drawStar(ctx, 0, 0, i === 1 ? 28 : 23, true);
+      drawStar(ctx, 0, 0, i === 1 ? 28 : 23, i < stars, true, true);
       ctx.restore();
     }
     const line = g.mode === "tutorial" ? t("knowBasics") : t("cupsFilled", {n: goalFor(g.mode, g.stage)});
@@ -626,17 +651,350 @@ function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number): vo
   const ready = g.overTimer > BUTTON_DELAY;
   let again = t("retry");
   if (won) {
-    const next = nextGame(g.mode, g.stage);
+    // (the next chapter is shut until 24 of the stars of this one have been got: then the level is played again)
+    const next = openNextGame(book, g.mode, g.stage);
     again = !next
       ? t("playAgain")
       : next.mode === g.mode
-        ? t("nextLevel")
+        ? t("nextLevel", {n: next.stage})
         : next.mode === "endless"
           ? t("toEndless")
           : t("toChapter", {n: chapterOf(next.mode)});
   }
-  drawButton(ctx, "again", AGAIN, again, "primary", {alpha: ready ? 1 : 0.4, pulse: ready ? time : undefined, size: 22});
-  drawButton(ctx, "toBook", TO_BOOK, t("toBook"), "secondary", {alpha: ready ? 1 : 0.4, size: 18});
+  if (reward) drawScreenReward(ctx, g, 346);
+  if (carryOn) drawButton(ctx, "continueAd", {...CONTINUE, y: AGAIN.y}, t("continueAd"), "green", {alpha: ready ? 1 : 0.4, pulse: ready ? time : undefined, size: 17});
+  drawButton(ctx, "again", {...AGAIN, y: AGAIN.y + room}, again, "primary", {alpha: ready ? 1 : 0.4, pulse: ready && !carryOn ? time : undefined, size: 22});
+  drawButton(ctx, "toBook", {...TO_BOOK, y: TO_BOOK.y + room}, t("toBook"), "secondary", {alpha: ready ? 1 : 0.4, size: 18});
+  ctx.restore();
+}
+
+// ---- Presenting a new kind of number --------------------------------------------------
+
+/** The words of each new kind of number: its name and what it does. */
+const FEATURE_TEXT: Record<Feature, {title: Key; body: Key}> = {
+  screen: {title: "fScreenT", body: "fScreenD"},
+  cups: {title: "fCupsT", body: "fCupsD"},
+  zero: {title: "fZeroT", body: "fZeroD"},
+  fog: {title: "fFogT", body: "fFogD"},
+  star: {title: "fStarT", body: "fStarD"},
+  steel: {title: "fSteelT", body: "fSteelD"},
+  chain3: {title: "fChain3T", body: "fChain3D"},
+  points: {title: "fPointsT", body: "fPointsD"},
+  life: {title: "fLifeT", body: "fLifeD"},
+  slow: {title: "fSlowT", body: "fSlowD"},
+  chain: {title: "fChainT", body: "fChainD"},
+  ice: {title: "fIceT", body: "fIceD"},
+  ghost: {title: "fGhostT", body: "fGhostD"},
+};
+
+/** A number to show in the presentation (not part of the game). */
+function demoTile(v: number, extra: Partial<NumberTile> = {}): NumberTile {
+  return {
+    id: 0,
+    col: 0,
+    x: 0,
+    y: 0,
+    prevY: 0,
+    v,
+    op: "add",
+    bonus: null,
+    chain: null,
+    chain2: null,
+    ghost: null,
+    ice: 0,
+    state: "fall",
+    target: null,
+    aim: 0,
+    speed: 0,
+    hang: null,
+    tilt: 0,
+    phase: 0,
+    scale: 1,
+    done: false,
+    ...extra,
+  };
+}
+
+/**
+ * The hand of the tutorial, over everything: it taps the numbers that are to be tapped, and drags the dead cup aside
+ * (with an arrow that shows which way).
+ */
+function drawTutorialHand(ctx: CanvasRenderingContext2D, g: GameState): void {
+  if (g.mode !== "tutorial" || g.phase !== "play" || g.tutorialNote) return;
+  if (g.tutorialStep <= 2) {
+    // A tap now and then: the hand comes up under the number, presses, and lets go.
+    const u = (g.time * 1.1) % 1;
+    const press = u < 0.25 ? u / 0.25 : u < 0.5 ? 1 : Math.max(0, 1 - (u - 0.5) / 0.25);
+    for (const n of g.numbers) {
+      if (n.state !== "fall" || n.y <= 0) continue;
+      drawHand(ctx, n.x + 3, n.y + 6 + (1 - press) * 16, press, 0.95);
+    }
+  } else if (g.tutorialStep === 3) {
+    const dead = g.cups.find((c) => c.dead);
+    if (!dead) return;
+    // The hand takes hold of the cup, pulls it one place to the side, lets go, and starts over.
+    const dir = dead.x < W / 2 ? 1 : -1;
+    const dist = 90 * dir;
+    const u = (g.time * 0.5) % 1;
+    const hold = u < 0.15 ? u / 0.15 : u < 0.8 ? 1 : Math.max(0, 1 - (u - 0.8) / 0.1);
+    const move = u < 0.2 ? 0 : u < 0.75 ? (1 - Math.cos(((u - 0.2) / 0.55) * Math.PI)) / 2 : 1;
+    const y = dead.y - 18;
+    // An arrow along the way.
+    ctx.save();
+    ctx.globalAlpha = 0.85 * (u > 0.88 ? 1 - (u - 0.88) / 0.12 : 1);
+    ctx.strokeStyle = "rgba(255,236,150,0.95)";
+    ctx.fillStyle = "rgba(255,236,150,0.95)";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.setLineDash([2, 9]);
+    ctx.beginPath();
+    ctx.moveTo(dead.x, y - 48);
+    ctx.lineTo(dead.x + dist - dir * 14, y - 48);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(dead.x + dist, y - 48);
+    ctx.lineTo(dead.x + dist - dir * 15, y - 57);
+    ctx.lineTo(dead.x + dist - dir * 15, y - 39);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = u > 0.9 ? 1 - (u - 0.9) / 0.1 : 1;
+    drawHand(ctx, dead.x + dist * move, y + (1 - hold) * 14, hold, 1);
+    ctx.restore();
+  }
+}
+
+// ---- The pull-down screen -------------------------------------------------------------
+
+/** The cloth of the screen with a roller above it and a bar under it (x, y is the upper left corner of the cloth). */
+function drawScreenCloth(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  const cloth = ctx.createLinearGradient(0, y, 0, y + h);
+  cloth.addColorStop(0, "#f6f1e3");
+  cloth.addColorStop(1, "#e4dcc6");
+  ctx.fillStyle = cloth;
+  ctx.fillRect(x, y, w, h);
+  // A fine weave in the cloth, and a soft light from the projector.
+  ctx.strokeStyle = "rgba(120,100,70,0.07)";
+  ctx.lineWidth = 1;
+  for (let wy = y + 6; wy < y + h; wy += 6) {
+    ctx.beginPath();
+    ctx.moveTo(x, wy);
+    ctx.lineTo(x + w, wy);
+    ctx.stroke();
+  }
+  const light = ctx.createRadialGradient(x + w / 2, y + h * 0.4, 4, x + w / 2, y + h * 0.4, w * 0.7);
+  light.addColorStop(0, "rgba(255,255,240,0.5)");
+  light.addColorStop(1, "rgba(255,255,240,0)");
+  ctx.fillStyle = light;
+  ctx.fillRect(x, y, w, h);
+  // The shadow under the roller.
+  const shade = ctx.createLinearGradient(0, y, 0, y + 14);
+  shade.addColorStop(0, "rgba(0,0,0,0.28)");
+  shade.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(x, y, w, 14);
+  // The roller (a dark metal tube) above, and the bar under, with a cord that hangs from it.
+  const tube = ctx.createLinearGradient(0, y - 12, 0, y);
+  tube.addColorStop(0, "#5c6470");
+  tube.addColorStop(0.5, "#a9b0ba");
+  tube.addColorStop(1, "#4a515c");
+  ctx.fillStyle = tube;
+  ctx.fillRect(x - 5, y - 12, w + 10, 12);
+  const bar = ctx.createLinearGradient(0, y + h, 0, y + h + 8);
+  bar.addColorStop(0, "#8a6a44");
+  bar.addColorStop(1, "#4d3822");
+  ctx.fillStyle = bar;
+  ctx.fillRect(x - 2, y + h, w + 4, 8);
+  ctx.strokeStyle = "#3a2c1c";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + w / 2, y + h + 8);
+  ctx.lineTo(x + w / 2, y + h + 20);
+  ctx.stroke();
+  ctx.fillStyle = "#d9b36c";
+  ctx.strokeStyle = "#6a4a18";
+  ctx.beginPath();
+  ctx.arc(x + w / 2, y + h + 25, 5, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+}
+
+/** The screen as it comes down over the numbers (and rolls up again), over everything that is in the air. */
+function drawSweep(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const edge = sweepEdge(g);
+  if (edge <= 1) return;
+  drawScreenCloth(ctx, 10, 0, W - 20, edge);
+}
+
+/** The gold ring with the number of screens on it (the handle of the cord, and the prize on the card). */
+function drawScreenRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, count: number, r = 15): void {
+  const k = r / 15;
+  const ring = ctx.createLinearGradient(0, cy - r, 0, cy + r);
+  ring.addColorStop(0, "#f1cf86");
+  ring.addColorStop(1, "#a97a2c");
+  softShadow(ctx, cx - r, cy - r + 1, r * 2, r * 2, r, 4, 0.35);
+  ctx.fillStyle = ring;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, TAU);
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#5e4010";
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.beginPath();
+  ctx.ellipse(cx - 4 * k, cy - 6 * k, 6 * k, 3 * k, -0.5, 0, TAU);
+  ctx.fill();
+  text(ctx, String(count), cx, cy + 1, Math.round(17 * k), "#fff6d6", "center", "#4d3510");
+}
+
+const SCREEN_HANDLE: Button = {x: 306, y: 68, w: 48, h: 58};
+
+/** The cord with the ring on it, at the top of the screen (tap it to pull the screen down): how many screens there are is on the ring. */
+function drawScreenHandle(ctx: CanvasRenderingContext2D, g: GameState, time: number): void {
+  if (g.mode === "tutorial" || g.phase !== "play" || featureAge(g, "screen") < 0) return;
+  const ready = g.screens > 0 && g.sweep < 0;
+  const pulled = g.sweep >= 0 ? 18 * Math.min(1, g.sweep / SWEEP_DOWN) : 0;
+  const hx = 330;
+  const hy = 98 + pulled + (ready ? Math.sin(time * 3) * 1.5 : 0);
+  if (ready) registerHit(ctx, "screen", SCREEN_HANDLE);
+  ctx.save();
+  ctx.globalAlpha = g.screens > 0 ? 1 : 0.45;
+  ctx.strokeStyle = "#e8dcc2";
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(hx, 52);
+  ctx.lineTo(hx, hy - 15);
+  ctx.stroke();
+  drawScreenRing(ctx, hx, hy + (ui.pressed === "screen" ? 2 : 0), g.screens);
+  ctx.restore();
+}
+
+/** The picture of a new kind of number, big, in the middle of the presentation (cx, cy is where its middle is). */
+function drawFeatureArt(ctx: CanvasRenderingContext2D, f: Feature, cx: number, cy: number, time: number): void {
+  const ball = (x: number, y: number, k: number, tile: NumberTile) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(k, k);
+    drawNumber(ctx, tile, time);
+    ctx.restore();
+  };
+  if (f === "points" || f === "life" || f === "slow" || f === "star") {
+    ball(cx, cy, 2.3, demoTile(0, {bonus: f}));
+  } else if (f === "steel") {
+    ball(cx, cy, 2.3, demoTile(2, {op: "steel"}));
+  } else if (f === "chain3") {
+    // Three numbers on a chain.
+    const xs = [cx - 76, cx, cx + 76];
+    drawChain(ctx, xs[0], cy, xs[1], cy + Math.sin(time * 2) * 2, CHAIN_LENGTH, time);
+    drawChain(ctx, xs[1], cy + Math.sin(time * 2) * 2, xs[2], cy, CHAIN_LENGTH, time);
+    ball(xs[0], cy, 1.4, demoTile(3, {phase: 0}));
+    ball(xs[1], cy, 1.4, demoTile(5, {phase: 2}));
+    ball(xs[2], cy, 1.4, demoTile(2, {phase: 4}));
+  } else if (f === "screen") {
+    // A pull-down screen: the roller at the top, the cloth with a few numbers fading on it, the bar and the cord with its ring.
+    ctx.save();
+    ctx.translate(cx, cy);
+    drawScreenCloth(ctx, -90, -44, 180, 72);
+    for (const [dx, dy, v] of [[-52, -12, 3], [-6, 2, 7], [46, -16, 5]] as const) {
+      ctx.globalAlpha = 0.55;
+      ctx.save();
+      ctx.translate(dx, dy);
+      ctx.scale(0.8, 0.8);
+      drawBall(ctx, 0, 0, v, 1, time, 0, "add");
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  } else if (f === "cups") {
+    // Four little cups in a row.
+    ctx.save();
+    ctx.translate(cx, cy + 4);
+    ctx.scale(0.62, 0.62);
+    const demo: Cup[] = [3, 6, 1, 4].map((value, i) => ({
+      id: -1 - i,
+      x: (i - 1.5) * 84,
+      y: 0,
+      value,
+      dead: false,
+      bump: 0,
+      ripple: 0,
+      showTen: 0,
+      tenSign: 1,
+      flash: 0,
+      hidden: false,
+      seed: i * 2.3,
+    }));
+    for (const c of demo) drawCupBack(ctx, c);
+    for (const c of demo) drawCupFront(ctx, c);
+    ctx.restore();
+  } else if (f === "zero") {
+    ball(cx, cy, 2.3, demoTile(0, {op: "zero"}));
+  } else if (f === "fog") {
+    ball(cx, cy, 2.3, demoTile(4, {op: "dim"}));
+  } else if (f === "chain") {
+    // Two numbers on a chain that sways a little.
+    const ax = cx - 46;
+    const bx = cx + 46;
+    drawChain(ctx, ax, cy, bx, cy + Math.sin(time * 2) * 3, CHAIN_LENGTH, time);
+    ball(ax, cy, 1.6, demoTile(3, {phase: 0}));
+    ball(bx, cy, 1.6, demoTile(4, {phase: 2}));
+  } else if (f === "ice") {
+    // The ice is whole, and then cracked, and then whole again.
+    ball(cx, cy, 2.3, demoTile(5, {ice: Math.floor(time / 1.3) % 2 === 0 ? 2 : 1}));
+  } else {
+    ball(cx, cy, 2.3, demoTile(7, {ghost: "flip"}));
+  }
+}
+
+/** Breaks a text into lines that are at most `maxW` wide. The font has to be set already. */
+function wrapText(ctx: CanvasRenderingContext2D, s: string, maxW: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of s.split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxW) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/** A new kind of number is presented: its picture, what it does, and two buttons (go on, or go on and never show it again). */
+function drawIntro(ctx: CanvasRenderingContext2D, g: GameState, time: number): void {
+  const f = g.intro[0];
+  if (!f) return;
+  ctx.fillStyle = "rgba(8,6,14,0.66)";
+  ctx.fillRect(0, 0, W, H);
+  const pop = Math.min(1, g.overTimer / 0.28);
+  const ease = 1 - Math.pow(1 - pop, 3);
+  ctx.save();
+  ctx.translate(W / 2, 330);
+  ctx.scale(0.86 + 0.14 * ease, 0.86 + 0.14 * ease);
+  ctx.translate(-W / 2, -330);
+  ctx.globalAlpha = ease;
+
+  drawPanel(ctx, 30, 106, 300, 450, 24);
+  drawRibbon(ctx, W / 2, 76, 190, t("introNew"), "#ffe27a", "#d49a14");
+  text(ctx, t(FEATURE_TEXT[f].title), W / 2, 172, 24, CHALK);
+  // The picture on a darker plate, so it stands out.
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  roundRect(ctx, 56, 196, 248, 100, 18);
+  ctx.fill();
+  drawFeatureArt(ctx, f, W / 2, 246, time);
+  // What it does.
+  ctx.font = `600 15px ${FONT}`;
+  const lines = wrapText(ctx, t(FEATURE_TEXT[f].body), 250);
+  lines.forEach((line, i) => write(ctx, line, W / 2, 322 + i * 21, 15, "#e8dcc2", "center", 600));
+
+  const ready = g.overTimer > BUTTON_DELAY;
+  drawButton(ctx, "introOk", INTRO_OK, t("introOk"), "primary", {alpha: ready ? 1 : 0.4, pulse: ready ? time : undefined, size: 22});
+  drawButton(ctx, "introNever", INTRO_NEVER, t("introNever"), "secondary", {alpha: ready ? 1 : 0.4, size: 15});
   ctx.restore();
 }
 
@@ -785,6 +1143,8 @@ export function drawGame(
   fx: Fx,
   rooms: Record<Room, HTMLCanvasElement>,
   muted: boolean,
+  music: boolean,
+  volume: number,
   book: Book,
   fade: number
 ): void {
@@ -806,8 +1166,12 @@ export function drawGame(
     fx.drawSteam(ctx);
     drawChains(ctx, g);
     for (const n of g.numbers) drawNumber(ctx, n, g.time);
+    // The cord with the ring is under the screen: when the screen comes down it covers it.
+    drawScreenHandle(ctx, g, g.time);
+    drawSweep(ctx, g);
     drawHints(ctx, g);
     for (const c of cups) drawCupFront(ctx, c);
+    drawTutorialHand(ctx, g);
     fx.drawTop(ctx);
     ctx.restore();
 
@@ -815,11 +1179,18 @@ export function drawGame(
     drawProgress(ctx, g, fx);
     fx.drawFlyers(ctx);
     if (g.phase === "play" && g.slow > 0) drawSlow(ctx, g);
-    if (g.phase === "play") drawHud(ctx, g);
+    if (g.phase === "play" || (g.phase === "won" && g.overTimer < 0)) drawHud(ctx, g);
     drawBanner(ctx, g);
-    if (g.phase === "over" || g.phase === "won") drawCard(ctx, g, g.time);
+    if (g.phase === "intro") drawIntro(ctx, g, g.time);
+    if ((g.phase === "over" || g.phase === "won") && g.overTimer >= 0) drawCard(ctx, g, g.time, book);
+    fx.drawCelebration(ctx);
   }
-  drawTopButtons(ctx, g, muted);
+  drawTopButtons(ctx, g);
+
+  if (ui.pauseOpen) drawPause(ctx, muted, music, g.time);
+  if (ui.settingsOpen) drawSettings(ctx, {muted, music, volume, unlockAll: book.unlockAll, name: playerName(), hiddenIntros: g.hideIntros.size > 0}, g.time);
+  if (ui.scoresOpen) drawScores(ctx, board, deviceId(), g.time);
+  if (ui.adOpen) drawAd(ctx, g.time, ui.adTime);
 
   if (fade > 0.001) {
     ctx.fillStyle = `rgba(10,6,16,${Math.min(1, fade)})`;

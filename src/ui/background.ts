@@ -1,20 +1,21 @@
 // The rooms behind the game, each drawn once (and again if the screen changes size).
 // Every part of the book has its own place: the tutorial and the plus levels are in a classroom,
-// the plus and minus levels in a café, and the endless game on a terrace in the evening.
+// the plus and minus levels in a café, the last chapter on a spaceship, and the endless game on a terrace in the evening.
 // All of them are dimmed a little, and have a table at the front that the cups stand on.
 import {DESK_Y, H, W} from "../game/constants";
 import type {Mode} from "../game/types";
 import {FONT, TAU} from "./draw";
 import {t} from "./i18n";
 
-export type Room = "classroom" | "cafe" | "library" | "bakery" | "terrace";
+export type Room = "classroom" | "cafe" | "library" | "bakery" | "spaceship" | "terrace";
 
-export const ROOMS: Room[] = ["classroom", "cafe", "library", "bakery", "terrace"];
+export const ROOMS: Room[] = ["classroom", "cafe", "library", "bakery", "spaceship", "terrace"];
 
 export function roomOfMode(mode: Mode): Room {
   if (mode === "mixed") return "cafe";
   if (mode === "times") return "library";
   if (mode === "divide") return "bakery";
+  if (mode === "space") return "spaceship";
   if (mode === "endless") return "terrace";
   return "classroom";
 }
@@ -505,6 +506,313 @@ function bakery(ctx: CanvasRenderingContext2D): void {
   edge(ctx, "rgba(255,240,205,0.35)");
 }
 
+// ---- The spaceship --------------------------------------------------------------------
+
+/** The inside of a spaceship: a big window onto space with a ringed planet, and a console that the cups stand on. */
+function spaceship(ctx: CanvasRenderingContext2D): void {
+  const rnd = seeded(77);
+  // The hull: dark metal, with ribs along the ceiling and a long light there.
+  const hull = ctx.createLinearGradient(0, 0, 0, DESK_Y);
+  hull.addColorStop(0, "#2a3345");
+  hull.addColorStop(1, "#131822");
+  ctx.fillStyle = hull;
+  ctx.fillRect(0, 0, W, DESK_Y);
+  ctx.fillStyle = "#0d1118";
+  ctx.fillRect(0, 0, W, 30);
+  for (let x = 6; x < W; x += 22) {
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(x, 0, 2, 30);
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(x + 2, 0, 3, 30);
+  }
+  const strip = ctx.createLinearGradient(0, 0, 0, 14);
+  strip.addColorStop(0, "rgba(210,236,255,0.9)");
+  strip.addColorStop(1, "rgba(150,205,255,0.15)");
+  ctx.fillStyle = strip;
+  ctx.beginPath();
+  ctx.roundRect(44, 6, W - 88, 7, 3.5);
+  ctx.fill();
+  const stripGlow = ctx.createLinearGradient(0, 10, 0, 64);
+  stripGlow.addColorStop(0, "rgba(160,215,255,0.22)");
+  stripGlow.addColorStop(1, "rgba(160,215,255,0)");
+  ctx.fillStyle = stripGlow;
+  ctx.fillRect(0, 10, W, 54);
+
+  const wx = 30;
+  const wy = 34;
+  const ww = W - 60;
+  const wh = DESK_Y - wy - 54;
+  const windowPath = (grow = 0) => {
+    ctx.beginPath();
+    ctx.roundRect(wx - grow, wy - grow, ww + 2 * grow, wh + 2 * grow, 54 + grow);
+  };
+
+  // Space, seen through the window.
+  ctx.save();
+  windowPath();
+  ctx.clip();
+  const space = ctx.createLinearGradient(0, wy, 0, wy + wh);
+  space.addColorStop(0, "#04050d");
+  space.addColorStop(0.6, "#0a1030");
+  space.addColorStop(1, "#1a1442");
+  ctx.fillStyle = space;
+  ctx.fillRect(wx, wy, ww, wh);
+  for (const [x, y, rad, color] of [
+    [90, 150, 160, "rgba(130,70,210,0.38)"],
+    [290, 90, 140, "rgba(40,150,225,0.26)"],
+    [190, 360, 170, "rgba(225,75,145,0.2)"],
+  ] as const) {
+    const neb = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    neb.addColorStop(0, color);
+    neb.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = neb;
+    ctx.fillRect(wx, wy, ww, wh);
+  }
+  // Stars, some of them with a glint.
+  for (let i = 0; i < 190; i++) {
+    const x = wx + rnd() * ww;
+    const y = wy + rnd() * wh;
+    const tint = rnd();
+    ctx.fillStyle = `rgba(${tint < 0.2 ? "190,210,255" : tint < 0.35 ? "255,225,190" : "255,255,255"},${0.25 + rnd() * 0.7})`;
+    ctx.beginPath();
+    ctx.arc(x, y, rnd() < 0.08 ? 1.5 : 0.45 + rnd() * 0.85, 0, TAU);
+    ctx.fill();
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.lineWidth = 1;
+  for (const [x, y] of [[60, 80], [300, 170], [150, 60], [320, 40], [40, 260]]) {
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y);
+    ctx.lineTo(x + 6, y);
+    ctx.moveTo(x, y - 6);
+    ctx.lineTo(x, y + 6);
+    ctx.stroke();
+  }
+  // A far away sun.
+  const sun = ctx.createRadialGradient(40, 60, 0, 40, 60, 120);
+  sun.addColorStop(0, "rgba(255,244,214,0.55)");
+  sun.addColorStop(0.15, "rgba(255,226,170,0.25)");
+  sun.addColorStop(1, "rgba(255,200,120,0)");
+  ctx.fillStyle = sun;
+  ctx.fillRect(wx, wy, ww, wh);
+  // A small moon.
+  const moon = ctx.createRadialGradient(72, 288, 2, 76, 292, 22);
+  moon.addColorStop(0, "#d9dbe3");
+  moon.addColorStop(1, "#6d7080");
+  ctx.fillStyle = moon;
+  ctx.beginPath();
+  ctx.arc(76, 292, 20, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = "rgba(60,64,80,0.45)";
+  for (const [dx, dy, rad] of [[-6, -5, 4], [6, 4, 5], [-3, 8, 2.5]]) {
+    ctx.beginPath();
+    ctx.arc(76 + dx, 292 + dy, rad, 0, TAU);
+    ctx.fill();
+  }
+  // A ringed planet, low in the window: the back of its ring, the planet, and the front of its ring.
+  const px = 262;
+  const py = 322;
+  const pr = 80;
+  const ring = (from: number, to: number) => {
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(-0.32);
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = "rgba(236,212,164,0.78)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 150, 34, 0, from, to);
+    ctx.stroke();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(200,170,120,0.7)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 124, 28, 0, from, to);
+    ctx.stroke();
+    ctx.restore();
+  };
+  ring(Math.PI, TAU);
+  const body = ctx.createRadialGradient(px - 28, py - 30, 6, px, py, pr);
+  body.addColorStop(0, "#f6dcae");
+  body.addColorStop(0.5, "#d49a58");
+  body.addColorStop(1, "#6a3a22");
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(px, py, pr, 0, TAU);
+  ctx.fill();
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(px, py, pr, 0, TAU);
+  ctx.clip();
+  for (let i = 0; i < 9; i++) {
+    ctx.fillStyle = i % 2 ? "rgba(120,60,30,0.22)" : "rgba(255,235,200,0.14)";
+    ctx.fillRect(px - pr, py - pr + 8 + i * 17, pr * 2, 7 + (i % 3) * 3);
+  }
+  const night = ctx.createRadialGradient(px - 40, py - 40, pr * 0.5, px, py, pr * 1.25);
+  night.addColorStop(0, "rgba(0,0,20,0)");
+  night.addColorStop(1, "rgba(0,0,20,0.7)");
+  ctx.fillStyle = night;
+  ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
+  ctx.restore();
+  ring(0, Math.PI);
+  ctx.restore();
+
+  // The pillars of the ship at both sides of the window, with ribs and pipes running down them.
+  for (const side of [-1, 1]) {
+    const edgeX = side < 0 ? 0 : W;
+    const innerX = side < 0 ? wx - 8 : wx + ww + 8;
+    const pillar = ctx.createLinearGradient(edgeX, 0, innerX, 0);
+    pillar.addColorStop(0, "#10141c");
+    pillar.addColorStop(1, "#2c3547");
+    ctx.fillStyle = pillar;
+    ctx.beginPath();
+    ctx.moveTo(edgeX, 0);
+    ctx.lineTo(innerX, wy + 26);
+    ctx.lineTo(innerX, wy + wh - 26);
+    ctx.lineTo(edgeX, DESK_Y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.1)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(innerX, wy + 26);
+    ctx.lineTo(innerX, wy + wh - 26);
+    ctx.stroke();
+    // Two pipes down the pillar.
+    for (const [offset, width] of [[10, 7], [21, 5]] as const) {
+      const pipeX = side < 0 ? offset : W - offset;
+      const pipe = ctx.createLinearGradient(pipeX - width / 2, 0, pipeX + width / 2, 0);
+      pipe.addColorStop(0, "#161b25");
+      pipe.addColorStop(0.35, "#6d788c");
+      pipe.addColorStop(1, "#1b212d");
+      ctx.fillStyle = pipe;
+      ctx.fillRect(pipeX - width / 2, 6, width, DESK_Y - 12);
+      ctx.fillStyle = "#0e121a";
+      for (let y = 70; y < DESK_Y - 30; y += 92) ctx.fillRect(pipeX - width / 2 - 2, y, width + 4, 6);
+    }
+  }
+
+  // The frame of the window: thick metal with rivets.
+  const metal = ctx.createLinearGradient(0, wy - 12, 0, wy + wh + 12);
+  metal.addColorStop(0, "#6b7789");
+  metal.addColorStop(0.5, "#3a4354");
+  metal.addColorStop(1, "#262c39");
+  ctx.fillStyle = metal;
+  ctx.beginPath();
+  ctx.roundRect(wx - 12, wy - 12, ww + 24, wh + 24, 66);
+  ctx.roundRect(wx, wy, ww, wh, 54);
+  ctx.fill("evenodd");
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = 1.5;
+  windowPath(11);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = 2;
+  windowPath();
+  ctx.stroke();
+  ctx.fillStyle = "#8a96a9";
+  for (let x = wx + 40; x < wx + ww - 30; x += 46) {
+    for (const y of [wy - 6, wy + wh + 6]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 2.4, 0, TAU);
+      ctx.fill();
+    }
+  }
+  for (let y = wy + 60; y < wy + wh - 50; y += 46) {
+    for (const x of [wx - 6, wx + ww + 6]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 2.4, 0, TAU);
+      ctx.fill();
+    }
+  }
+  // A glare on the glass.
+  ctx.save();
+  windowPath();
+  ctx.clip();
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.beginPath();
+  ctx.moveTo(wx + 50, wy);
+  ctx.lineTo(wx + 140, wy);
+  ctx.lineTo(wx + 40, wy + wh);
+  ctx.lineTo(wx - 50, wy + wh);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(wx + 160, wy);
+  ctx.lineTo(wx + 190, wy);
+  ctx.lineTo(wx + 90, wy + wh);
+  ctx.lineTo(wx + 60, wy + wh);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // A metal ledge under the window, with grooves and one long thin light.
+  const ledge = ctx.createLinearGradient(0, DESK_Y - 42, 0, DESK_Y);
+  ledge.addColorStop(0, "#242c3b");
+  ledge.addColorStop(1, "#0f131b");
+  ctx.fillStyle = ledge;
+  ctx.fillRect(0, DESK_Y - 42, W, 42);
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(0, DESK_Y - 42, W, 1.5);
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  for (const y of [DESK_Y - 30, DESK_Y - 14]) ctx.fillRect(0, y, W, 2);
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  for (const y of [DESK_Y - 28, DESK_Y - 12]) ctx.fillRect(0, y, W, 1);
+  const thin = ctx.createLinearGradient(40, 0, W - 40, 0);
+  thin.addColorStop(0, "rgba(110,215,255,0)");
+  thin.addColorStop(0.5, "rgba(130,225,255,0.75)");
+  thin.addColorStop(1, "rgba(110,215,255,0)");
+  ctx.fillStyle = thin;
+  ctx.fillRect(40, DESK_Y - 22, W - 80, 2.5);
+
+  // The console that the cups stand on: dark panels with seams, rivets and a glowing edge.
+  const top = ctx.createLinearGradient(0, DESK_Y, 0, H);
+  top.addColorStop(0, "#37425a");
+  top.addColorStop(1, "#1b2130");
+  ctx.fillStyle = top;
+  ctx.fillRect(0, DESK_Y, W, H - DESK_Y);
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  for (let y = DESK_Y + 62; y < H; y += 62) ctx.fillRect(0, y, W, 2);
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  for (let y = DESK_Y + 64; y < H; y += 62) ctx.fillRect(0, y, W, 1);
+  for (let row = 0; row < 3; row++) {
+    const sx = 40 + rnd() * (W - 80);
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.fillRect(sx, DESK_Y + 2 + row * 62, 2, 60);
+  }
+  ctx.fillStyle = "#7f8ba0";
+  for (let row = 0; row < 3; row++) {
+    for (let x = 14; x < W; x += 66) {
+      for (const dy of [8, 54]) {
+        ctx.beginPath();
+        ctx.arc(x, DESK_Y + dy + row * 62, 1.8, 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+  // A faint pattern of hexagons across the console.
+  ctx.strokeStyle = "rgba(150,200,255,0.06)";
+  ctx.lineWidth = 1;
+  const hex = 20;
+  for (let row = 0; row * hex * 1.5 < H - DESK_Y + hex; row++) {
+    for (let col = 0; col < W / (hex * 1.74) + 1; col++) {
+      const hx = col * hex * 1.74 + (row % 2 ? hex * 0.87 : 0);
+      const hy = DESK_Y + 10 + row * hex * 1.5;
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const ang = (k * Math.PI) / 3 + Math.PI / 6;
+        const vx = hx + hex * 0.9 * Math.cos(ang);
+        const vy = hy + hex * 0.9 * Math.sin(ang);
+        if (k === 0) ctx.moveTo(vx, vy);
+        else ctx.lineTo(vx, vy);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+  ctx.fillStyle = "rgba(90,210,255,0.28)";
+  ctx.fillRect(0, DESK_Y + 2, W, 3);
+  edge(ctx, "rgba(150,225,255,0.4)");
+}
+
 // ---- The terrace ----------------------------------------------------------------------
 
 function terrace(ctx: CanvasRenderingContext2D): void {
@@ -643,6 +951,7 @@ function makeRoom(room: Room, pxPerUnit: number): HTMLCanvasElement {
   else if (room === "cafe") cafe(ctx);
   else if (room === "library") library(ctx);
   else if (room === "bakery") bakery(ctx);
+  else if (room === "spaceship") spaceship(ctx);
   else terrace(ctx);
   dim(ctx);
   return c;
@@ -654,6 +963,7 @@ export function makeBackgrounds(pxPerUnit: number): Record<Room, HTMLCanvasEleme
     cafe: makeRoom("cafe", pxPerUnit),
     library: makeRoom("library", pxPerUnit),
     bakery: makeRoom("bakery", pxPerUnit),
+    spaceship: makeRoom("spaceship", pxPerUnit),
     terrace: makeRoom("terrace", pxPerUnit),
   };
 }

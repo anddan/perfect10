@@ -54,6 +54,43 @@ export function write(
   ctx.fillText(s, x, y);
 }
 
+/**
+ * The lettering of the logo: a soft shadow, a dark edge, a thin golden edge, gold that goes from yellow to deep orange, and a
+ * faint shine that fades out over the top half of the letters.
+ */
+export function logoTitle(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, size: number): void {
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${size}px ${FONT}`;
+  ctx.lineJoin = "round";
+  // A little air between the letters, so that the edges do not run into each other (where the browser can do it).
+  if ("letterSpacing" in ctx) (ctx as unknown as {letterSpacing: string}).letterSpacing = `${(size * 0.05).toFixed(1)}px`;
+  ctx.lineWidth = size * 0.26;
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.strokeText(s, x, y + size * 0.12);
+  ctx.lineWidth = size * 0.2;
+  ctx.strokeStyle = "#2b1608";
+  ctx.strokeText(s, x, y);
+  ctx.lineWidth = size * 0.07;
+  ctx.strokeStyle = "#f5c25a";
+  ctx.strokeText(s, x, y);
+  const gold = ctx.createLinearGradient(0, y - size * 0.5, 0, y + size * 0.5);
+  gold.addColorStop(0, "#ffd24a");
+  gold.addColorStop(0.5, "#f7a620");
+  gold.addColorStop(1, "#dd7410");
+  ctx.fillStyle = gold;
+  ctx.fillText(s, x, y);
+  // A white gloss over the top of the letters: strong at the top, and cut off by a soft edge a little above the middle of them.
+  const gloss = ctx.createLinearGradient(0, y - size * 0.42, 0, y + size * 0.34);
+  gloss.addColorStop(0, "rgba(255,255,255,0.85)");
+  gloss.addColorStop(0.4, "rgba(255,255,255,0.7)");
+  gloss.addColorStop(0.46, "rgba(255,255,255,0)");
+  ctx.fillStyle = gloss;
+  ctx.fillText(s, x, y);
+  ctx.restore();
+}
+
 /** A big title: a gradient of light to deep colour, a thick dark outline, a drop shadow and a shine along the top. */
 export function title(
   ctx: CanvasRenderingContext2D,
@@ -184,9 +221,17 @@ export const ui = {
   pressed: null as string | null,
   /** Pixels per game unit at the start of the frame, to turn drawing coordinates back into game units. */
   px: 1,
-  /** The language drop-down is open, and when (game time) it was opened, for the way it slides down. */
-  langOpen: false,
-  langAt: 0,
+  /** The settings page is open (the game waits behind it). */
+  settingsOpen: false,
+  /** The top list of the endless game is open. */
+  scoresOpen: false,
+  /** The pause page is open during a round (the game waits behind it). */
+  pauseOpen: false,
+  /** The id of the cup that is being held and dragged (it is drawn with a yellow border), or null. */
+  heldCup: null as number | null,
+  /** The make-believe ad is showing (before one more try), and how many seconds ago it started. */
+  adOpen: false,
+  adTime: 0,
   /** Off while a page is drawn into a picture for the page turn: the buttons on it cannot be tapped. */
   registering: true,
 };
@@ -216,11 +261,12 @@ export function hitTest(x: number, y: number): string | null {
   return null;
 }
 
-export type ButtonKind = "primary" | "secondary" | "round";
+export type ButtonKind = "primary" | "secondary" | "round" | "green";
 
 const LOOKS: Record<ButtonKind, {top: string; bottom: string; lip: string; ink: string; outline: string}> = {
   primary: {top: "#ffe98f", bottom: "#f2b320", lip: "#9c610a", ink: "#43270a", outline: "rgba(255,246,206,0.75)"},
   secondary: {top: "#7a7396", bottom: "#4b4468", lip: "#2b2543", ink: "#f6efe0", outline: "rgba(14,8,24,0.85)"},
+  green: {top: "#8cf0a8", bottom: "#25b457", lip: "#0f6a30", ink: "#06361a", outline: "rgba(225,255,235,0.75)"},
   round: {top: "#7a7396", bottom: "#4b4468", lip: "#2b2543", ink: "#f6efe0", outline: "rgba(14,8,24,0.85)"},
 };
 
@@ -253,7 +299,6 @@ export function drawButton(
   ctx.scale(breathe, breathe);
   ctx.translate(-b.w / 2, -b.h / 2);
 
-  softShadow(ctx, 0, DEPTH, b.w, b.h, r, 5, 0.34);
   // The lip, which is all that is left of the button's side when it is pressed.
   ctx.fillStyle = look.lip;
   roundRect(ctx, 0, DEPTH, b.w, b.h, r);
@@ -362,8 +407,12 @@ export function drawRibbon(ctx: CanvasRenderingContext2D, cx: number, y: number,
   text(ctx, label, cx, y + h / 2 + 1, 28, "#ffffff", "center", "rgba(40,12,4,0.8)");
 }
 
-/** A star, filled gold or empty. */
-export function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, filled: boolean): void {
+/**
+ * A star, filled gold or empty. A `glossy` one (the stars of the card after a round) is shinier: a white gloss over its upper part
+ * that is cut off by a line from the lower left up to the upper right, a glow from below and a bright edge just inside.
+ * A `thin` one has a thinner border.
+ */
+export function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, filled: boolean, glossy = false, thin = false): void {
   ctx.beginPath();
   for (let i = 0; i < 10; i++) {
     const a = -Math.PI / 2 + (i * Math.PI) / 5;
@@ -375,14 +424,50 @@ export function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r:
   ctx.lineJoin = "round";
   if (filled) {
     const g = ctx.createLinearGradient(0, y - r, 0, y + r);
-    g.addColorStop(0, "#fff0a0");
-    g.addColorStop(1, "#f0a914");
+    if (glossy) {
+      g.addColorStop(0, "#fff3a8");
+      g.addColorStop(0.5, "#ffd23a");
+      g.addColorStop(1, "#e58a0a");
+    } else {
+      g.addColorStop(0, "#fff0a0");
+      g.addColorStop(1, "#f0a914");
+    }
     ctx.fillStyle = g;
   } else {
     ctx.fillStyle = "rgba(0,0,0,0.28)";
   }
   ctx.fill();
-  ctx.lineWidth = Math.max(1.5, r * 0.16);
+  if (filled && glossy) {
+    ctx.save();
+    ctx.clip();
+    // The gloss: white over the upper part, cut off by a line that rises to the right.
+    const edge = (px: number): number => y + r * 0.3 - (px - x) * 0.45;
+    const gloss = ctx.createLinearGradient(0, y - r, 0, y + r * 0.3);
+    gloss.addColorStop(0, "rgba(255,255,255,0.72)");
+    gloss.addColorStop(1, "rgba(255,255,255,0.26)");
+    ctx.fillStyle = gloss;
+    const above = new Path2D();
+    above.moveTo(x - r * 1.2, edge(x - r * 1.2));
+    above.lineTo(x + r * 1.2, edge(x + r * 1.2));
+    above.lineTo(x + r * 1.2, y - r * 1.2);
+    above.lineTo(x - r * 1.2, y - r * 1.2);
+    above.closePath();
+    ctx.fill(above);
+    // A glow coming up from the bottom, and a bright edge just inside the upper part.
+    const glow = ctx.createRadialGradient(x, y + r * 0.85, 0, x, y + r * 0.85, r * 0.95);
+    glow.addColorStop(0, "rgba(255,255,255,0.4)");
+    glow.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    const rim = ctx.createLinearGradient(0, y - r, 0, y + r * 0.2);
+    rim.addColorStop(0, "rgba(255,255,255,0.95)");
+    rim.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.strokeStyle = rim;
+    ctx.lineWidth = r * 0.24;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.lineWidth = thin ? Math.max(0.9, r * 0.085) : Math.max(1.5, r * 0.16); // (`thin`: a thin border, for the small stars on the level tiles)
   ctx.strokeStyle = filled ? "#8a5208" : "rgba(255,255,255,0.18)";
   ctx.stroke();
 }
@@ -399,6 +484,11 @@ export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
+  if (kind === "star") {
+    drawBonusStar(ctx, time);
+    ctx.restore();
+    return;
+  }
 
   // The glow.
   const k = 0.5 + 0.5 * Math.sin(time * 5);
@@ -500,9 +590,62 @@ export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: numbe
 
 // ---- The number ball ------------------------------------------------------------------
 
+/** The star that jumps between the columns: a bright five-pointed star with a glow, that twinkles (drawn at the origin). */
+function drawBonusStar(ctx: CanvasRenderingContext2D, time: number): void {
+  const k = 0.5 + 0.5 * Math.sin(time * 6);
+  const aura = ctx.createRadialGradient(0, 0, 4, 0, 0, 30);
+  aura.addColorStop(0, `rgba(255,236,150,${0.55 + 0.3 * k})`);
+  aura.addColorStop(1, "rgba(255,236,150,0)");
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(0, 0, 30, 0, TAU);
+  ctx.fill();
+  const path = (outer: number, inner: number) => {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const ang = (i * Math.PI) / 5 - Math.PI / 2;
+      const rad = i % 2 === 0 ? outer : inner;
+      if (i === 0) ctx.moveTo(rad * Math.cos(ang), rad * Math.sin(ang));
+      else ctx.lineTo(rad * Math.cos(ang), rad * Math.sin(ang));
+    }
+    ctx.closePath();
+  };
+  ctx.save();
+  ctx.rotate(Math.sin(time * 2) * 0.12);
+  ctx.lineJoin = "round";
+  // A dark edge, the gold, and a bright middle.
+  path(17, 7.6);
+  ctx.lineWidth = 3.6;
+  ctx.strokeStyle = "rgba(90,45,0,0.9)";
+  ctx.stroke();
+  const gold = ctx.createLinearGradient(0, -17, 0, 14);
+  gold.addColorStop(0, "#fff7b8");
+  gold.addColorStop(0.5, "#ffd23c");
+  gold.addColorStop(1, "#f08a10");
+  ctx.fillStyle = gold;
+  ctx.fill();
+  path(9.2, 4);
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.fill();
+  ctx.restore();
+  // Twinkles.
+  ctx.strokeStyle = `rgba(255,255,255,${0.5 + 0.5 * k})`;
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  for (const [dx, dy, size] of [[-20, -9, 4], [21, 7, 3.4], [12, -20, 2.8]] as const) {
+    const s = size * (0.6 + 0.4 * Math.sin(time * 7 + dx));
+    ctx.beginPath();
+    ctx.moveTo(dx - s, dy);
+    ctx.lineTo(dx + s, dy);
+    ctx.moveTo(dx, dy - s);
+    ctx.lineTo(dx, dy + s);
+    ctx.stroke();
+  }
+}
+
 /**
  * A round glossy ball with a silver border: green for plus, red for minus, blue for multiplication and yellow for division,
- * with the number on it.
+ * with the number on it (and orange for the 0).
  * `time` and `phase` only move the glint that sweeps across now and then.
  */
 export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v: number, scale = 1, time = 0, phase = 0, op: Op = "add"): void {
@@ -535,7 +678,19 @@ export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v:
 
   // The coloured face.
   const face = ctx.createRadialGradient(-r * 0.35, -r * 0.45, r * 0.1, 0, 0, r * 1.15);
-  if (op === "mul") {
+  if (op === "steel") {
+    face.addColorStop(0, "#e8edf3");
+    face.addColorStop(0.4, "#8a97a8");
+    face.addColorStop(1, "#343c48");
+  } else if (op === "dim") {
+    face.addColorStop(0, "#8d8d99");
+    face.addColorStop(0.45, "#2e2e37");
+    face.addColorStop(1, "#050508");
+  } else if (op === "zero") {
+    face.addColorStop(0, "#ffd9a0");
+    face.addColorStop(0.45, "#f58a1f");
+    face.addColorStop(1, "#a34d05");
+  } else if (op === "mul") {
     face.addColorStop(0, "#a9d4ff");
     face.addColorStop(0.45, "#2f7fe6");
     face.addColorStop(1, "#10408f");
@@ -559,6 +714,16 @@ export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v:
   ctx.strokeStyle = "rgba(0,0,0,0.3)";
   ctx.stroke();
 
+  // A steel ball has four little bolts round its face.
+  if (op === "steel") {
+    ctx.fillStyle = "rgba(40,48,60,0.85)";
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2 + Math.PI / 4;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * (r - 3.2), Math.sin(a) * (r - 3.2), 1.5, 0, TAU);
+      ctx.fill();
+    }
+  }
   // Gloss: a bright curve over the top half, and a glint that sweeps across now and then.
   ctx.save();
   ctx.beginPath();
@@ -577,7 +742,10 @@ export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v:
   ctx.fillRect((sweep * 2 - 1) * r * 1.4, -r * 1.6, 5, r * 3.2);
   ctx.restore();
 
-  if (op === "mul") text(ctx, `\u00D7${v}`, 0, 1, 21, "#ffffff", "center", "rgba(5,30,80,0.9)");
+  if (op === "steel") text(ctx, signed(v), 0, 1, 20, "#ffffff", "center", "rgba(20,28,40,0.95)");
+  else if (op === "dim") text(ctx, signed(v), 0, 1, 22, "#ffffff", "center", "rgba(0,0,0,0.95)");
+  else if (op === "zero") text(ctx, "0", 0, 1, 24, "#ffffff", "center", "rgba(110,50,0,0.9)");
+  else if (op === "mul") text(ctx, `\u00D7${v}`, 0, 1, 21, "#ffffff", "center", "rgba(5,30,80,0.9)");
   else if (op === "div") text(ctx, `\u00F7${v}`, 0, 1, 21, "#ffffff", "center", "rgba(90,50,0,0.9)");
   else text(ctx, signed(v), 0, 1, 22, "#ffffff", "center", minus ? "rgba(90,8,5,0.9)" : "rgba(5,60,28,0.9)");
   ctx.restore();
@@ -709,6 +877,66 @@ export function drawGhostBack(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.fill();
   ctx.restore();
   text(ctx, "?", 0, 1 + Math.sin(time * 3 + phase) * 1.2, 24, "rgba(235,230,255,0.95)", "center", "rgba(20,12,60,0.9)");
+  ctx.restore();
+}
+
+/**
+ * A cartoon hand with one finger out, for showing where to tap or what to drag. The tip of the finger is at (x, y).
+ * `press` (0 to 1) is how hard it is pressing: it sinks a little and is a bit smaller.
+ */
+export function drawHand(ctx: CanvasRenderingContext2D, x: number, y: number, press = 0, scale = 1): void {
+  ctx.save();
+  ctx.translate(x, y + press * 5);
+  ctx.rotate(-0.22);
+  const k = scale * (1 - 0.05 * press);
+  ctx.scale(k, k);
+  // A soft shadow under the hand.
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.ellipse(6, 52, 20, 9, 0, 0, TAU);
+  ctx.fill();
+  // The parts of the hand, as paths: the palm, the thumb, three folded fingers and the finger that points.
+  const parts: (() => void)[] = [
+    () => ctx.roundRect(-17, 22, 36, 42, 14),
+    () => ctx.ellipse(-18, 42, 7, 12, 0.35, 0, TAU),
+    () => ctx.roundRect(10, 26, 12, 20, 6),
+    () => ctx.roundRect(1, 24, 12, 22, 6),
+    () => ctx.roundRect(-7, 0, 14, 40, 7),
+  ];
+  // First all the outlines, then all the fills: the hand gets one outline round the whole of it.
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 5.5;
+  ctx.strokeStyle = "rgba(48,30,18,0.9)";
+  for (const part of parts) {
+    ctx.beginPath();
+    part();
+    ctx.stroke();
+  }
+  const skin = ctx.createLinearGradient(-18, 0, 22, 64);
+  skin.addColorStop(0, "#fffaf0");
+  skin.addColorStop(1, "#ecd9bd");
+  ctx.fillStyle = skin;
+  for (const part of parts) {
+    ctx.beginPath();
+    part();
+    ctx.fill();
+  }
+  // Creases between the folded fingers, and a little shine on the finger.
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(120,86,56,0.55)";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(10, 30);
+  ctx.lineTo(10, 42);
+  ctx.moveTo(1, 31);
+  ctx.lineTo(1, 42);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.8)";
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(-3, 6);
+  ctx.lineTo(-3, 20);
+  ctx.stroke();
   ctx.restore();
 }
 

@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// The top list of the endless game (see src/ui/scores.ts). No accounts: a device is known by a random id, and its document in
+// "highscores" has that id. Anyone can read the list; a device can only add its own document and can only raise its score (the
+// name can change), size-bounded. Nobody can delete one from the game.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function validName(name) {
+      return name is string && name.size() >= 1 && name.size() <= 16;
+    }
+
+    match /highscores/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+  }
+}

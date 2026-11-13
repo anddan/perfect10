@@ -1,14 +1,14 @@
 // The progress bar along the bottom of the screen: one segment for every cup a level needs.
 // It lies under the cups, where it does not hide any of the numbers falling above them.
 import {W} from "../game/constants";
-import {goalFor} from "../game/engine";
+import {ENDLESS_CUPS_PER_LEVEL, goalFor} from "../game/engine";
 import type {GameState} from "../game/types";
 
 /** Where the bar is (game units). */
 export const BAR = {x: 10, y: 615, w: W - 20, h: 18};
 
 /** Segments in the endless game: it has no end, so the bar fills five cups at a time. */
-const ENDLESS_SEGMENTS = 5;
+const ENDLESS_SEGMENTS = ENDLESS_CUPS_PER_LEVEL;
 /** Room for the "NIVÅ" label at the left end of the endless game's bar. */
 const LABEL_W = 70;
 const GAP = 4;

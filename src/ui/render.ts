@@ -1445,6 +1445,53 @@ function drawNotice(ctx: CanvasRenderingContext2D): void {
   ctx.restore();
 }
 
+/** A number between 0 and 1 that is always the same for the same input (for the specks and the balls that drift about). */
+function hash01(i: number, k: number): number {
+  const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/** Slow specks of dust floating in the light, and a soft beam from the upper right: it makes the room feel lived in. */
+function drawAmbient(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const t = g.time;
+  const top = -g.extra;
+  const beam = ctx.createLinearGradient(W, top, W * 0.2, top + 500);
+  beam.addColorStop(0, "rgba(255,238,200,0.11)");
+  beam.addColorStop(1, "rgba(255,238,200,0)");
+  ctx.fillStyle = beam;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.5, top);
+  ctx.lineTo(W, top);
+  ctx.lineTo(W, top + 520);
+  ctx.lineTo(W * 0.25, top + 520);
+  ctx.closePath();
+  ctx.fill();
+  const span = H + g.extra;
+  for (let i = 0; i < 26; i++) {
+    const x = (hash01(i, 1) * W + Math.sin(t * 0.25 + i) * 14 + W) % W;
+    const y = top + ((hash01(i, 2) * span + t * (4 + hash01(i, 3) * 7)) % span);
+    const a = 0.1 + 0.2 * (0.5 + 0.5 * Math.sin(t * 0.9 + i * 1.7));
+    ctx.fillStyle = `rgba(255,244,215,${a})`;
+    ctx.beginPath();
+    ctx.arc(x, y, 0.8 + hash01(i, 3) * 1.4, 0, TAU);
+    ctx.fill();
+  }
+}
+
+/** In the book: a few numbers drift down, faint, behind it (above it, on a tall phone), as a hint of what the game is. */
+function drawMenuBalls(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const t = g.time;
+  const span = H + g.extra + 90;
+  const values = [3, -2, 5, 4, -4, 6, 2, -5, 7];
+  for (let i = 0; i < values.length; i++) {
+    const x = [30, 95, 150, 210, 270, 330][i % 6] + (hash01(i, 4) - 0.5) * 24 + Math.sin(t * 0.6 + i) * 6;
+    const y = -g.extra - 45 + ((hash01(i, 5) * span + t * (14 + hash01(i, 6) * 16)) % span);
+    ctx.globalAlpha = 0.32;
+    drawBall(ctx, x, y, values[i], 0.8 + hash01(i, 6) * 0.5, t, i, i % 4 === 1 ? "mul" : "add");
+  }
+  ctx.globalAlpha = 1;
+}
+
 /**
  * `rooms` are the pictures of the rooms from makeBackgrounds. The context is already scaled to game units.
  * `fade` (0 to 1) is how far the screen is faded to black between two screens.
@@ -1474,6 +1521,8 @@ export function drawGame(
     ctx.restore();
   };
   drawRoom(ctx, g, rooms, book);
+  drawAmbient(ctx, g);
+  if (g.phase === "menu") drawMenuBalls(ctx, g);
 
   if (g.phase === "menu") {
     drawBook(ctx, book, g, g.time);

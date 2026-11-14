@@ -319,12 +319,13 @@ export function hitTest(x: number, y: number): string | null {
   return null;
 }
 
-export type ButtonKind = "primary" | "secondary" | "round" | "green";
+export type ButtonKind = "primary" | "secondary" | "round" | "green" | "blue";
 
 const LOOKS: Record<ButtonKind, {top: string; bottom: string; lip: string; ink: string; outline: string}> = {
   primary: {top: "#ffe98f", bottom: "#f2b320", lip: "#9c610a", ink: "#43270a", outline: "rgba(255,246,206,0.75)"},
   secondary: {top: "#7a7396", bottom: "#4b4468", lip: "#2b2543", ink: "#f6efe0", outline: "rgba(14,8,24,0.85)"},
   green: {top: "#8cf0a8", bottom: "#25b457", lip: "#0f6a30", ink: "#06361a", outline: "rgba(225,255,235,0.75)"},
+  blue: {top: "#9cdcff", bottom: "#2f86dc", lip: "#134f94", ink: "#06233f", outline: "rgba(228,245,255,0.75)"},
   round: {top: "#7a7396", bottom: "#4b4468", lip: "#2b2543", ink: "#f6efe0", outline: "rgba(14,8,24,0.85)"},
 };
 

@@ -635,12 +635,12 @@ describe("the nine levels of a page", () => {
     expect(goals[STAGES - 1]).toBeGreaterThan(goals[0]);
   });
 
-  it("need one cup more on every row of the book: 4, 5, 6 and 7 perfect 10s", () => {
+  it("need one cup more on every row of the book: 4, 5, 6 and 7 perfect 10s, and 8 on the last level of every chapter", () => {
     for (const mode of ["plus", "mixed", "times", "divide"] as const) {
-      expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((s) => goalFor(mode, s))).toEqual([4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7]);
+      expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((s) => goalFor(mode, s))).toEqual([4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 8]);
     }
     // The space chapter needs two more on every level.
-    expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((s) => goalFor("space", s))).toEqual([6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9]);
+    expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((s) => goalFor("space", s))).toEqual([6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 8]);
     expect(goalFor("endless")).toBe(Infinity);
   });
 
@@ -1740,7 +1740,7 @@ describe("the space chapter", () => {
   }
 
   it("is a level mode, and needs two more perfect 10s than the other chapters", () => {
-    expect([1, 6, 7, 12].map((s) => goalFor("space", s))).toEqual([6, 7, 8, 9]);
+    expect([1, 6, 7, 11, 12].map((s) => goalFor("space", s))).toEqual([6, 7, 8, 9, 8]);
     const g = testGame(() => 0.5);
     g.hideIntros = new Set(FEATURES);
     startGame(g, "space", 5);

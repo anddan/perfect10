@@ -77,11 +77,12 @@ function baseFor(mode: Mode, stage: number): number {
 
 /**
  * How many cups have to reach 10 to clear a game (infinity: it never ends). Every row of the book needs one more than the row
- * before: levels 1-3 need 4, levels 4-6 need 5, levels 7-9 need 6 and levels 10-12 need 7 (one more than they used to). The levels of the
- * space chapter need two more than that: 6, 7, 8 and 9.
+ * before: levels 1-3 need 4, levels 4-6 need 5, levels 7-9 need 6 and levels 10-11 need 7. The levels of the space chapter need two
+ * more than that: 6, 7, 8 and 9. Level 12 of every chapter (the last one) needs 8.
  */
 export function goalFor(mode: Mode, stage = 1): number {
   if (mode === "endless" || mode === "tutorial") return Infinity;
+  if (stage >= STAGES) return 8;
   return 4 + Math.floor((Math.max(1, stage) - 1) / 3) + (mode === "space" ? 2 : 0);
 }
 

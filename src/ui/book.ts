@@ -1022,12 +1022,15 @@ function coinAmount(ctx: CanvasRenderingContext2D, n: number, x: number, y: numb
 }
 
 /** A soft card for the shop and the store: cream paper with a warm edge, a sheen along the top and a shadow (green when it is owned, gold when it is the one to pick). */
-function softCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r = 14, tone: "cream" | "green" | "gold" = "cream"): void {
+function softCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r = 14, tone: "cream" | "green" | "gold" | "blue" = "cream"): void {
   softShadow(ctx, x, y + 1, w, h, r, 6, 0.2);
   const g = ctx.createLinearGradient(0, y, 0, y + h);
   if (tone === "green") {
     g.addColorStop(0, "#f2faea");
     g.addColorStop(1, "#dcefce");
+  } else if (tone === "blue") {
+    g.addColorStop(0, "#f0f7ff");
+    g.addColorStop(1, "#d5e7fa");
   } else if (tone === "gold") {
     g.addColorStop(0, "#fff7d8");
     g.addColorStop(1, "#f7e0a2");
@@ -1048,7 +1051,7 @@ function softCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
   ctx.fillRect(x, y, w, h * 0.5);
   ctx.restore();
   ctx.lineWidth = tone === "gold" ? 2 : 1.3;
-  ctx.strokeStyle = tone === "green" ? "rgba(47,174,94,0.6)" : tone === "gold" ? "rgba(214,150,20,0.9)" : "rgba(120,85,40,0.3)";
+  ctx.strokeStyle = tone === "green" ? "rgba(47,174,94,0.6)" : tone === "blue" ? "rgba(60,130,210,0.6)" : tone === "gold" ? "rgba(214,150,20,0.9)" : "rgba(120,85,40,0.3)";
   roundRect(ctx, x, y, w, h, r);
   ctx.stroke();
 }
@@ -1570,12 +1573,13 @@ function drawLooksPage(ctx: CanvasRenderingContext2D): void {
     const y = 176 + Math.floor(i / 3) * (ch + 8);
     const owned = look.price === 0 || ui.looksOwned.includes(lookKey(kind, look.id));
     const on = ui.look[kind] === look.id;
-    softCard(ctx, x, y, cw, ch, 14, on ? "green" : "cream");
+    // (green: the one in use, blue: bought, and cream: not bought yet)
+    softCard(ctx, x, y, cw, ch, 14, on ? "green" : owned ? "blue" : "cream");
     drawLookPreview(ctx, kind, look.id, x, y, cw);
     write(ctx, t(LOOK_NAME[`${kind}:${look.id}`]), x + cw / 2, y + 66, 12, INK, "center", 700);
     const btn = {x: x + 7, y: y + ch - 24, w: cw - 14, h: 19};
     if (on) drawButton(ctx, `looks:use:${kind}:${look.id}`, btn, t("lookOn"), "green", {size: 11.5});
-    else if (owned) drawButton(ctx, `looks:use:${kind}:${look.id}`, btn, t("lookPick"), "primary", {size: 11.5});
+    else if (owned) drawButton(ctx, `looks:use:${kind}:${look.id}`, btn, t("lookPick"), "blue", {size: 11.5});
     else {
       const afford = ui.coins >= look.price;
       drawButton(ctx, `looks:buy:${kind}:${look.id}`, btn, "", afford ? "primary" : "secondary", {

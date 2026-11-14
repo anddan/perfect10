@@ -2,7 +2,7 @@
 // The rules never look at these; they only react to what the engine says happened.
 import {CUP_H, H, TARGET, W} from "../game/constants";
 import type {GameEvent, GameState} from "../game/types";
-import {drawStar} from "./draw";
+import {drawStar, ui} from "./draw";
 import {t} from "./i18n";
 import {segmentCenter, segmentFilledBy} from "./progress";
 
@@ -134,6 +134,10 @@ export class Fx {
   private party: Spark[] = [];
   private rings: Ring[] = [];
   private flash = 0;
+  /** The lightning of a diamond at work: where it hangs, the numbers it strikes (and when), and how long it has been going on. */
+  private zaps: {x: number; y: number; hits: {x: number; y: number; at: number; ten: boolean}[]; age: number}[] = [];
+  /** The beams of laser cups: a line up a column that fades. */
+  private beams: {x: number; y0: number; y1: number; age: number; life: number}[] = [];
   private emit = new Map<number, number>();
   private sprite = makeSteamSprite();
 
@@ -157,7 +161,9 @@ export class Fx {
         }
         this.texts.push(
           e.op === "zero"
-            ? {x: e.x, y: e.y - 18, text: "0", age: 0, life: 0.9, color: "#ffc27a", size: 24}
+            ? {x: e.x, y: e.y - 18, text: "=0", age: 0, life: 0.9, color: "#ffc27a", size: 24}
+            : e.op === "ten"
+            ? {x: e.x, y: e.y - 18, text: "=10", age: 0, life: 0.9, color: "#ffc27a", size: 24}
             : e.op === "mul"
             ? {x: e.x, y: e.y - 18, text: `\u00D7${e.v}`, age: 0, life: 0.9, color: "#a9d4ff", size: 22}
             : e.op === "div"
@@ -241,7 +247,7 @@ export class Fx {
         this.perfects.push({x: c.x, y: c.y - 74, age: 0, life: 1.7});
         if (g.mode !== "tutorial") {
           const seg = segmentFilledBy(g, e.level);
-          const end = segmentCenter(g, seg);
+          const end = segmentCenter(g, seg, e.level - 1);
           this.flyers.push({x0: c.x, y0: c.y - CUP_H / 2, x1: end.x, y1: end.y, seg, age: 0, life: 0.7});
         }
         break;
@@ -293,15 +299,107 @@ export class Fx {
           }
         }
         const [text, color] =
-          e.kind === "life"
+          e.kind === "diamond"
+            ? [t("bonusDiamond"), "#bfe9ff"]
+            : e.kind === "cloth"
+            ? [t("bonusCloth"), "#ffd9a0"]
+            : e.kind === "shield"
+              ? [t("bonusShield"), "#bcd0ff"]
+              : e.kind === "life"
             ? [t("bonusLife"), "#ffb3c6"]
             : e.kind === "points"
               ? [`+${e.amount}`, "#e2c8ff"]
               : e.kind === "star"
                 ? [t("bonusClear"), "#ffe27a"]
-                : [t("bonusSlow"), "#b8ecff"];
+                : e.kind === "pause"
+                  ? [t("bonusPause"), "#b9f5d4"]
+                  : e.kind === "bomb"
+                    ? [t("bonusBomb"), "#ffb36b"]
+                    : [t("bonusSlow"), "#b8ecff"];
         this.texts.push({x: e.x, y: e.y - 24, text, age: 0, life: 1.2, color, size: 22});
         if (e.kind === "star" && e.amount > 0) this.texts.push({x: e.x, y: e.y + 2, text: `+${e.amount}`, age: 0, life: 1.2, color: "#fff3c0", size: 18});
+        break;
+      }
+      case "shield": {
+        // A shield goes on a cup (a ring of blue sparks round it), or takes a hit and breaks (a lot of bright shards).
+        const SHARDS = ["#ffffff", "#dbe6ff", "#a9c0ff", "#7f9bff"];
+        const n = e.on ? 16 : 30;
+        for (let i = 0; i < n; i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = e.on ? 60 + rnd() * 60 : 120 + rnd() * 240;
+          this.confetti.push({
+            x: e.x + Math.cos(a) * (e.on ? 40 : 14),
+            y: e.y + 22 + Math.sin(a) * (e.on ? 36 : 14),
+            vx: Math.cos(a) * s * (e.on ? -0.4 : 1),
+            vy: Math.sin(a) * s * (e.on ? -0.4 : 1) - (e.on ? 0 : 60),
+            rot: rnd() * 6,
+            vr: (rnd() - 0.5) * 14,
+            age: 0,
+            life: 0.4 + rnd() * 0.4,
+            color: SHARDS[Math.floor(rnd() * SHARDS.length)],
+          });
+        }
+        if (!e.on) this.texts.push({x: e.x, y: e.y - 10, text: t("shieldBroke"), age: 0, life: 1, color: "#bcd0ff", size: 20});
+        break;
+      }
+      case "zap": {
+        // The diamond is tapped: a flash of cold light round it, and then the lightning strikes one number after the other (see drawTop).
+        this.zaps.push({x: e.x, y: e.y, hits: e.hits, age: 0});
+        for (let i = 0; i < 30; i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 80 + rnd() * 260;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.4 + rnd() * 0.4, color: i % 2 === 0 ? "#ffffff" : "#8fdcff"});
+        }
+        break;
+      }
+      case "zapHit": {
+        // A number has been changed: sparks (gold for a 10, blue for a 0) and what it became.
+        const SPARKS = e.ten ? ["#fff3b0", "#ffd54a", "#ffffff"] : ["#ffffff", "#aee6ff", "#6fb8ff"];
+        for (let i = 0; i < 16; i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 90 + rnd() * 200;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.3 + rnd() * 0.4, color: SPARKS[Math.floor(rnd() * SPARKS.length)]});
+        }
+        this.texts.push({x: e.x, y: e.y - 26, text: e.ten ? "=10" : "=0", age: 0, life: 0.8, color: e.ten ? "#ffe27a" : "#bfe6ff", size: e.ten ? 24 : 18});
+        break;
+      }
+      case "laser": {
+        // A laser cup is fired: a beam up its column, a burst of sparks at the cup, and a small burst from every number it cleared.
+        this.beams.push({x: e.x, y0: e.y, y1: -g.extra - 20, age: 0, life: 0.45});
+        const LASER = ["#ffffff", "#f5b8ff", "#c27bff", "#8c5cff"];
+        const burst = (x: number, y: number, n: number, speed: number) => {
+          for (let i = 0; i < n; i++) {
+            const a = rnd() * Math.PI * 2;
+            const s = speed * (0.35 + rnd() * 0.65);
+            this.confetti.push({x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.3 + rnd() * 0.4, color: LASER[Math.floor(rnd() * LASER.length)]});
+          }
+        };
+        burst(e.x, e.y, 26, 300);
+        for (const h of e.hits) burst(h.x, h.y, 12, 220);
+        break;
+      }
+      case "blast": {
+        // The bomb goes off: a burst of fire-coloured sparks from the bomb, and a smaller burst from every number it blew away.
+        const FIRE = ["#fff3b0", "#ffd54a", "#ff9a3c", "#ff6a2a", "#4a4038"];
+        const burst = (x: number, y: number, n: number, speed: number) => {
+          for (let i = 0; i < n; i++) {
+            const a = rnd() * Math.PI * 2;
+            const s = speed * (0.35 + rnd() * 0.65);
+            this.confetti.push({
+              x,
+              y,
+              vx: Math.cos(a) * s,
+              vy: Math.sin(a) * s - 40,
+              rot: rnd() * 6,
+              vr: (rnd() - 0.5) * 16,
+              age: 0,
+              life: 0.4 + rnd() * 0.5,
+              color: FIRE[Math.floor(rnd() * FIRE.length)],
+            });
+          }
+        };
+        burst(e.x, e.y, 80, 560);
+        for (const h of e.hits) burst(h.x, h.y, 14, 240);
         break;
       }
       case "won": {
@@ -332,7 +430,7 @@ export class Fx {
           for (let i = 0; i < 70; i++) {
             this.party.push({
               x: rnd() * W,
-              y: -20 - rnd() * 220,
+              y: -20 - rnd() * 220 - ui.extra,
               vx: (rnd() - 0.5) * 30,
               vy: 40 + rnd() * 90,
               rot: rnd() * 6,
@@ -401,6 +499,10 @@ export class Fx {
   update(g: GameState, dt: number): void {
     const rnd = Math.random;
     this.pop.t = Math.max(0, this.pop.t - dt * 1.8);
+    for (const z of this.zaps) z.age += dt;
+    this.zaps = this.zaps.filter((z) => z.age < (z.hits.length > 0 ? z.hits[z.hits.length - 1].at : 0) + 0.5);
+    for (const b of this.beams) b.age += dt;
+    this.beams = this.beams.filter((b) => b.age < b.life);
     for (const f of this.flyers) {
       f.age += dt;
       if (f.age < f.life) continue;
@@ -423,7 +525,7 @@ export class Fx {
     this.flyers = this.flyers.filter((f) => f.age < f.life);
     // Every living cup steams more and more the closer it gets to 10.
     for (const c of g.cups) {
-      const v = c.showTen > 0 && c.value === 0 ? TARGET : Math.abs(c.value);
+      const v = c.showTen > 0 && c.value === c.tenCarry ? TARGET : Math.abs(c.value);
       if (c.dead || v <= 0) continue;
       const acc = (this.emit.get(c.id) ?? 0) + (1.2 + v * v * 0.2) * dt;
       let n = Math.floor(acc);
@@ -581,13 +683,15 @@ export class Fx {
     this.party = [];
     this.rings = [];
     this.flash = 0;
+    this.beams = [];
+    this.zaps = [];
   }
 
   /** The celebration of a cleared level: drawn over the card, so that the sparks of the stars can be seen. */
   drawCelebration(ctx: CanvasRenderingContext2D): void {
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(255,248,220,${this.flash * 0.6})`;
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillRect(0, -ui.extra, W, H + ui.extra);
     }
     for (const r of this.rings) {
       if (r.age < 0) continue;
@@ -646,6 +750,71 @@ export class Fx {
   }
 
   drawTop(ctx: CanvasRenderingContext2D): void {
+    // The lightning of a diamond: a jagged line from the diamond to the number it strikes, that flickers for a moment.
+    for (const z of this.zaps) {
+      z.hits.forEach((h, i) => {
+        const u = (z.age - h.at) / 0.32;
+        if (u < 0 || u >= 1) return;
+        const flick = Math.floor(z.age * 45);
+        const bolt = (spread: number, seed: number) => {
+          const dx = h.x - z.x;
+          const dy = h.y - z.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const nx = -dy / len;
+          const ny = dx / len;
+          const parts = Math.max(5, Math.round(len / 24));
+          ctx.beginPath();
+          ctx.moveTo(z.x, z.y);
+          for (let p = 1; p < parts; p++) {
+            const f = p / parts;
+            const r = Math.sin((flick + 1) * 12.9898 + i * 78.233 + p * 37.719 + seed) * 43758.5453;
+            const off = (r - Math.floor(r) - 0.5) * spread;
+            ctx.lineTo(z.x + dx * f + nx * off, z.y + dy * f + ny * off);
+          }
+          ctx.lineTo(h.x, h.y);
+        };
+        ctx.save();
+        ctx.globalAlpha = 1 - u * u;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.shadowColor = h.ten ? "rgba(255,220,100,0.95)" : "rgba(110,190,255,0.95)";
+        ctx.shadowBlur = 14;
+        ctx.strokeStyle = h.ten ? "rgba(255,214,90,0.7)" : "rgba(110,190,255,0.7)";
+        ctx.lineWidth = 6;
+        bolt(34, 0);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        bolt(34, 0);
+        ctx.stroke();
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = h.ten ? "rgba(255,240,170,0.85)" : "rgba(190,235,255,0.85)";
+        bolt(22, 5);
+        ctx.stroke();
+        // A glow where it strikes.
+        const glow = ctx.createRadialGradient(h.x, h.y, 2, h.x, h.y, 34);
+        glow.addColorStop(0, h.ten ? "rgba(255,236,150,0.9)" : "rgba(200,240,255,0.9)");
+        glow.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, 34, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+    for (const b of this.beams) {
+      const k = b.age / b.life;
+      const w = 46 * (1 - k * 0.7);
+      const beam = ctx.createLinearGradient(b.x - w / 2, 0, b.x + w / 2, 0);
+      beam.addColorStop(0, "rgba(180,110,255,0)");
+      beam.addColorStop(0.35, `rgba(220,160,255,${0.55 * (1 - k)})`);
+      beam.addColorStop(0.5, `rgba(255,255,255,${0.95 * (1 - k)})`);
+      beam.addColorStop(0.65, `rgba(220,160,255,${0.55 * (1 - k)})`);
+      beam.addColorStop(1, "rgba(180,110,255,0)");
+      ctx.fillStyle = beam;
+      ctx.fillRect(b.x - w / 2, b.y1, w, b.y0 - b.y1);
+    }
     for (const d of this.drops) {
       ctx.globalAlpha = Math.min(1, (1 - d.age / d.life) * 1.6);
       ctx.fillStyle = d.color;

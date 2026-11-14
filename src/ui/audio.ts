@@ -344,6 +344,20 @@ export function playClick(): void {
   if (clickBuf) sample(clickBuf, 0.6, 1, {from: 0.036, to: 0.26, fade: 0.08});
 }
 
+/** Something is bought with coins: a bright double chime and a little shower of coins. */
+export function playBuy(): void {
+  bell(1318.5, 0.1, 0, 0.35);
+  bell(1760, 0.09, 0.07, 0.5);
+  bell(2349.3, 0.06, 0.14, 0.5);
+  noise(0.18, {type: "highpass", freq: 6500, vol: 0.04, delay: 0.05, attack: 0.01});
+}
+
+/** A point of energy is spent: a short electric zap that falls away. */
+export function playEnergySpend(): void {
+  tone(1100, 0.22, {type: "sawtooth", to: 220, glide: 0.2, vol: 0.12, attack: 0.003, lowpass: 3500});
+  noise(0.14, {type: "highpass", freq: 4500, vol: 0.06, attack: 0.002});
+}
+
 /** A page of the book being turned. */
 export function playPageTurn(): void {
   if (pageTurnBuf) sample(pageTurnBuf, 0.7, 1, {from: 0.012, to: 0.8, fade: 0.25});
@@ -436,6 +450,38 @@ export function playEvent(e: GameEvent): void {
       // A number hits the desk: a soft thud.
       tone(160, 0.14, {to: 70, glide: 0.1, vol: 0.12, attack: 0.003});
       noise(0.05, {type: "lowpass", freq: 500, vol: 0.06});
+      break;
+    case "shield":
+      if (e.on) {
+        // A shield goes on: a soft rising shimmer.
+        [659.25, 880, 1318.5].forEach((f, i) => bell(f, 0.07, i * 0.07, 0.4));
+      } else {
+        // The shield takes the hit: glass breaking.
+        tone(900, 0.2, {to: 300, glide: 0.15, vol: 0.14, attack: 0.002});
+        noise(0.3, {type: "highpass", freq: 3500, vol: 0.12, attack: 0.002});
+      }
+      break;
+    case "zap":
+      // The diamond: a rising electric whine and a bright chime.
+      tone(200, 0.55, {type: "sawtooth", to: 1500, glide: 0.5, vol: 0.1, attack: 0.01, lowpass: 3500});
+      noise(0.5, {type: "highpass", freq: 3500, vol: 0.05, attack: 0.02});
+      [1046.5, 1318.5, 1568].forEach((f, i) => bell(f, 0.08, 0.05 + i * 0.07, 0.5));
+      break;
+    case "zapHit":
+      // One number is changed: a crackle, and a chime too when it became a 10.
+      noise(0.1, {type: "highpass", freq: 4500, vol: 0.08, attack: 0.002});
+      tone(e.ten ? 880 : 320, 0.1, {type: "square", to: e.ten ? 1760 : 110, glide: 0.09, vol: 0.06, attack: 0.002, lowpass: 3000});
+      if (e.ten) bell(1318.5, 0.1, 0.02, 0.5);
+      break;
+    case "laser":
+      // The laser: a bright zap that falls fast, and a fizz.
+      tone(1800, 0.32, {type: "sawtooth", to: 240, glide: 0.28, vol: 0.14, attack: 0.003, lowpass: 5000});
+      noise(0.25, {type: "highpass", freq: 4000, vol: 0.05, attack: 0.003});
+      break;
+    case "blast":
+      // The bomb: a deep boom and a crackle of noise.
+      tone(110, 0.5, {to: 38, glide: 0.4, vol: 0.4, attack: 0.004});
+      noise(0.45, {type: "lowpass", freq: 1800, to: 200, vol: 0.28, attack: 0.003});
       break;
     case "bonus":
       // A bonus ball: a bright chime that goes up.

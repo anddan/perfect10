@@ -1,7 +1,8 @@
 import {describe, expect, it} from "vitest";
 import {STAGES} from "../game/constants";
 import type {Mode} from "../game/types";
-import {CHAPTER_MODES, CHAPTER_STARS, STARS_FOR_ENDLESS, STARS_TO_OPEN, type Book, chapterOf, chapterStars, createBook, currentPage, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, nextGame, openNextGame, pageOfMode, totalStars, updateBook} from "./book";
+import {DAILY_PAGE, PAGES, SHOP_PAGE} from "./book";
+import {CHAPTER_MODES, CHAPTER_STARS, STARS_FOR_ENDLESS, type Book, chapterCleared, chapterOf, chapterStars, createBook, currentPage, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, nextGame, openNextGame, pageOfMode, totalStars, updateBook} from "./book";
 
 /** Clears every level of a chapter with three stars (a lot of points). */
 function clearWithThreeStars(b: Book, mode: Mode): void {
@@ -31,13 +32,14 @@ describe("which levels are open", () => {
     expect(isUnlocked(b, "plus", 3)).toBe(true);
   });
 
-  it("opens the plus and minus levels when 24 of the 36 stars of the plus chapter have been got", () => {
+  it("opens the plus and minus levels when every level of the plus chapter has been cleared, however few stars there are", () => {
     const b = createBook();
-    for (let s = 1; s <= STAGES; s++) markCleared(b, "plus", s); // (every level cleared, but only one star in each: 12 stars)
+    for (let s = 1; s <= STAGES - 1; s++) markCleared(b, "plus", s);
+    expect(chapterCleared(b, "plus")).toBe(false);
+    expect(isUnlocked(b, "mixed", 1)).toBe(false); // (one level to go)
+    markCleared(b, "plus", STAGES); // (every level cleared, but only one star in each: 12 stars)
     expect(chapterStars(b, "plus")).toBe(12);
-    expect(isUnlocked(b, "mixed", 1)).toBe(false);
-    for (let s = 1; s <= 6; s++) markScore(b, "plus", s, 1e6); // six levels with three stars: 6 * 3 + 6 = 24
-    expect(chapterStars(b, "plus")).toBe(STARS_TO_OPEN);
+    expect(chapterCleared(b, "plus")).toBe(true);
     expect(isUnlocked(b, "mixed", 1)).toBe(true);
     expect(isUnlocked(b, "mixed", 2)).toBe(false);
     markCleared(b, "mixed", 1);
@@ -74,7 +76,7 @@ describe("which levels are open", () => {
     expect(isUnlocked(b, "space", 2)).toBe(true);
   });
 
-  it("counts the stars of a chapter, out of 36, and opens the next chapter with at least 24 (more is fine)", () => {
+  it("counts the stars of a chapter, out of 36 (they do not open the next chapter, only the endless game)", () => {
     expect(CHAPTER_STARS).toBe(36);
     const b = createBook();
     expect(chapterStars(b, "plus")).toBe(0);
@@ -95,10 +97,9 @@ describe("which levels are open", () => {
     expect(isUnlocked(d, "mixed", 1)).toBe(false);
     markCleared(d, "plus", 9);
     expect(chapterStars(d, "plus")).toBe(23);
-    expect(isUnlocked(d, "mixed", 1)).toBe(false);
     markScore(d, "plus", 8, 1e6); // that level now has three stars: 25
     expect(chapterStars(d, "plus")).toBe(25);
-    expect(isUnlocked(d, "mixed", 1)).toBe(true);
+    expect(isUnlocked(d, "mixed", 1)).toBe(false); // (25 stars, but three levels are not cleared)
     // The first level of a chapter that has been cleared stays open.
     const e = createBook(0, ["mixed-1"]);
     expect(isUnlocked(e, "mixed", 1)).toBe(true);
@@ -106,12 +107,13 @@ describe("which levels are open", () => {
 
   it("only gives the next game when it is open", () => {
     const b = createBook();
-    for (let s = 1; s <= STAGES; s++) markCleared(b, "plus", s);
+    markCleared(b, "plus", STAGES); // (only the last level, the ones before it are not cleared)
     expect(nextGame("plus", STAGES)).toEqual({mode: "mixed", stage: 1});
-    expect(openNextGame(b, "plus", STAGES)).toBeUndefined(); // only 12 stars
+    expect(openNextGame(b, "plus", STAGES)).toBeUndefined();
+    for (let s = 1; s <= 3; s++) markCleared(b, "plus", s);
     expect(openNextGame(b, "plus", 3)).toEqual({mode: "plus", stage: 4});
-    clearWithThreeStars(b, "plus");
-    expect(openNextGame(b, "plus", STAGES)).toEqual({mode: "mixed", stage: 1});
+    for (let s = 1; s <= STAGES; s++) markCleared(b, "plus", s);
+    expect(openNextGame(b, "plus", STAGES)).toEqual({mode: "mixed", stage: 1}); // (no stars are needed)
   });
 
   it("opens the endless game when 120 stars have been got in all the chapters together", () => {
@@ -151,10 +153,28 @@ describe("which levels are open", () => {
     expect(nextGame("endless", 0)).toBeUndefined();
   });
 
+  it("has the ladder of the daily challenge right after the tutorial, and the shop and the page for buying last", () => {
+    expect(PAGES[0]).toBe("tutorial");
+    expect(DAILY_PAGE).toBe(1);
+    expect(pageOfMode("plus")).toBe(2);
+    expect(SHOP_PAGE).toBe(PAGES.length - 3);
+    expect(PAGES[PAGES.length - 2]).toBe("looks");
+    expect(PAGES).not.toContain("supplies"); // (the energy is in the shop)
+    expect(PAGES[PAGES.length - 1]).toBe("buy");
+  });
+
   it("numbers the chapters 1 to 5, with the space chapter last", () => {
     expect(CHAPTER_MODES.map((m) => chapterOf(m))).toEqual([1, 2, 3, 4, 5]);
     expect(pageOfMode("space")).toBe(pageOfMode("divide") + 1);
     expect(pageOfMode("endless")).toBe(pageOfMode("space") + 1);
+  });
+
+  it("has every level and the endless game open with Premium", () => {
+    const b = createBook();
+    expect(isUnlocked(b, "endless", 0)).toBe(false);
+    b.premium = true;
+    for (const mode of CHAPTER_MODES) for (let s = 1; s <= STAGES; s++) expect(isUnlocked(b, mode, s)).toBe(true);
+    expect(isUnlocked(b, "endless", 0)).toBe(true);
   });
 
   it("has every level open when it is told to (for testing)", () => {
@@ -192,8 +212,8 @@ describe("which levels are open", () => {
     for (let s = 1; s <= 3; s++) markCleared(b, "plus", s);
     expect(currentPage(b)).toBe(pageOfMode("plus")); // still in the first chapter
     for (let s = 4; s <= STAGES; s++) markCleared(b, "plus", s);
-    // Every level cleared, but too few stars to open the next chapter: it stays on this one.
-    expect(currentPage(b)).toBe(pageOfMode("plus"));
+    // Every level cleared: the next chapter is open, however few the stars.
+    expect(currentPage(b)).toBe(pageOfMode("mixed"));
     clearWithThreeStars(b, "plus");
     expect(currentPage(b)).toBe(pageOfMode("mixed"));
     clearWithThreeStars(b, "mixed");

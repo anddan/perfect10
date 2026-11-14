@@ -1,10 +1,13 @@
 // The settings page: a gear in the corner opens it over whatever is on the screen. Sound, language, the presentations of
 // new things, and the button for the one who makes the game that opens every level.
 import {H, W} from "../game/constants";
-import {CHALK, GOLD, TAU, type Button, drawButton, drawFlag, drawPanel, drawRibbon, registerHit, roundRect, text, ui, write} from "./draw";
+import {CHALK, FONT, GOLD, TAU, type Button, drawButton, drawCoin, drawFlag, wrapLines, drawPanel, drawRibbon, registerHit, roundRect, text, ui, write} from "./draw";
 import {LANGS, LANG_NAMES, lang, t} from "./i18n";
 import {type Board} from "./scores";
 import {VOLUME_STEPS} from "./audio";
+import {drawPropBadge, drawShopCup} from "./cupArt";
+import {SHOP_CUPS, isShopCup} from "../game/cups";
+import {ENERGY_MAX, ENERGY_PER_AD, ENERGY_REGEN_SECONDS, clock} from "./energy";
 
 /** The gear that opens the settings. */
 export const GEAR_BUTTON: Button = {x: 310, y: 10, w: 38, h: 38};
@@ -176,8 +179,8 @@ export interface SettingsState {
 /** The settings page: a dark veil over everything, and a panel with the settings. Tapping the veil, or Done, closes it. */
 export function drawSettings(ctx: CanvasRenderingContext2D, st: SettingsState, time: number): void {
   ctx.fillStyle = "rgba(8,6,14,0.72)";
-  ctx.fillRect(0, 0, W, H);
-  registerHit(ctx, "settingsClose", {x: 0, y: 0, w: W, h: H});
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+  registerHit(ctx, "settingsClose", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
   registerHit(ctx, "settingsPanel", PANEL);
   drawPanel(ctx, PANEL.x, PANEL.y, PANEL.w, PANEL.h, 24);
   drawRibbon(ctx, W / 2, 62, 240, t("settings"), "#ffe27a", "#d49a14");
@@ -196,16 +199,20 @@ export function drawSettings(ctx: CanvasRenderingContext2D, st: SettingsState, t
 
   // The volume of everything: minus, bars (one for each step) and plus.
   const volY = musicY + 42;
+  // (with the sound off the music is silent too, so there is nothing to turn up: the whole row is dimmed and its buttons do nothing)
+  ctx.save();
+  if (st.muted) ctx.globalAlpha = 0.35;
   volumeIcon(ctx, 56, volY + 15, CHALK);
   text(ctx, t("volume"), 84, volY + 16, 20, CHALK, "left");
-  drawButton(ctx, "set:volDown", {x: 184, y: volY - 2, w: 34, h: 34}, "", "round", {draw: sign(false), alpha: st.volume <= 1 ? 0.4 : 1});
   for (let i = 0; i < VOLUME_STEPS; i++) {
     const h = 8 + i * 4;
     ctx.fillStyle = i < st.volume ? GOLD : "rgba(255,255,255,0.18)";
     roundRect(ctx, 226 + i * 11, volY + 28 - h, 8, h, 2.5);
     ctx.fill();
   }
-  drawButton(ctx, "set:volUp", {x: 282, y: volY - 2, w: 34, h: 34}, "", "round", {draw: sign(true), alpha: st.volume >= VOLUME_STEPS ? 0.4 : 1});
+  ctx.restore();
+  drawButton(ctx, "set:volDown", {x: 184, y: volY - 2, w: 34, h: 34}, "", "round", {draw: sign(false), alpha: st.muted ? 0.3 : st.volume <= 1 ? 0.4 : 1});
+  drawButton(ctx, "set:volUp", {x: 282, y: volY - 2, w: 34, h: 34}, "", "round", {draw: sign(true), alpha: st.muted ? 0.3 : st.volume >= VOLUME_STEPS ? 0.4 : 1});
 
   // Language: a flag for each, the one that is on is lit.
   text(ctx, t("language"), 44, 288, 20, CHALK, "left");
@@ -238,13 +245,319 @@ export function drawSettings(ctx: CanvasRenderingContext2D, st: SettingsState, t
   drawButton(ctx, "settingsClose", {x: W / 2 - 110, y: 544, w: 220, h: 54}, t("done"), "primary", {pulse: time, size: 22});
 }
 
+/** A lightning bolt (energy), centred on (cx, cy), drawn like the glossy gold star: a gold that goes from light to deep orange, a white gloss over the top, and a dark gold edge. Grey when there is no energy. */
+export function drawBolt(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, active: boolean): void {
+  const k = size / 20;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(k, k);
+  const bolt = new Path2D();
+  bolt.moveTo(3, -10);
+  bolt.lineTo(-6, 2);
+  bolt.lineTo(-1, 2);
+  bolt.lineTo(-3, 10);
+  bolt.lineTo(6, -3);
+  bolt.lineTo(1, -3);
+  bolt.closePath();
+  ctx.lineJoin = "round";
+  const gold = ctx.createLinearGradient(0, -10, 0, 10);
+  if (active) {
+    gold.addColorStop(0, "#fff3a8");
+    gold.addColorStop(0.5, "#ffd23a");
+    gold.addColorStop(1, "#e58a0a");
+  } else {
+    gold.addColorStop(0, "#d8d8d8");
+    gold.addColorStop(0.5, "#a4a4a4");
+    gold.addColorStop(1, "#6e6e6e");
+  }
+  ctx.fillStyle = gold;
+  ctx.fill(bolt);
+  ctx.save();
+  ctx.clip(bolt);
+  // The gloss: white over the upper part, cut off by a line that rises to the right; and a bright edge just inside the top.
+  const gloss = ctx.createLinearGradient(0, -12, 0, 3);
+  gloss.addColorStop(0, "rgba(255,255,255,0.72)");
+  gloss.addColorStop(1, "rgba(255,255,255,0.26)");
+  ctx.fillStyle = gloss;
+  const above = new Path2D();
+  above.moveTo(-12, 3 + 12 * 0.45);
+  above.lineTo(12, 3 - 12 * 0.45);
+  above.lineTo(12, -12);
+  above.lineTo(-12, -12);
+  above.closePath();
+  ctx.fill(above);
+  const rim = ctx.createLinearGradient(0, -10, 0, 2);
+  rim.addColorStop(0, "rgba(255,255,255,0.95)");
+  rim.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = 1.6;
+  ctx.stroke(bolt);
+  ctx.restore();
+  ctx.lineWidth = 0.9;
+  ctx.strokeStyle = active ? "#8a5208" : "#4a4a4a";
+  ctx.stroke(bolt);
+  ctx.restore();
+}
+
+/** A small four-pointed twinkle. */
+function twinkle(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x, y - s);
+  ctx.quadraticCurveTo(x, y, x + s, y);
+  ctx.quadraticCurveTo(x, y, x, y + s);
+  ctx.quadraticCurveTo(x, y, x - s, y);
+  ctx.quadraticCurveTo(x, y, x, y - s);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * The energy in the corner of the book: a bolt and how many points there are (it opens the energy page), and when the next one comes.
+ * When a point has just been spent (ui.energyFx counts the seconds) the bolt gives a soft pulse with a ring of light round it, the old number slides
+ * up and out while the new one slides in from below, a few twinkles drift up, and a "-1" rises and fades.
+ */
+export function drawEnergyPill(ctx: CanvasRenderingContext2D, n: number, nextSeconds: number, unlimited = false): void {
+  const f = ui.energyFx;
+  const spending = f >= 0 && f < 1 && !unlimited;
+  const ease = (u: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, u)), 3);
+  const ink = n > 0 || unlimited ? "#ffffff" : "#ff9a8f";
+  drawButton(ctx, "energy", {x: 8, y: 6, w: 70, h: 30}, "", "secondary", {
+    draw: (c, cx, cy) => {
+      // The bolt: it swells a little and settles.
+      const pop = spending ? 1 + 0.3 * Math.pow(Math.max(0, 1 - f / 0.32), 2) : 1;
+      c.save();
+      c.translate(cx - 17, cy);
+      c.scale(pop, pop);
+      drawBolt(c, 0, 0, 20, n > 0 || unlimited);
+      c.restore();
+      if (unlimited) {
+        text(c, "∞", cx + 11, cy + 1, 24, ink, "center", "rgba(40,25,5,0.85)");
+      } else if (spending) {
+        // The old number goes up and out, the new one comes up from below.
+        const u = ease(f / 0.42);
+        c.save();
+        c.beginPath();
+        c.rect(cx - 3, cy - 14, 28, 28);
+        c.clip();
+        c.globalAlpha = 1 - u;
+        text(c, String(n + 1), cx + 11, cy + 1 - u * 15, 20, "#ffffff", "center", "rgba(40,25,5,0.85)");
+        c.globalAlpha = u;
+        text(c, String(n), cx + 11, cy + 1 + (1 - u) * 15, 20, ink, "center", "rgba(40,25,5,0.85)");
+        c.restore();
+      } else {
+        text(c, String(n), cx + 11, cy + 1, 20, ink, "center", "rgba(40,25,5,0.85)");
+      }
+    },
+  });
+  if (n < ENERGY_MAX && !unlimited) text(ctx, `+1 · ${clock(nextSeconds)}`, 43, 46, 12, "#fff3c0", "center", "rgba(0,0,0,0.75)");
+  if (!spending) return;
+  const u = Math.min(1, f / 0.6);
+  ctx.save();
+  // A soft glow round the bolt, and a ring of light that spreads and fades.
+  const glow = ctx.createRadialGradient(26, 21, 2, 26, 21, 26);
+  glow.addColorStop(0, `rgba(255,236,150,${0.55 * (1 - u)})`);
+  glow.addColorStop(1, "rgba(255,236,150,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(26, 21, 26, 0, TAU);
+  ctx.fill();
+  ctx.lineWidth = 0.8 + 2 * (1 - u);
+  ctx.strokeStyle = `rgba(255,240,170,${0.85 * (1 - u)})`;
+  ctx.beginPath();
+  ctx.arc(26, 21, 8 + ease(u) * 22, 0, TAU);
+  ctx.stroke();
+  // Twinkles drift up from the bolt.
+  const drift = [[-6, 0.0, 3.4], [7, 0.12, 2.8], [-1, 0.22, 2.4], [11, 0.3, 2.2], [-10, 0.38, 2]] as const;
+  for (const [dx, delay, size] of drift) {
+    const k = (f - delay) / 0.62;
+    if (k <= 0 || k >= 1) continue;
+    ctx.globalAlpha = Math.sin(k * Math.PI);
+    ctx.fillStyle = "#fff6c4";
+    twinkle(ctx, 26 + dx + Math.sin(k * 5 + dx) * 2, 21 - ease(k) * 30, size * (1 - k * 0.3));
+  }
+  // The -1, rising from the number and fading away.
+  const a = Math.min(1, f / 0.14) * (1 - Math.max(0, (f - 0.5) / 0.5));
+  ctx.globalAlpha = Math.max(0, a);
+  text(ctx, "−1", 70, 30 - ease(f / 0.9) * 13, 16, "#fff3c0", "center", "rgba(70,40,5,0.85)");
+  ctx.restore();
+}
+
+const CUP_NAME = {gold: "cupGold", thermos: "cupThermos", magnet: "cupMagnet", big: "cupBig", laser: "cupLaser"} as const;
+const CUP_DESC = {gold: ["cupGoldA", "cupGoldB"], thermos: ["cupThermosA", "cupThermosB"], magnet: ["cupMagnetA", "cupMagnetB"], big: ["cupBigA", "cupBigB"], laser: ["cupLaserA", "cupLaserB"]} as const;
+
+/**
+ * The cups of the desk: the four cups on a strip, each with a badge for every power it has (the colours of the powers mix on the cup), and for the
+ * cup that is chosen a list of the powers that have been bought, as switches. It opens when a cup is bought, so that it can be put on the cups, and
+ * from the shop.
+ */
+export function drawCups(ctx: CanvasRenderingContext2D): void {
+  ctx.fillStyle = "rgba(8,6,14,0.8)";
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+  registerHit(ctx, "cupsPanel", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
+  const owned = SHOP_CUPS.filter((k) => (ui.owned[k] ?? 0) > 0);
+  const rowH = 42;
+  const listY = 312;
+  // (the panel is as tall as the list of powers is long)
+  const listEnd = owned.length > 0 ? listY + owned.length * rowH + 4 : 296;
+  const panel = {x: 22, y: 90, w: 316, h: listEnd + 14 + 42 + 18 - 90};
+  // (a solid colour under the panel, so that the page behind it does not show through)
+  ctx.fillStyle = "#241d33";
+  roundRect(ctx, panel.x, panel.y, panel.w, panel.h, 24);
+  ctx.fill();
+  drawPanel(ctx, panel.x, panel.y, panel.w, panel.h, 24);
+  drawRibbon(ctx, W / 2, 62, 230, t("cupsTitle"), "#ffe27a", "#d49a14");
+  const focus = ui.cupFocus && isShopCup(ui.cupFocus) ? t(CUP_NAME[ui.cupFocus]) : null;
+  ctx.font = `600 13px ${FONT}`;
+  const intro = owned.length === 0 ? t("cupsNone") : focus ? t("cupsPick", {name: focus}) : t("cupsHelp");
+  wrapLines(ctx, intro, panel.w - 44)
+    .slice(0, 2)
+    .forEach((line, k) => write(ctx, line, W / 2, 126 + k * 17, 13, "#e8dcc2", "center", 600));
+
+  // The four cups, on a strip (the desk).
+  const stripY = 150;
+  const stripH = 116;
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  roundRect(ctx, 34, stripY, 292, stripH, 16);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  ctx.stroke();
+  for (let i = 0; i < 4; i++) {
+    const cx = 44 + i * 68 + 34;
+    const kinds = (ui.slots[i] ?? []).filter(isShopCup);
+    const chosen = ui.cupSlot === i;
+    if (chosen) {
+      ctx.save();
+      ctx.shadowColor = "rgba(255,213,74,0.55)";
+      ctx.shadowBlur = 14;
+      const card = ctx.createLinearGradient(0, stripY + 6, 0, stripY + stripH - 6);
+      card.addColorStop(0, "rgba(255,226,122,0.26)");
+      card.addColorStop(1, "rgba(255,213,74,0.1)");
+      ctx.fillStyle = card;
+      roundRect(ctx, cx - 32, stripY + 6, 64, stripH - 12, 12);
+      ctx.fill();
+      ctx.restore();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(255,213,74,0.95)";
+      roundRect(ctx, cx - 32, stripY + 6, 64, stripH - 12, 12);
+      ctx.stroke();
+    }
+    registerHit(ctx, `cups:slot:${i}`, {x: cx - 34, y: stripY, w: 68, h: stripH});
+    // The number of the cup.
+    ctx.fillStyle = chosen ? "#ffd54a" : "rgba(255,255,255,0.16)";
+    ctx.beginPath();
+    ctx.arc(cx - 21, stripY + 20, 8.5, 0, TAU);
+    ctx.fill();
+    write(ctx, String(i + 1), cx - 21, stripY + 21, 12, chosen ? "#4a2a05" : "#e8dcc2", "center", 800);
+    drawShopCup(ctx, kinds, cx, stripY + 84, 0.72, {badges: "below"});
+  }
+
+  // What the chosen cup has: a title, quick buttons, and the powers as a list of switches.
+  write(ctx, t("cupsOf", {n: ui.cupSlot + 1}), 40, 290, 17, "#ffffff", "left", 700);
+  if (owned.length > 0) {
+    drawButton(ctx, "cups:all", {x: 214, y: 277, w: 52, h: 26}, t("cupsAll"), "secondary", {size: 12.5});
+    drawButton(ctx, "cups:clear", {x: 272, y: 277, w: 52, h: 26}, t("cupsClear"), "secondary", {size: 12.5});
+  }
+  if (owned.length > 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.055)";
+    roundRect(ctx, 34, listY - 4, 292, owned.length * rowH + 8, 14);
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.stroke();
+  }
+  owned.forEach((kind, i) => {
+    const y0 = listY + i * rowH;
+    const on = (ui.slots[ui.cupSlot] ?? []).includes(kind);
+    const marked = ui.cupFocus === kind;
+    // (every cup that has a power needs a copy of its own: a power with none to spare cannot be switched on)
+    const used = ui.slots.filter((list) => list.includes(kind)).length;
+    const free = (ui.owned[kind] ?? 0) - used;
+    const locked = !on && free < 1;
+    if (marked) {
+      ctx.fillStyle = "rgba(255,213,74,0.1)";
+      roundRect(ctx, 38, y0, 284, rowH - 2, 11);
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgba(255,213,74,0.65)";
+      ctx.stroke();
+    } else if (i > 0) {
+      ctx.fillStyle = "rgba(255,255,255,0.07)";
+      ctx.fillRect(52, y0 - 1, 258, 1);
+    }
+    registerHit(ctx, `cups:toggle:${kind}`, {x: 34, y: y0 - 1, w: 292, h: rowH});
+    drawPropBadge(ctx, kind, 62, y0 + rowH / 2 - 1, 14);
+    write(ctx, t(CUP_NAME[kind]), 86, y0 + 12, 15, locked ? "#a79bc0" : "#ffffff", "left", 700);
+    // How many of the copies are on cups.
+    ctx.font = `700 15px ${FONT}`;
+    const nameW = ctx.measureText(t(CUP_NAME[kind])).width;
+    ctx.fillStyle = "rgba(255,255,255,0.14)";
+    roundRect(ctx, 86 + nameW + 8, y0 + 4, 34, 16, 8);
+    ctx.fill();
+    write(ctx, `${used}/${ui.owned[kind] ?? 0}`, 86 + nameW + 25, y0 + 12.5, 10.5, free < 1 ? "#ffd54a" : "#e8dcc2", "center", 700);
+    ctx.font = `600 10px ${FONT}`;
+    wrapLines(ctx, CUP_DESC[kind].map((k) => t(k)).join(" "), 176)
+      .slice(0, 2)
+      .forEach((line, k) => write(ctx, line, 86, y0 + 25 + k * 11, 10, "#bfb3d6", "left", 600));
+    // The switch.
+    const sx = 322 - 12 - 44;
+    ctx.globalAlpha = locked ? 0.4 : 1;
+    ctx.fillStyle = on ? "#2fae5e" : "rgba(255,255,255,0.16)";
+    roundRect(ctx, sx, y0 + rowH / 2 - 13, 44, 24, 12);
+    ctx.fill();
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = on ? "#0f5a2a" : "rgba(255,255,255,0.3)";
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(on ? sx + 33 : sx + 11, y0 + rowH / 2 - 1, 9, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+  drawButton(ctx, "cups:close", {x: 70, y: listEnd + 14, w: 220, h: 42}, t("cupsClose"), "primary", {size: 19});
+}
+
+/** The coins in the corner of the book (on a tall phone, under the energy): a coin and how many there are; it opens the shop. */
+export function drawCoinPill(ctx: CanvasRenderingContext2D, coins: number): void {
+  drawButton(ctx, "coins", {x: 8, y: 62, w: 70, h: 30}, "", "secondary", {
+    draw: (c, cx, cy) => {
+      drawCoin(c, cx - 17, cy, 9);
+      text(c, String(coins), cx + 11, cy + 1, 18, "#ffffff", "center", "rgba(40,25,5,0.85)");
+    },
+  });
+}
+
+/**
+ * The energy page: a dark veil and a panel with how much energy there is, when the next point comes, and the button that gives more for an
+ * ad. It opens when a try is started with none left, or from the corner of the book.
+ */
+export function drawEnergy(ctx: CanvasRenderingContext2D, n: number, nextSeconds: number, time: number): void {
+  ctx.fillStyle = "rgba(8,6,14,0.74)";
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+  registerHit(ctx, "energyClose", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
+  const panel = {x: 40, y: 150, w: 280, h: 400};
+  registerHit(ctx, "energyPanel", panel);
+  drawPanel(ctx, panel.x, panel.y, panel.w, panel.h, 24);
+  drawRibbon(ctx, W / 2, 120, 220, t(n > 0 ? "energy" : "energyOut"), "#ffe27a", "#d49a14");
+  drawBolt(ctx, W / 2 - 62, 218, 54, n > 0);
+  text(ctx, `${n} / ${ENERGY_MAX}`, W / 2 + 30, 220, 46, n > 0 ? "#ffffff" : "#ff9a8f", "center", "rgba(40,25,5,0.85)");
+  write(ctx, n >= ENERGY_MAX ? t("energyFull") : t("energyNext", {t: clock(nextSeconds)}), W / 2, 266, 17, "#f3ecdd", "center", 700);
+  t("energyInfo", {n: ENERGY_REGEN_SECONDS / 60})
+    .split("|")
+    .forEach((line, i) => write(ctx, line, W / 2, 298 + i * 20, 14, "#e8dcc2", "center", 600));
+  if (n < ENERGY_MAX) drawButton(ctx, "energyAd", {x: W / 2 - 110, y: 346, w: 220, h: 56}, t("energyAd", {n: ENERGY_PER_AD}), "green", {pulse: time, size: 19});
+  // (the energy can also be bought with coins, on the page for it in the book)
+  drawButton(ctx, "energyShop", {x: W / 2 - 110, y: n < ENERGY_MAX ? 412 : 346, w: 220, h: 46}, t("energyBuy"), "primary", {size: 18});
+  drawButton(ctx, "energyClose", {x: W / 2 - 110, y: n < ENERGY_MAX ? 468 : 402, w: 220, h: 46}, t("done"), "secondary", {size: 19});
+}
+
 /**
  * The pause page of a round: a dark veil and a panel with Resume, the sound and Quit. The game waits behind it, and a tap
  * outside the panel does nothing (so that a stray tap does not start the round again).
  */
 export function drawPause(ctx: CanvasRenderingContext2D, muted: boolean, music: boolean, time: number): void {
   ctx.fillStyle = "rgba(8,6,14,0.74)";
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
   const panel = {x: 40, y: 150, w: 280, h: 340};
   drawPanel(ctx, panel.x, panel.y, panel.w, panel.h, 24);
   drawRibbon(ctx, W / 2, 120, 220, t("paused"), "#ffe27a", "#d49a14");
@@ -290,8 +603,8 @@ export function drawTrophy(ctx: CanvasRenderingContext2D, cx: number, cy: number
 /** The top list of the endless game: the best ten with their names, or what is wrong with it. Tapping the veil, or Done, closes it. */
 export function drawScores(ctx: CanvasRenderingContext2D, bd: Board, myDevice: string, time: number): void {
   ctx.fillStyle = "rgba(8,6,14,0.74)";
-  ctx.fillRect(0, 0, W, H);
-  registerHit(ctx, "scoresClose", {x: 0, y: 0, w: W, h: H});
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+  registerHit(ctx, "scoresClose", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
   const panel = {x: 24, y: 92, w: 312, h: 476};
   registerHit(ctx, "scoresPanel", panel);
   drawPanel(ctx, panel.x, panel.y, panel.w, panel.h, 24);

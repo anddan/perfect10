@@ -1,5 +1,8 @@
-import {BONUS_POINTS, CHAIN_LENGTH, GHOST_PERIOD, ICE_HITS, COLS, PLUS_COLS, WIN_DELAY, COMBO_SECONDS, COMBO_BONUS, SCREEN_MAX, SWEEP_DOWN, SWEEP_HOLD, SWEEP_UP, SWEEP_EDGE, CUP_H, CUP_START_Y, SLOW_FACTOR, SLOW_SECONDS, DIVE_GRAVITY, DIVE_HOP, CUP_W, MISS_Y, STAGES, TAP_RADIUS, TARGET, TUTORIAL_STEPS, W} from "./constants";
-import type {Bonus, Cup, Feature, GameOverReason, GameState, Mode, NumberTile, Op} from "./types";
+import {PERKS, PERK_LIMIT, PERK_SLOWER, dayKey, rungEnds, rungsDone, seedOfDay, seededRandom} from "./daily";
+import {BIG_LIMIT, GOLD_FACTOR, LASER_COOLDOWN, LASER_HALF_WIDTH, MAGNET_REACH} from "./cups";
+import {DAILY_RUNGS, DIAMOND_TEN_CHANCE} from "./constants";
+import {BONUS_POINTS, BOMB_RADIUS, PAUSE_SECONDS, CHAIN_LENGTH, GHOST_PERIOD, ICE_HITS, COLS, PLUS_COLS, WIN_DELAY, COMBO_SECONDS, COMBO_BONUS, SCREEN_MAX, SWEEP_DOWN, SWEEP_HOLD, SWEEP_UP, SWEEP_EDGE, CUP_H, CUP_START_Y, SLOW_FACTOR, SLOW_SECONDS, DIVE_GRAVITY, DIVE_HOP, CUP_W, MISS_Y, STAGES, TAP_RADIUS, TARGET, TUTORIAL_STEPS, W} from "./constants";
+import type {Bonus, Cup, Feature, GameOverReason, GameState, Mode, NumberTile, Op, PerkId} from "./types";
 
 // ---- Difficulty -----------------------------------------------------------------------
 
@@ -10,11 +13,24 @@ export function fallSpeed(level: number): number {
 
 /**
  * How much slower the numbers fall on the later levels of a chapter (the same in every chapter): levels 4 to 6 fall 5% slower,
- * levels 7 to 9 10% slower and levels 10 to 12 about 28% slower (they were 15% slower, and are now another 15% slower on top of
- * that). The tutorial and the endless game (stage 0) are not slowed down.
+ * levels 7 to 9 10% slower and levels 10 to 12 about 28% slower; and on top of that every level from 4 up falls another 15% slower
+ * (so 19%, 24% and 39% slower than levels 1 to 3). The tutorial (stage 0) is not slowed down; the endless game has its own rule (`speedFactorOf`).
  */
 export function stageSpeedFactor(stage: number): number {
-  return stage >= 10 ? 0.7225 : stage >= 7 ? 0.9 : stage >= 4 ? 0.95 : 1;
+  if (stage < 4) return 1;
+  const row = stage >= 10 ? 0.85 * 0.85 : stage >= 7 ? 0.9 : 0.95;
+  return row * LATER_LEVELS_SLOWER * (stage >= 7 ? LEVELS_7_UP_SLOWER : 1);
+}
+
+/** Levels 4 and up (in every chapter, and in the endless game from its level 4) fall another 15% slower than the row of the chapter says. */
+const LATER_LEVELS_SLOWER = 0.85;
+/** And levels 7 to 12 another 10% slower on top of that. */
+const LEVELS_7_UP_SLOWER = 0.9;
+
+/** The same for the round that is being played: the book follows its level, and the endless game its own level (from level 4). */
+export function speedFactorOf(g: GameState): number {
+  if (g.mode === "endless") return (endlessLevel(g) >= 4 ? LATER_LEVELS_SLOWER : 1) * g.speedMul;
+  return stageSpeedFactor(g.stage);
 }
 
 /** Levels 10 to 12 get 20% fewer numbers: the time between new numbers is 1 / 0.8 = 1.25 times as long. */
@@ -61,12 +77,12 @@ function baseFor(mode: Mode, stage: number): number {
 
 /**
  * How many cups have to reach 10 to clear a game (infinity: it never ends). Every row of the book needs one more than the row
- * before: levels 1-3 need 3, levels 4-6 need 4, levels 7-9 need 5 and levels 10-12 need 6. The levels of the space chapter need two
- * more than that: 5, 6, 7 and 8.
+ * before: levels 1-3 need 4, levels 4-6 need 5, levels 7-9 need 6 and levels 10-12 need 7 (one more than they used to). The levels of the
+ * space chapter need two more than that: 6, 7, 8 and 9.
  */
 export function goalFor(mode: Mode, stage = 1): number {
   if (mode === "endless" || mode === "tutorial") return Infinity;
-  return 3 + Math.floor((Math.max(1, stage) - 1) / 3) + (mode === "space" ? 2 : 0);
+  return 4 + Math.floor((Math.max(1, stage) - 1) / 3) + (mode === "space" ? 2 : 0);
 }
 
 /**
@@ -92,6 +108,8 @@ export const ENDLESS_CUPS_PER_LEVEL = 5;
  * getting harder.
  */
 export function endlessLevel(g: GameState): number {
+  // (in the daily challenge the levels are the rungs of the ladder, which need one more cup each: 5, 6, 7 ...)
+  if (g.daily) return rungsDone(g.level - 1) + 1;
   return Math.floor((g.level - 1) / ENDLESS_CUPS_PER_LEVEL) + 1;
 }
 
@@ -125,24 +143,36 @@ function kinds(g: GameState): {minus: boolean; times: boolean; div: boolean} {
 /** The chance that a new number is a 0, when there is a cup it can help. */
 const ZERO_CHANCE = 0.12;
 
+/** The chance that a new number is an orange 10 (which sets a cup to exactly 10), when there is a cup it can help. */
+const TEN_CHANCE = 0.06;
+
 /** All of the new kinds of number, in the order the book brings them in. */
-export const FEATURES: Feature[] = ["screen", "cups", "zero", "life", "slow", "chain", "points", "ice", "ghost", "fog", "star", "steel", "chain3"];
+export const FEATURES: Feature[] = ["screen", "cups", "zero", "ten", "life", "slow", "pause", "chain", "points", "bomb", "cloth", "ice", "shield", "ghost", "diamond", "fog", "star", "steel", "chain3", "reverse"];
 
 /**
  * Where the book presents each new kind of number, and where it starts to come: the chapter and the level of it. The first chapter
  * has three cups, brings the pull-down screen (level 2) and the orange 0 (level 4), a life ball (level 7) and a slow motion ball (level 10), plus and minus brings chains (level 4)
- * and the points ball (level 7), times brings ice, divide brings ghosts and space brings the black number that hides the number of a cup (level 4) the star that clears all the cups (level 1), the steel number that cannot be tapped (level 7) and the chain of three (level 10). A new kind stays in the chapters after the one that brought it.
+ * and the points ball (level 7) and, at level 10 of plus and minus, the pause ball that stops the numbers for a few seconds, times brings ice
+ * (level 4), the bomb that blows away the numbers round it (level 7) and the cloth ball that gives one more pull-down screen (level 10),
+ * divide brings the shield ball that protects a cup (level 7) and ghosts and space brings the black number that hides the number of a cup (level 4) the star that clears all the cups (level 1), the steel number that cannot be tapped (level 7) and the chain of three (level 10). A new kind stays in the chapters after the one that brought it.
  */
 export const FEATURE_AT: Record<Feature, {mode: Mode; stage: number}> = {
   screen: {mode: "plus", stage: 2},
   cups: {mode: "mixed", stage: 1},
   zero: {mode: "plus", stage: 4},
+  ten: {mode: "plus", stage: 12},
   life: {mode: "plus", stage: 7},
   slow: {mode: "plus", stage: 10},
+  pause: {mode: "mixed", stage: 10},
   chain: {mode: "mixed", stage: 4},
   points: {mode: "mixed", stage: 7},
+  bomb: {mode: "times", stage: 7},
+  cloth: {mode: "times", stage: 10},
+  shield: {mode: "divide", stage: 7},
   ice: {mode: "times", stage: 4},
   ghost: {mode: "divide", stage: 4},
+  diamond: {mode: "divide", stage: 10},
+  reverse: {mode: "space", stage: 12},
   fog: {mode: "space", stage: 4},
   star: {mode: "space", stage: 1},
   steel: {mode: "space", stage: 7},
@@ -150,7 +180,7 @@ export const FEATURE_AT: Record<Feature, {mode: Mode; stage: number}> = {
 };
 
 /** In the endless game (which comes after the whole book): the level each one comes from. */
-const ENDLESS_FEATURE_FROM: Record<Feature, number> = {screen: 1, cups: 1, zero: 2, points: 1, life: 1, slow: 1, chain: 4, ghost: 7, ice: 10, fog: 12, star: 8, steel: 11, chain3: 14};
+const ENDLESS_FEATURE_FROM: Record<Feature, number> = {screen: 1, cups: 1, zero: 2, ten: 3, points: 1, life: 1, slow: 1, pause: 5, bomb: 9, shield: 6, cloth: 11, chain: 4, ghost: 7, ice: 10, fog: 12, star: 8, steel: 11, chain3: 14, diamond: 13, reverse: 15};
 
 const CHAPTERS: Mode[] = ["plus", "mixed", "times", "divide", "space"];
 
@@ -199,6 +229,12 @@ function steelChance(g: GameState): number {
   return age < 0 ? 0 : Math.min(0.2, 0.1 + 0.02 * Math.min(age, 8));
 }
 
+/** The very last kind: some numbers have reversed colours (a plus number is red, a minus number green). The chance that a new number is one. */
+function reverseChance(g: GameState): number {
+  const age = featureAge(g, "reverse");
+  return age < 0 ? 0 : Math.min(0.35, 0.18 + 0.04 * Math.min(age, 8));
+}
+
 /** Some numbers are frozen in ice: the chance that a new (ordinary) number is one. */
 function iceChance(g: GameState): number {
   const age = featureAge(g, "ice");
@@ -223,7 +259,7 @@ function minusChance(g: GameState): number {
 
 /** The chance that a number is one that finishes a cup: the help thins out in the later levels. */
 function helpChance(g: GameState): number {
-  return isLevelMode(g.mode) ? Math.max(0.15, 0.4 - 0.03 * (g.stage - 1)) : 0.35;
+  return isLevelMode(g.mode) ? Math.max(0.15, 0.4 - 0.03 * (g.stage - 1)) : 0.35 + 0.12 * g.perks.filter((p) => p === "help").length;
 }
 
 // ---- Creating and restarting ----------------------------------------------------------
@@ -239,11 +275,21 @@ export function createGame(rng: () => number = Math.random, best = 0): GameState
     mode: "plus",
     stage: 1,
     base: 0,
+    extra: 0,
+    zap: null,
+    loadout: [],
+    daily: false,
+    perks: [],
+    perkChoices: [],
+    speedMul: 1,
     tutorialStep: 0,
     tutorialDelay: 0,
     tutorialNote: "",
     slow: 0,
+    pause: 0,
     bonusTimer: 25,
+    showcase: [],
+    showTimer: 0,
     cols: COLS,
     cups: [],
     numbers: [],
@@ -286,8 +332,12 @@ function resetCups(g: GameState, values?: number[]): void {
     ripple: 0,
     showTen: 0,
     tenSign: 1,
+    tenCarry: 0,
     flash: 0,
     hidden: false,
+    kinds: [],
+    charge: 0,
+    shield: false,
     seed: g.rng() * 10,
   }));
 }
@@ -300,17 +350,24 @@ export function showMenu(g: GameState): void {
   g.combo = 0;
   g.comboTimer = 0;
   g.sweep = -1;
+  g.zap = null;
   g.cols = COLS;
   g.numbers = [];
   g.banner = 0;
   g.shake = 0;
   g.slow = 0;
+  g.pause = 0;
   resetCups(g, [2, 5, 7, 9]);
 }
 
 /** Starts a round. Without a mode (and level) it plays the same game again. */
 export function startGame(g: GameState, mode: Mode = g.mode, stage: number = g.stage): void {
   g.mode = mode;
+  g.zap = null;
+  g.daily = false;
+  g.perks = [];
+  g.perkChoices = [];
+  g.speedMul = 1;
   g.stage = isLevelMode(mode) ? Math.min(STAGES, Math.max(1, stage)) : 0;
   g.base = baseFor(mode, g.stage);
   g.tutorialStep = 0;
@@ -335,15 +392,151 @@ export function startGame(g: GameState, mode: Mode = g.mode, stage: number = g.s
   g.banner = 0;
   g.shake = 0;
   g.slow = 0;
+  g.pause = 0;
   g.bonusTimer = nextBonusIn(g);
   g.cols = columnsFor(mode);
   resetCups(g);
+  // The cups from the shop (not in the tutorial): the first one chosen stands furthest to the left. A thermos starts with its shield on.
+  if (mode !== "tutorial") {
+    g.cups.forEach((c, i) => {
+      c.kinds = [...(g.loadout[i] ?? [])];
+      c.charge = 0;
+      if (c.kinds.includes("thermos")) c.shield = true;
+    });
+  }
   if (mode === "tutorial") tutorialSetup(g);
   // A level that brings in a new kind of number starts by presenting it (unless the player has asked not to see it again).
+  g.showcase = [];
   if (isLevelMode(mode)) {
     g.intro = presentedAt(mode, g.stage).filter((f) => !g.hideIntros.has(f));
     if (g.intro.length > 0) g.phase = "intro";
+    // Whether it is presented or not, the new kind is made to fall a few seconds into the level, so that it is seen where it is new.
+    planShowcase(g, presentedAt(mode, g.stage));
   }
+}
+
+/** Starts the daily challenge of a day: the endless game, with random numbers that are the same for everyone on that day. */
+export function startDaily(g: GameState, day: string = dayKey()): void {
+  g.rng = seededRandom(seedOfDay(day));
+  startGame(g, "endless");
+  g.daily = true;
+}
+
+/** The perks that can be offered now: the ones that would do something, and have not been taken as many times as they can be. */
+function perkOptions(g: GameState): PerkId[] {
+  const living = g.cups.filter((c) => !c.dead);
+  return PERKS.filter((p) => {
+    if (g.perks.filter((q) => q === p).length >= PERK_LIMIT[p]) return false;
+    if (p === "shield") return living.some((c) => !c.shield);
+    if (p === "cloth") return g.screens < SCREEN_MAX;
+    if (p === "life") return g.cups.some((c) => c.dead);
+    if (p === "gold" || p === "thermos" || p === "magnet" || p === "big" || p === "laser") return living.some((c) => !c.kinds.includes(p));
+    return true;
+  });
+}
+
+/** Takes the perk that was chosen (0 to 2 of the three on offer), and the round goes on. */
+export function choosePerk(g: GameState, index: number): boolean {
+  const perk = g.perkChoices[index];
+  if (g.phase !== "perk" || perk === undefined) return false;
+  g.perks.push(perk);
+  g.perkChoices = [];
+  g.phase = "play";
+  if (perk === "slow") g.speedMul *= PERK_SLOWER;
+  else if (perk === "cloth") giveScreens(g, 1);
+  else if (perk === "shield") {
+    const cup = g.cups.find((c) => !c.dead && !c.shield);
+    if (cup) {
+      cup.shield = true;
+      cup.flash = 0.6;
+      g.events.push({t: "shield", cupId: cup.id, x: cup.x, y: cup.y - CUP_H / 2, on: true});
+    }
+  } else if (perk === "life") {
+    const dead = g.cups.find((c) => c.dead);
+    if (dead) {
+      dead.dead = false;
+      dead.value = 0;
+      dead.hidden = false;
+      dead.flash = 1;
+      dead.ripple = 1;
+    }
+  } else if (perk === "gold" || perk === "thermos" || perk === "magnet" || perk === "big" || perk === "laser") {
+    // The property goes on the cup that is fullest and does not have it yet (it matters most there), on top of what the cup has.
+    let cup: Cup | undefined;
+    for (const c of g.cups) if (!c.dead && !c.kinds.includes(perk) && (!cup || c.value > cup.value)) cup = c;
+    if (cup) {
+      cup.kinds.push(perk);
+      cup.charge = 0;
+      cup.flash = 1;
+      if (perk === "thermos") cup.shield = true;
+    }
+  }
+  return true;
+}
+
+/** Three perks to choose between (as many as there are, if there are fewer). */
+function offerPerks(g: GameState): void {
+  const options = perkOptions(g);
+  const choices: PerkId[] = [];
+  while (choices.length < 3 && options.length > 0) choices.push(options.splice(Math.floor(g.rng() * options.length), 1)[0]);
+  if (choices.length === 0) return;
+  g.perkChoices = choices;
+  g.phase = "perk";
+  g.overTimer = 0;
+}
+
+/** Adds new kinds of number to the ones that are to be made to fall a few seconds from now (the screen and the fourth cup do not fall, so they are left out). */
+function planShowcase(g: GameState, features: Feature[]): void {
+  const list = features.filter((f) => f !== "screen" && f !== "cups");
+  if (list.length === 0) return;
+  if (g.showcase.length === 0) g.showTimer = 3 + g.rng() * 2;
+  g.showcase = [...g.showcase, ...list];
+}
+
+/** The kinds that are bonus balls (their names are the same as the bonus kinds). */
+const BONUS_FEATURES: Feature[] = ["life", "points", "slow", "pause", "bomb", "cloth", "shield", "star", "diamond"];
+
+/** Makes one of the new kinds fall now, in a free column (false if there is no room for it just now: it is tried again soon). */
+function spawnShowcase(g: GameState, f: Feature): boolean {
+  if (BONUS_FEATURES.includes(f)) return spawnBonus(g, f as Bonus);
+  const free = g.cols.map((_, i) => i).filter((i) => !g.numbers.some((n) => n.col === i && n.state === "fall" && n.y < spawnY(g) + 96));
+  if (free.length === 0) return false;
+  if (f === "chain" || f === "chain3") {
+    const size = f === "chain" ? 2 : 3;
+    const starts = free.filter((i) => Array.from({length: size}, (_, k) => i + k).every((j) => free.includes(j)));
+    if (starts.length === 0) return false;
+    const first = starts[Math.floor(g.rng() * starts.length)];
+    const tiles = Array.from({length: size}, (_, k) => makeNumber(g, first + k, true));
+    tiles[0].chain = tiles[1].id;
+    tiles[1].chain = tiles[0].id;
+    if (size === 3) {
+      tiles[1].chain2 = tiles[2].id;
+      tiles[2].chain = tiles[1].id;
+    }
+    g.numbers.push(...tiles);
+    return true;
+  }
+  const col = free[Math.floor(g.rng() * free.length)];
+  const x = g.cols[col];
+  const v = 1 + Math.floor(g.rng() * maxNumber(hardness(g)));
+  const n =
+    f === "zero"
+      ? newNumber(g, col, x, 0, "zero")
+      : f === "ten"
+        ? newNumber(g, col, x, TARGET, "ten")
+        : f === "fog"
+          ? newNumber(g, col, x, v, "dim")
+          : f === "steel"
+            ? newNumber(g, col, x, 1 + Math.floor(g.rng() * 3), "steel")
+            : newNumber(g, col, x, v, "add");
+  if (f === "ice") n.ice = ICE_HITS;
+  if (f === "reverse") n.flip = true;
+  if (f === "ghost") {
+    n.ghost = g.rng() < 0.5 ? "flip" : "fade";
+    n.phase = -g.time; // it starts out seen
+  }
+  g.numbers.push(n);
+  return true;
 }
 
 function giveScreens(g: GameState, n: number): void {
@@ -358,7 +551,7 @@ function giveScreens(g: GameState, n: number): void {
  * False if there is none to pull down, or it is not time for one.
  */
 export function useScreen(g: GameState): boolean {
-  if (g.phase !== "play" || g.screens <= 0 || g.sweep >= 0 || featureAge(g, "screen") < 0) return false;
+  if (g.phase !== "play" || g.zap || g.screens <= 0 || g.sweep >= 0 || featureAge(g, "screen") < 0) return false;
   g.screens -= 1;
   g.sweep = 0;
   g.events.push({t: "sweep"});
@@ -373,6 +566,13 @@ export function sweepEdge(g: GameState): number {
   if (g.sweep < SWEEP_DOWN) return SWEEP_EDGE * ease(g.sweep / SWEEP_DOWN);
   if (g.sweep < SWEEP_DOWN + SWEEP_HOLD) return SWEEP_EDGE;
   return SWEEP_EDGE * (1 - ease((g.sweep - SWEEP_DOWN - SWEEP_HOLD) / SWEEP_UP));
+}
+
+/** Where the lower edge of the screen is on the playfield (the screen comes down from the top, which is higher up on a tall phone); above the top when no screen is down. */
+export function sweepBottom(g: GameState): number {
+  const e = sweepEdge(g);
+  if (e < 0) return -g.extra - 1;
+  return (e * (SWEEP_EDGE + g.extra)) / SWEEP_EDGE - g.extra;
 }
 
 /** The presentation of a new kind of number is over: the round starts. With "never" it is not shown again. */
@@ -390,12 +590,13 @@ export function endIntro(g: GameState, never = false): void {
 
 function endGame(g: GameState, reason: GameOverReason): void {
   if (g.phase !== "play") return;
+  g.zap = null;
   g.phase = "over";
   g.overReason = reason;
   g.overTimer = 0;
   g.shake = 1;
   // The best score is the endless game's; the levels of the book are cleared or not.
-  g.newBest = g.mode === "endless" && g.score > g.best;
+  g.newBest = g.mode === "endless" && !g.daily && g.score > g.best;
   if (g.newBest) g.best = g.score;
   g.events.push({t: "gameOver", reason, newBest: g.newBest});
 }
@@ -405,7 +606,7 @@ function endGame(g: GameState, reason: GameOverReason): void {
  * record if it is higher than the old one. True if it was a new record (and `g.best` has been raised).
  */
 export function recordBest(g: GameState): boolean {
-  if (g.mode !== "endless" || g.phase === "menu" || g.score <= g.best) return false;
+  if (g.mode !== "endless" || g.daily || g.phase === "menu" || g.score <= g.best) return false;
   g.best = g.score;
   return true;
 }
@@ -434,6 +635,7 @@ export function continueGame(g: GameState): boolean {
   g.lifeDue = false;
   g.sweep = -1;
   g.slow = 0;
+  g.pause = 0;
   g.shake = 0;
   for (const c of g.cups) {
     if (!c.dead) continue;
@@ -578,6 +780,8 @@ function pickNumber(g: GameState, allowSteel = true): Pick {
   }
   // From the level that presents it, an orange 0 sometimes falls (when a living cup has something in it that is worth wiping out).
   if (featureAge(g, "zero") >= 0 && g.cups.some((c) => !c.dead && Math.abs(c.value) >= 4) && g.rng() < ZERO_CHANCE) return {v: 0, op: "zero"};
+  // From the level that presents it, an orange 10 sometimes falls (when a living cup is low enough for it to be worth a lot): it sets the cup to 10.
+  if (featureAge(g, "ten") >= 0 && g.cups.some((c) => !c.dead && Math.abs(c.value) <= 5) && g.rng() < TEN_CHANCE) return {v: TARGET, op: "ten"};
   // From the last chapter's level 4, a black number sometimes falls: it adds like any plus or minus number.
   if (featureAge(g, "fog") >= 0 && g.rng() < fogChance(g)) {
     const v = 1 + Math.floor(g.rng() * max);
@@ -594,19 +798,26 @@ function pickNumber(g: GameState, allowSteel = true): Pick {
   return {v: minus && g.rng() < minusChance(g) ? -v : v, op: "add"};
 }
 
+/** Where a new number starts: just above the top of the playfield (which reaches higher on a tall phone). */
+function spawnY(g: GameState): number {
+  return -26 - g.extra;
+}
+
 function newNumber(g: GameState, col: number, x: number, v: number, op: Op = "add", bonus: Bonus | null = null): NumberTile {
+  const y = spawnY(g);
   return {
     id: g.nextId++,
     col,
     x,
-    y: -26,
-    prevY: -26,
+    y,
+    prevY: y,
     v,
     op,
     bonus,
     chain: null,
     chain2: null,
     ghost: null,
+    flip: false,
     ice: 0,
     state: "fall",
     target: null,
@@ -627,6 +838,9 @@ function newNumber(g: GameState, col: number, x: number, v: number, op: Op = "ad
 function makeNumber(g: GameState, col: number, plain = false): NumberTile {
   const pick = pickNumber(g, !plain);
   const n = newNumber(g, col, g.cols[col], pick.v, pick.op);
+  // (a number that adds, multiplies or divides can have reversed colours; the random numbers are only asked for once that kind has come in)
+  const flipChance = pick.op === "add" || pick.op === "mul" || pick.op === "div" ? reverseChance(g) : 0;
+  if (flipChance > 0 && g.rng() < flipChance) n.flip = true;
   if (plain || pick.op === "steel") return n;
   const ghost = ghostChance(g);
   if (ghost > 0 && g.rng() < ghost) {
@@ -640,7 +854,7 @@ function makeNumber(g: GameState, col: number, plain = false): NumberTile {
 }
 
 function spawn(g: GameState): void {
-  const free = g.cols.map((_, i) => i).filter((i) => !g.numbers.some((n) => n.col === i && n.state === "fall" && n.y < 70));
+  const free = g.cols.map((_, i) => i).filter((i) => !g.numbers.some((n) => n.col === i && n.state === "fall" && n.y < spawnY(g) + 96));
   if (free.length === 0) return;
   // Sometimes two numbers come chained together, side by side in two columns that are both free.
   const chain = chainChance(g);
@@ -675,28 +889,35 @@ function spawn(g: GameState): void {
 
 /** Seconds until the next bonus ball (somewhere between 11 and 20). */
 function nextBonusIn(g: GameState): number {
-  return 11 + g.rng() * 9;
+  return (11 + g.rng() * 9) * 0.6 ** g.perks.filter((p) => p === "bonus").length;
 }
 
 /**
  * A bonus ball falls in a column that is free. Only the kinds the book has brought in yet come (none on the first levels),
  * and a ball that brings a cup back only comes when there is a dead cup.
  */
-function spawnBonus(g: GameState): void {
-  if (g.numbers.some((n) => n.bonus)) return;
+function spawnBonus(g: GameState, forced: Bonus | null = null): boolean {
+  if (g.numbers.some((n) => n.bonus)) return false;
   const hasDead = g.cups.some((c) => c.dead);
   const options: {kind: Bonus; weight: number}[] = [];
   if (hasDead && featureAge(g, "life") >= 0) options.push({kind: "life", weight: 0.4});
   if (featureAge(g, "points") >= 0) options.push({kind: "points", weight: hasDead ? 0.35 : 0.55});
   if (featureAge(g, "slow") >= 0) options.push({kind: "slow", weight: hasDead ? 0.25 : 0.45});
+  if (featureAge(g, "pause") >= 0) options.push({kind: "pause", weight: 0.3});
+  if (featureAge(g, "bomb") >= 0) options.push({kind: "bomb", weight: 0.3});
+  // (a cloth is only worth coming when there is room for one more, and a shield when a living cup has none)
+  if (featureAge(g, "cloth") >= 0 && g.screens < SCREEN_MAX) options.push({kind: "cloth", weight: 0.25});
+  if (featureAge(g, "shield") >= 0 && g.cups.some((c) => !c.dead && !c.shield)) options.push({kind: "shield", weight: hasDead ? 0.3 : 0.45});
   if (featureAge(g, "star") >= 0) options.push({kind: "star", weight: 0.3});
-  if (options.length === 0) return;
-  const free = g.cols.map((_, i) => i).filter((i) => !g.numbers.some((n) => n.col === i && n.state === "fall" && n.y < 70));
-  if (free.length === 0) return;
+  // (the diamond is the best ball there is, so it is rare)
+  if (featureAge(g, "diamond") >= 0) options.push({kind: "diamond", weight: 0.16});
+  if (options.length === 0 && !forced) return false;
+  const free = g.cols.map((_, i) => i).filter((i) => !g.numbers.some((n) => n.col === i && n.state === "fall" && n.y < spawnY(g) + 96));
+  if (free.length === 0) return false;
   const col = free[Math.floor(g.rng() * free.length)];
   let r = g.rng() * options.reduce((sum, o) => sum + o.weight, 0);
-  let kind = options[options.length - 1].kind;
-  for (const o of options) {
+  let kind = forced ?? options[options.length - 1].kind;
+  for (const o of forced ? [] : options) {
     if (r < o.weight) {
       kind = o.kind;
       break;
@@ -705,11 +926,12 @@ function spawnBonus(g: GameState): void {
   }
   // After a cup has died, the next bonus ball is the heart that brings it back.
   if (!hasDead) g.lifeDue = false;
-  if (g.lifeDue && options.some((o) => o.kind === "life")) kind = "life";
+  if (!forced && g.lifeDue && options.some((o) => o.kind === "life")) kind = "life";
   if (kind === "life") g.lifeDue = false;
   const ball = newNumber(g, col, g.cols[col], 0, "add", kind);
   if (kind === "star") ball.speed = 0.5 + g.rng() * 0.5; // (seconds until it first jumps to another column)
   g.numbers.push(ball);
+  return true;
 }
 
 /** The dead cup that stands nearest to an x (undefined if no cup is dead). */
@@ -741,6 +963,46 @@ function collectBonus(g: GameState, n: NumberTile): void {
     g.score += amount;
   }
   if (kind === "slow") g.slow = SLOW_SECONDS;
+  if (kind === "pause") g.pause = PAUSE_SECONDS;
+  if (kind === "cloth") {
+    if (g.screens < SCREEN_MAX) giveScreens(g, 1);
+    else {
+      kind = "points"; // no room for another one (it was got some other way meanwhile): points instead
+      amount = BONUS_POINTS * g.level;
+      g.score += amount;
+    }
+  }
+  if (kind === "shield") {
+    // The shield goes on the living cup that stands nearest to the ball (one that has no shield yet).
+    let cup: Cup | undefined;
+    for (const c of g.cups) if (!c.dead && !c.shield && (!cup || Math.abs(c.x - n.x) < Math.abs(cup.x - n.x))) cup = c;
+    if (cup) {
+      cup.shield = true;
+      cup.flash = 0.6;
+      cup.ripple = 1;
+      g.events.push({t: "shield", cupId: cup.id, x: cup.x, y: cup.y - CUP_H / 2, on: true});
+    } else {
+      kind = "points"; // every living cup has one already: points instead
+      amount = BONUS_POINTS * g.level;
+      g.score += amount;
+    }
+  }
+  if (kind === "bomb") {
+    // Every number close to the bomb is blown away (a number that is on its way into a cup, and the bonus balls, are not touched).
+    const hits: {x: number; y: number}[] = [];
+    for (const m of g.numbers) {
+      if (m.state !== "fall" || m.bonus || m.y < -8 - g.extra) continue;
+      if (Math.hypot(m.x - n.x, m.y - n.y) <= BOMB_RADIUS) {
+        m.done = true;
+        hits.push({x: m.x, y: m.y});
+      }
+    }
+    g.numbers = g.numbers.filter((m) => !m.done);
+    g.shake = Math.max(g.shake, 0.8);
+    amount = hits.length;
+    g.events.push({t: "blast", x: n.x, y: n.y, hits});
+  }
+  if (kind === "diamond") amount = startZap(g, n);
   if (kind === "star") {
     // Every living cup is cleared (back to 0, and its number shown again); a dead cup stays dead. The points are for what was in them.
     for (const c of g.cups) {
@@ -757,13 +1019,17 @@ function collectBonus(g: GameState, n: NumberTile): void {
   g.events.push({t: "bonus", kind, x: n.x, y: n.y, amount});
 }
 
-/** A tap at (x, y). Sends the number there into the nearest living cup. Returns true if it hit one. */
-export function tapAt(g: GameState, x: number, y: number): boolean {
-  if (g.phase !== "play") return false;
+/**
+ * A tap at (x, y). Sends the number there into the nearest living cup. Returns true if it hit one.
+ * A finger that is dragged across the screen taps along its way: `skip` holds the numbers that this stroke has already touched (a number is
+ * only touched once per stroke, so that a swipe across a number in ice does not break all of it at once, or clink on steel over and over).
+ */
+export function tapAt(g: GameState, x: number, y: number, skip?: Set<number>): boolean {
+  if (g.phase !== "play" || g.zap) return false; // (nothing can be tapped while the diamond is at work)
   let hit: NumberTile | undefined;
   let bd = TAP_RADIUS;
   for (const n of g.numbers) {
-    if (n.state !== "fall" || n.y < -8) continue;
+    if (n.state !== "fall" || n.y < -8 - g.extra || skip?.has(n.id)) continue;
     const d = Math.hypot(n.x - x, n.y - y);
     if (d < bd) {
       bd = d;
@@ -771,6 +1037,7 @@ export function tapAt(g: GameState, x: number, y: number): boolean {
     }
   }
   if (!hit) return false;
+  skip?.add(hit.id);
   // A heart goes down into the dead cup, like a number, and brings it back when it lands there.
   if (hit.bonus === "life") {
     const dead = nearestDeadCup(g, hit.x);
@@ -789,11 +1056,12 @@ export function tapAt(g: GameState, x: number, y: number): boolean {
     g.events.push({t: "steel", x: hit.x, y: hit.y});
     return true;
   }
-  // A number frozen in ice: every tap cracks the ice a bit more, and the tap that breaks it sends the number down.
+  // A number frozen in ice: every tap cracks the ice a bit more, and the tap that breaks it only clears the ice away: it takes one more
+  // tap, on the bare number, to send it down (so the player can see when it is free).
   if (hit.ice > 0) {
     hit.ice -= 1;
     g.events.push({t: "ice", x: hit.x, y: hit.y, broke: hit.ice === 0});
-    if (hit.ice > 0) return true;
+    return true;
   }
   if (!sendDown(g, hit, null)) return false;
   // A number on a chain pulls the ones it is chained to down after it, and they pull the ones chained to them (a chain of three goes
@@ -822,7 +1090,18 @@ function sendDown(g: GameState, n: NumberTile, leader: number | null): boolean {
   }
   const cup = nearestAliveCup(g, n.x);
   if (!cup) return false;
-  startDive(g, n, cup.id, cup.x, leader);
+  // A magnet cup takes a number that would have killed the cup under it, if it can take it (from up to two columns away).
+  let target = cup;
+  const killed = (c: Cup) => Math.abs(valueAfter(c, n)) > cupLimit(c);
+  if (killed(cup) && !cup.kinds.includes("magnet") && !cup.shield) {
+    let pull: Cup | undefined;
+    for (const m of g.cups) {
+      if (m.dead || !m.kinds.includes("magnet") || killed(m) || Math.abs(m.x - n.x) > MAGNET_REACH) continue;
+      if (!pull || Math.abs(m.x - n.x) < Math.abs(pull.x - n.x)) pull = m;
+    }
+    if (pull) target = pull;
+  }
+  startDive(g, n, target.id, target.x, leader);
   return true;
 }
 
@@ -842,8 +1121,71 @@ function startDive(g: GameState, n: NumberTile, target: number | null, aim: numb
 
 // ---- Landing --------------------------------------------------------------------------
 
+/**
+ * The diamond has been tapped: it stays where it is and changes every falling number (not the bonus balls) to an orange 10 (one in five)
+ * or an orange 0, the one nearest to it first (see update). Returns how many numbers there are to change.
+ */
+function startZap(g: GameState, diamond: NumberTile): number {
+  const targets = g.numbers
+    .filter((m) => m.state === "fall" && !m.bonus)
+    .sort((a, b) => Math.hypot(a.x - diamond.x, a.y - diamond.y) - Math.hypot(b.x - diamond.x, b.y - diamond.y));
+  const gap = Math.min(0.16, 1.4 / Math.max(1, targets.length));
+  const steps = targets.map((m, i) => ({id: m.id, at: 0.35 + i * gap, ten: g.rng() < DIAMOND_TEN_CHANCE, done: false}));
+  const end = (steps.length > 0 ? steps[steps.length - 1].at : 0.35) + 0.55;
+  g.zap = {time: 0, x: diamond.x, y: diamond.y, end, steps};
+  g.events.push({t: "zap", x: diamond.x, y: diamond.y, hits: steps.map((s, i) => ({x: targets[i].x, y: targets[i].y, at: s.at, ten: s.ten}))});
+  return targets.length;
+}
+
+/**
+ * A laser cup is fired (a double tap on it): every falling number in its column goes, with a beam up the column. A number frozen in ice only loses its
+ * ice (the laser melts it, and the number stays). False if it is not ready (or not a laser cup).
+ */
+export function fireLaser(g: GameState, c: Cup): boolean {
+  if (g.phase !== "play" || !c.kinds.includes("laser") || c.dead || c.charge > 0 || !g.cups.includes(c)) return false;
+  const hits: {x: number; y: number}[] = [];
+  for (const n of g.numbers) {
+    if (n.state !== "fall" || n.bonus || Math.abs(n.x - c.x) > LASER_HALF_WIDTH) continue;
+    if (n.ice > 0) {
+      n.ice = 0;
+      g.events.push({t: "ice", x: n.x, y: n.y, broke: true});
+      continue;
+    }
+    n.done = true;
+    hits.push({x: n.x, y: n.y});
+  }
+  g.numbers = g.numbers.filter((n) => !n.done);
+  c.charge = LASER_COOLDOWN;
+  c.flash = 0.6;
+  g.events.push({t: "laser", x: c.x, y: c.y - CUP_H / 2, hits});
+  return true;
+}
+
+/** How far from 0 the sum in a cup can go before the cup dies: 10 (12 for the big cup). */
+export function cupLimit(c: Cup): number {
+  return c.kinds.includes("big") ? BIG_LIMIT : TARGET;
+}
+
+/** What the sum in a cup would be after this number has landed in it. */
+function valueAfter(c: Cup, n: NumberTile): number {
+  if (n.op === "mul") return c.value * n.v;
+  if (n.op === "div") return Math.trunc(c.value / n.v) + 0; // + 0: never a minus zero
+  if (n.op === "zero") return 0;
+  if (n.op === "ten") return TARGET;
+  return c.value + n.v;
+}
+
 function land(g: GameState, c: Cup, n: NumberTile): void {
   n.done = true;
+  // A cup with a shield: a number that would have killed it is stopped instead (the cup stays as it was, and the shield is used up).
+  if (!c.dead && c.shield && Math.abs(valueAfter(c, n)) > cupLimit(c)) {
+    c.shield = false;
+    c.bump = 1;
+    c.ripple = 1;
+    g.shake = Math.max(g.shake, 0.3);
+    g.events.push({t: "shield", cupId: c.id, x: c.x, y: c.y - CUP_H / 2, on: false});
+    return;
+  }
   g.events.push({t: "land", x: c.x, y: c.y - CUP_H / 2, v: n.v, op: n.op, cupId: c.id});
   // A number in a dead cup: that is the end.
   if (c.dead) {
@@ -854,23 +1196,19 @@ function land(g: GameState, c: Cup, n: NumberTile): void {
   }
   // A blue number multiplies, a yellow one divides, an orange 0 sets the cup to 0, any other adds. (A minus cup is multiplied like any other number:
   // -4 times 2 is -8. A division that does not come out even rounds the size of the cup down: 7 / 2 is 3, and -7 / 2 is -3.)
-  if (n.op === "mul") c.value *= n.v;
-  else if (n.op === "div") c.value = Math.trunc(c.value / n.v) + 0; // + 0: never a minus zero
-  else if (n.op === "zero") {
-    c.value = 0;
-    c.hidden = false; // (a cup that is back at 0 is easy to count again)
-  } else if (n.op === "dim") {
-    c.value += n.v;
-    c.hidden = true;
-  } else c.value += n.v;
+  const next = valueAfter(c, n);
+  c.value = next;
+  if (n.op === "zero" || n.op === "ten") c.hidden = false; // (a cup that is back at 0, or at 10, is easy to count again)
+  else if (n.op === "dim") c.hidden = true;
   c.bump = 1;
   c.ripple = 1;
-  g.score += (n.op === "mul" ? n.v * 3 : n.op === "div" ? n.v * 2 : n.op === "zero" ? 2 : Math.abs(n.v)) * g.level;
+  g.score += (n.op === "mul" ? n.v * 3 : n.op === "div" ? n.v * 2 : n.op === "zero" ? 2 : Math.abs(n.v)) * g.level * (c.kinds.includes("gold") ? GOLD_FACTOR : 1);
   let result: "levelUp" | "bust" | "none" = "none";
-  if (Math.abs(c.value) === TARGET) {
+  // (a big cup has a margin: 10, 11 and 12 are all a perfect 10, and what is over stays in the cup)
+  if (Math.abs(c.value) >= TARGET && Math.abs(c.value) <= cupLimit(c)) {
     levelUp(g, c);
     result = "levelUp";
-  } else if (Math.abs(c.value) > TARGET) {
+  } else if (Math.abs(c.value) > cupLimit(c)) {
     c.dead = true;
     result = "bust";
     // A dead cup: a heart comes soon (the next bonus ball), if hearts have come in.
@@ -890,22 +1228,38 @@ function levelUp(g: GameState, c: Cup): void {
   // A perfect 10 soon after the one before it builds a combo: the points of the perfect 10 go times 2, then times 3, and so on (and a combo is worth twice as much per step as an ordinary perfect 10).
   g.combo = g.comboTimer > 0 ? g.combo + 1 : 1;
   g.comboTimer = COMBO_SECONDS;
-  const bonus = (g.combo >= 2 ? COMBO_BONUS : 50) * g.level * g.combo;
+  const bonus = (g.combo >= 2 ? COMBO_BONUS : 50) * g.level * g.combo * (c.kinds.includes("gold") ? GOLD_FACTOR : 1);
   g.score += bonus;
   if (g.combo >= 2 && g.mode !== "tutorial") g.events.push({t: "combo", n: g.combo, x: c.x, y: c.y - CUP_H / 2, bonus});
   // The cup starts over at 0 (the golden 10 stays on it for a moment).
   c.tenSign = c.value < 0 ? -1 : 1;
-  c.value = 0;
+  c.value -= c.tenSign * TARGET; // (0, or what was over 10 in a big cup: 12 starts over at 2, and -12 at -2)
+  c.tenCarry = c.value;
   c.hidden = false;
   c.showTen = 0.9;
   c.flash = 1;
   // The big LEVEL banner is for the endless game, when a new level of it begins (every fifth cup). In the book
   // the progress bar shows how far you have come.
-  if (g.mode === "endless" && (g.level - 1) % ENDLESS_CUPS_PER_LEVEL === 0) {
+  const newLevel = g.daily ? rungEnds(g.level - 1) : (g.level - 1) % ENDLESS_CUPS_PER_LEVEL === 0;
+  if (g.mode === "endless" && newLevel) {
     g.banner = 1.6;
     giveScreens(g, 1); // (the whole bar is full: a new screen)
+    // What this level of the endless game brings in is made to fall a few seconds in.
+    planShowcase(g, FEATURES.filter((f) => ENDLESS_FEATURE_FROM[f] === endlessLevel(g)));
   }
   g.events.push({t: "levelUp", cupId: c.id, level: g.level});
+  // The daily challenge: every rung of the ladder that is climbed (5 cups, then 6, then 7 ...) gives a perk to choose, and the last one wins the day.
+  if (g.daily && g.mode === "endless" && newLevel) {
+    if (rungsDone(g.level - 1) >= DAILY_RUNGS) {
+      g.phase = "won";
+      g.overTimer = -WIN_DELAY;
+      g.numbers = [];
+      g.banner = 0;
+      g.events.push({t: "won", stars: 3});
+      return;
+    }
+    offerPerks(g);
+  }
   // A level of the book is cleared when enough cups have reached 10.
   if (g.level - 1 >= goalFor(g.mode, g.stage)) {
     // A level cleared with three stars gives a pull-down screen (if there is room for one more).
@@ -928,6 +1282,7 @@ export function update(g: GameState, dt: number): void {
     c.ripple = Math.max(0, c.ripple - dt * 1.5);
     c.showTen = Math.max(0, c.showTen - dt);
     c.flash = Math.max(0, c.flash - dt * 1.5);
+    if (g.phase === "play") c.charge = Math.max(0, c.charge - dt);
   }
   g.shake = Math.max(0, g.shake - dt * 2.2);
   g.banner = Math.max(0, g.banner - dt);
@@ -936,7 +1291,7 @@ export function update(g: GameState, dt: number): void {
     g.overTimer += dt;
     return;
   }
-  if (g.phase === "intro") {
+  if (g.phase === "intro" || g.phase === "perk") {
     g.overTimer += dt; // (how long it has been shown: its buttons wait a moment, as the ones after a round do)
     return;
   }
@@ -949,13 +1304,40 @@ export function update(g: GameState, dt: number): void {
   }
 
   // Slow motion: the numbers fall, and new ones come, at a fraction of the speed.
-  const sdt = g.slow > 0 ? dt * SLOW_FACTOR : dt;
+  // A pause ball stops them dead (no number falls and no new one comes; taps and numbers already on their way into a cup carry on).
+  const paused = g.pause > 0 || g.zap !== null;
+  const sdt = paused ? 0 : g.slow > 0 ? dt * SLOW_FACTOR : dt;
   g.slow = Math.max(0, g.slow - dt);
+  g.pause = Math.max(0, g.pause - dt);
+
+  // The diamond at work: one number after the other is changed to an orange 10 or an orange 0 (the numbers wait where they are), and when it is
+  // done the diamond is gone and everything carries on falling.
+  if (g.zap) {
+    g.zap.time += dt;
+    for (const s of g.zap.steps) {
+      if (s.done || g.zap.time < s.at) continue;
+      s.done = true;
+      const n = g.numbers.find((m) => m.id === s.id && m.state === "fall");
+      if (!n) continue;
+      n.op = s.ten ? "ten" : "zero";
+      n.v = s.ten ? TARGET : 0;
+      n.ice = 0;
+      n.ghost = null;
+      for (const m of g.numbers) {
+        if (m.chain === n.id) m.chain = null;
+        if (m.chain2 === n.id) m.chain2 = null;
+      }
+      n.chain = null;
+      n.chain2 = null;
+      g.events.push({t: "zapHit", x: n.x, y: n.y, ten: s.ten});
+    }
+    if (g.zap.time >= g.zap.end) g.zap = null;
+  }
 
   // The screen that wipes the numbers away: every falling number it reaches is gone.
   if (g.sweep >= 0) {
     g.sweep += dt;
-    const edge = sweepEdge(g);
+    const edge = sweepBottom(g);
     if (g.sweep < SWEEP_DOWN + SWEEP_HOLD) {
       for (const n of g.numbers) if (n.state === "fall" && !n.bonus && n.y <= edge) n.done = true;
     }
@@ -973,15 +1355,25 @@ export function update(g: GameState, dt: number): void {
   } else if (g.sweep < 0) {
     // (nothing new comes while the screen is down)
     g.spawnTimer -= sdt;
-    if (g.spawnTimer <= 0) {
+    if (g.spawnTimer <= 0 && !paused) {
       g.spawnTimer = spawnInterval(paceOf(g)) * stageSpawnFactor(g.stage) * (0.85 + g.rng() * 0.3);
       spawn(g);
     }
     // Every now and then a bonus ball comes.
-    g.bonusTimer -= dt;
+    if (!paused) g.bonusTimer -= dt;
     if (g.bonusTimer <= 0) {
       g.bonusTimer = nextBonusIn(g);
       spawnBonus(g);
+    }
+    // The new kinds that this level brings in are made to fall, one at a time, a few seconds in.
+    if (g.showcase.length > 0 && !paused) {
+      g.showTimer -= dt;
+      if (g.showTimer <= 0) {
+        if (spawnShowcase(g, g.showcase[0])) {
+          g.showcase.shift();
+          g.showTimer = 4 + g.rng() * 2;
+        } else g.showTimer = 0.5;
+      }
     }
   }
 
@@ -995,7 +1387,7 @@ export function update(g: GameState, dt: number): void {
 
 function fall(g: GameState, n: NumberTile, dt: number): void {
   n.prevY = n.y;
-  n.y += fallSpeed(paceOf(g)) * stageSpeedFactor(g.stage) * dt;
+  n.y += fallSpeed(paceOf(g)) * speedFactorOf(g) * dt;
   // A bonus ball never lands in a cup: if nobody taps it, it just falls past.
   if (n.bonus) {
     if (n.bonus === "star") {

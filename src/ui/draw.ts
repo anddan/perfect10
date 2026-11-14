@@ -215,12 +215,63 @@ export interface Button {
   h: number;
 }
 
+/** Breaks a text into lines that are at most maxW wide (in the font that is set on the context). */
+export function wrapLines(ctx: CanvasRenderingContext2D, s: string, maxW: number): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  for (const word of s.split(" ")) {
+    const next = cur ? cur + " " + word : word;
+    if (cur && ctx.measureText(next).width > maxW) {
+      lines.push(cur);
+      cur = word;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
 /** The buttons drawn this frame, and which one has a finger on it. Rebuilt on every frame. */
 export const ui = {
   /** The id of the button that is being pressed (it sinks), or null. */
   pressed: null as string | null,
   /** Pixels per game unit at the start of the frame, to turn drawing coordinates back into game units. */
   px: 1,
+  /** The coins in the wallet, the cups bought, the cups chosen (for the shop page of the book), and the coins got in the round that has just ended. */
+  coins: 0,
+  /** The tab of the shop that is showing (0: the cups, 1: the energy). */
+  shopTab: 0,
+  /** A finger is being dragged along the page numbers of the book, and how much the number that it is on has swollen (0 to 1, easing). */
+  scrubbing: false,
+  scrubAmt: 0,
+  /** A purchase has just been made: seconds since (-1: none), where on the screen the button was, and how many coins it cost. */
+  buyFx: -1,
+  buyAt: {x: 0, y: 0},
+  buyN: 0,
+  /** The looks that are on (cup colour, pattern, room, tone of the light, style of the numbers), the ones that have been bought, the tab of the page for them, and the pictures of the rooms (for showing them). */
+  look: {cupColor: "porcelain", pattern: "none", room: "auto", tint: "none", numbers: "classic"} as Record<string, string>,
+  looksOwned: [] as string[],
+  lookTab: 0,
+  roomPics: null as Record<string, HTMLCanvasElement> | null,
+  /** Premium has been bought: everything is open, new tries are free and there are no ads. */
+  premium: false,
+  /** A short message over the screen (a toast), and the seconds it has left. */
+  notice: "",
+  noticeTime: 0,
+  /** How many pull-down screens there are in the book (for the shop). */
+  screens: 0,
+  owned: {} as Record<string, number>,
+  /** The properties on each cup of the desk, the dialog for them (open or not), which cup is chosen in it, and the property that was just bought (marked there). */
+  slots: [] as string[][],
+  cupsOpen: false,
+  cupSlot: 0,
+  cupFocus: null as string | null,
+  lastCoins: 0,
+  /** The daily challenge: whether today's try has been used, and how many rungs of the ladder were climbed in it. */
+  dailyUsed: false,
+  dailyRungs: 0,
+  dailyCleared: false,
+  /** How far the screen reaches above the top of the usual 640 (a tall phone): the full-screen pages cover it too. */
+  extra: 0,
   /** The settings page is open (the game waits behind it). */
   settingsOpen: false,
   /** The top list of the endless game is open. */
@@ -229,9 +280,16 @@ export const ui = {
   pauseOpen: false,
   /** The id of the cup that is being held and dragged (it is drawn with a yellow border), or null. */
   heldCup: null as number | null,
-  /** The make-believe ad is showing (before one more try), and how many seconds ago it started. */
+  /** The make-believe ad is showing (before one more try, or for energy), and how many seconds ago it started. */
   adOpen: false,
   adTime: 0,
+  adFor: "continue" as "continue" | "energy",
+  /** The energy page is open; how much energy there is, and the seconds until the next point comes back. */
+  energyOpen: false,
+  energyN: 10,
+  /** Seconds since a point of energy was spent (the pill shakes, flashes and the bolt flies off): -1 when nothing is going on. */
+  energyFx: -1,
+  energyNext: 0,
   /** Off while a page is drawn into a picture for the page turn: the buttons on it cannot be tapped. */
   registering: true,
 };
@@ -472,6 +530,30 @@ export function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r:
   ctx.stroke();
 }
 
+/** A coin: gold with a dark edge, a ring inside it and a shine. (x, y) is its middle. */
+export function drawCoin(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  const gold = ctx.createLinearGradient(0, y - r, 0, y + r);
+  gold.addColorStop(0, "#fff3a8");
+  gold.addColorStop(0.5, "#ffd23a");
+  gold.addColorStop(1, "#e58a0a");
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
+  ctx.fillStyle = gold;
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, r * 0.14);
+  ctx.strokeStyle = "#8a5208";
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.64, 0, TAU);
+  ctx.strokeStyle = "rgba(138,82,8,0.5)";
+  ctx.lineWidth = Math.max(0.8, r * 0.09);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.beginPath();
+  ctx.ellipse(x - r * 0.3, y - r * 0.4, r * 0.34, r * 0.16, -0.6, 0, TAU);
+  ctx.fill();
+}
+
 // ---- The bonus ball -------------------------------------------------------------------
 
 /**
@@ -486,6 +568,11 @@ export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.scale(scale, scale);
   if (kind === "star") {
     drawBonusStar(ctx, time);
+    ctx.restore();
+    return;
+  }
+  if (kind === "diamond") {
+    drawBonusDiamond(ctx, time);
     ctx.restore();
     return;
   }
@@ -529,6 +616,22 @@ export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: numbe
     face.addColorStop(0, "#d7b3ff");
     face.addColorStop(0.5, "#8a4fe0");
     face.addColorStop(1, "#3f1a8a");
+  } else if (kind === "pause") {
+    face.addColorStop(0, "#c4f7d8");
+    face.addColorStop(0.5, "#2fbf7e");
+    face.addColorStop(1, "#0b6a43");
+  } else if (kind === "cloth") {
+    face.addColorStop(0, "#ffe3b8");
+    face.addColorStop(0.5, "#f09a38");
+    face.addColorStop(1, "#8f4308");
+  } else if (kind === "shield") {
+    face.addColorStop(0, "#c6cfff");
+    face.addColorStop(0.5, "#4f62e6");
+    face.addColorStop(1, "#1a1f78");
+  } else if (kind === "bomb") {
+    face.addColorStop(0, "#8d96a6");
+    face.addColorStop(0.5, "#2b303a");
+    face.addColorStop(1, "#07080b");
   } else {
     face.addColorStop(0, "#b8f1ff");
     face.addColorStop(0.5, "#35b7e8");
@@ -564,6 +667,84 @@ export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: numbe
     ctx.stroke();
   } else if (kind === "points") {
     drawStar(ctx, 0, 1, 12, true);
+  } else if (kind === "pause") {
+    // Two bars: the pause sign.
+    for (const bx of [-7, 3]) {
+      roundRect(ctx, bx, -9, 5, 18, 2);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.fill();
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = "#07583a";
+      ctx.stroke();
+    }
+  } else if (kind === "cloth") {
+    // A pull-down screen: the roller at the top, the white cloth, the bar at the bottom and the cord with its ring.
+    roundRect(ctx, -10, -12, 20, 4, 2);
+    ctx.fillStyle = "#5a3a12";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.rect(-8, -8, 16, 13);
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = "#8f4308";
+    ctx.stroke();
+    roundRect(ctx, -9, 4, 18, 3, 1.5);
+    ctx.fillStyle = "#5a3a12";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, 7);
+    ctx.lineTo(0, 10);
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = "#5a3a12";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 12, 2.2, 0, TAU);
+    ctx.strokeStyle = "#ffe27a";
+    ctx.stroke();
+  } else if (kind === "shield") {
+    // A shield.
+    ctx.beginPath();
+    ctx.moveTo(-9, -8);
+    ctx.quadraticCurveTo(0, -13, 9, -8);
+    ctx.lineTo(9, 0);
+    ctx.bezierCurveTo(9, 6, 4, 10, 0, 13);
+    ctx.bezierCurveTo(-4, 10, -9, 6, -9, 0);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#1a1f78";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.lineTo(0, 9);
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = "#4f62e6";
+    ctx.stroke();
+  } else if (kind === "bomb") {
+    // A fuse that curls up from the top, with a spark on the end that flickers.
+    ctx.beginPath();
+    ctx.moveTo(3, -10);
+    ctx.quadraticCurveTo(5, -16, 11, -15);
+    ctx.lineWidth = 2.6;
+    ctx.strokeStyle = "#e8d3a0";
+    ctx.stroke();
+    const flick = 0.6 + 0.4 * Math.sin(time * 18);
+    const spark = ctx.createRadialGradient(11, -15, 0, 11, -15, 7 * flick + 2);
+    spark.addColorStop(0, "#ffffff");
+    spark.addColorStop(0.4, "#ffd54a");
+    spark.addColorStop(1, "rgba(255,120,30,0)");
+    ctx.fillStyle = spark;
+    ctx.beginPath();
+    ctx.arc(11, -15, 7 * flick + 2, 0, TAU);
+    ctx.fill();
+    // A little shine on the bomb, and a white mark on it so that it is easy to tell from a number at a glance.
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.beginPath();
+    ctx.arc(-5, -3, 3, 0, TAU);
+    ctx.fill();
+    text(ctx, "!", 1, 4, 18, "#ffd54a", "center", "rgba(0,0,0,0.9)");
   } else {
     ctx.beginPath();
     ctx.moveTo(-7, -10);
@@ -591,6 +772,88 @@ export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: numbe
 // ---- The number ball ------------------------------------------------------------------
 
 /** The star that jumps between the columns: a bright five-pointed star with a glow, that twinkles (drawn at the origin). */
+/** The diamond: a cut gem with a cold glow round it, facets that catch the light, and twinkles (drawn at the origin, about as big as a ball). */
+function drawBonusDiamond(ctx: CanvasRenderingContext2D, time: number): void {
+  const k = 0.5 + 0.5 * Math.sin(time * 6);
+  const aura = ctx.createRadialGradient(0, 0, 4, 0, 0, 34);
+  aura.addColorStop(0, `rgba(170,235,255,${0.6 + 0.3 * k})`);
+  aura.addColorStop(1, "rgba(120,200,255,0)");
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(0, 0, 34, 0, TAU);
+  ctx.fill();
+  ctx.save();
+  ctx.rotate(Math.sin(time * 2.2) * 0.08);
+  ctx.lineJoin = "round";
+  // The outline of the gem: the flat top (the table), the crown that widens, and the point at the bottom.
+  const gem = new Path2D();
+  gem.moveTo(-8, -15);
+  gem.lineTo(8, -15);
+  gem.lineTo(18, -5);
+  gem.lineTo(0, 17);
+  gem.lineTo(-18, -5);
+  gem.closePath();
+  const fill = ctx.createLinearGradient(-18, -15, 18, 17);
+  fill.addColorStop(0, "#f2fdff");
+  fill.addColorStop(0.45, "#7fdcff");
+  fill.addColorStop(1, "#2f7fe0");
+  ctx.fillStyle = fill;
+  ctx.fill(gem);
+  // The facets.
+  ctx.save();
+  ctx.clip(gem);
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.beginPath();
+  ctx.moveTo(-8, -15);
+  ctx.lineTo(-3, -5);
+  ctx.lineTo(-18, -5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(20,70,170,0.28)";
+  ctx.beginPath();
+  ctx.moveTo(8, -15);
+  ctx.lineTo(18, -5);
+  ctx.lineTo(3, -5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.beginPath();
+  ctx.moveTo(-3, -5);
+  ctx.lineTo(3, -5);
+  ctx.lineTo(0, 17);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-18, -5);
+  ctx.lineTo(18, -5);
+  ctx.moveTo(-8, -15);
+  ctx.lineTo(-3, -5);
+  ctx.lineTo(0, 17);
+  ctx.lineTo(3, -5);
+  ctx.lineTo(8, -15);
+  ctx.stroke();
+  ctx.lineWidth = 2.4;
+  ctx.strokeStyle = "rgba(10,40,110,0.9)";
+  ctx.stroke(gem);
+  ctx.restore();
+  // Twinkles.
+  ctx.strokeStyle = `rgba(255,255,255,${0.5 + 0.5 * k})`;
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  for (const [dx, dy, size] of [[-22, -12, 4.4], [22, 6, 3.6], [10, -22, 3]] as const) {
+    const s = size * (0.6 + 0.4 * Math.sin(time * 7 + dx));
+    ctx.beginPath();
+    ctx.moveTo(dx - s, dy);
+    ctx.lineTo(dx + s, dy);
+    ctx.moveTo(dx, dy - s);
+    ctx.lineTo(dx, dy + s);
+    ctx.stroke();
+  }
+}
+
 function drawBonusStar(ctx: CanvasRenderingContext2D, time: number): void {
   const k = 0.5 + 0.5 * Math.sin(time * 6);
   const aura = ctx.createRadialGradient(0, 0, 4, 0, 0, 30);
@@ -648,13 +911,190 @@ function drawBonusStar(ctx: CanvasRenderingContext2D, time: number): void {
  * with the number on it (and orange for the 0).
  * `time` and `phase` only move the glint that sweeps across now and then.
  */
-export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v: number, scale = 1, time = 0, phase = 0, op: Op = "add"): void {
+/** The three colours of a number ball: light, middle and dark (green for plus, red for minus, blue for times, yellow for divide, orange for 0 and 10). */
+function ballTone(op: Op, minus: boolean): [string, string, string] {
+  if (op === "steel") return ["#e8edf3", "#8a97a8", "#343c48"];
+  if (op === "dim") return ["#8d8d99", "#2e2e37", "#050508"];
+  if (op === "zero" || op === "ten") return ["#ffd9a0", "#f58a1f", "#a34d05"];
+  if (op === "mul") return ["#a9d4ff", "#2f7fe6", "#10408f"];
+  if (op === "div") return ["#fff2a6", "#f0b81c", "#a8690a"];
+  if (minus) return ["#ff8f86", "#df2f28", "#8a110d"];
+  return ["#82f2a4", "#22b058", "#0d6633"];
+}
+
+/** The operation whose colour a ball with reversed colours has: blue and yellow swap (the others are as they are). */
+function swapOp(op: Op): Op {
+  return op === "mul" ? "div" : op === "div" ? "mul" : op;
+}
+
+/** What is written on a number ball, and how big. */
+function ballLabel(op: Op, v: number): {s: string; size: number} {
+  if (op === "zero") return {s: "=0", size: 22};
+  if (op === "ten") return {s: "=10", size: 18};
+  if (op === "mul") return {s: `\u00D7${v}`, size: 21};
+  if (op === "div") return {s: `\u00F7${v}`, size: 21};
+  return {s: signed(v), size: op === "steel" ? 20 : 22};
+}
+
+/**
+ * The balls with the numbers in the other styles of the shop: "neon" is a dark ball with a glowing ring and a glowing number, "candy" a flat bright ball
+ * with a thick white edge, "dark" a matte black ball with a thin ring and a clear number, "minimal" a pale ball with a colour ring, "glass" a see-through
+ * coloured ball and "chalk" a slate with a chalk ring and chalk numbers. ("wood" only changes the edge of the classic ball, see drawBall.)
+ */
+function drawStyledBall(ctx: CanvasRenderingContext2D, style: string, v: number, op: Op, minus: boolean, reversed = false): void {
+  const R = 20;
+  const r = R - 3.5;
+  const tone = ballTone(reversed ? swapOp(op) : op, reversed && op === "add" ? !minus : minus);
+  const label = ballLabel(op, v);
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.beginPath();
+  ctx.arc(2, 4, R, 0, TAU);
+  ctx.fill();
+  if (style === "neon") {
+    ctx.save();
+    ctx.shadowColor = tone[1];
+    ctx.shadowBlur = 12;
+    const disc = ctx.createRadialGradient(-r * 0.3, -r * 0.4, 2, 0, 0, R);
+    disc.addColorStop(0, "#2a2540");
+    disc.addColorStop(1, "#0b0913");
+    ctx.fillStyle = disc;
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 1.5, 0, TAU);
+    ctx.fill();
+    ctx.lineWidth = 3.4;
+    ctx.strokeStyle = tone[0];
+    ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = tone[1];
+    ctx.beginPath();
+    ctx.arc(0, 0, r - 2.5, 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.shadowColor = tone[1];
+    ctx.shadowBlur = 9;
+    text(ctx, label.s, 0, 1, label.size, tone[0], "center", "rgba(0,0,0,0.9)");
+    ctx.restore();
+    return;
+  }
+  if (style === "dark") {
+    const disc = ctx.createRadialGradient(-r * 0.3, -r * 0.45, 2, 0, 0, R);
+    disc.addColorStop(0, "#2a2833");
+    disc.addColorStop(1, "#0d0c12");
+    ctx.fillStyle = disc;
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 0.5, 0, TAU);
+    ctx.fill();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = tone[1];
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.09)";
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.5, r * 0.7, r * 0.34, 0, 0, TAU);
+    ctx.fill();
+    text(ctx, label.s, 0, 1, label.size, tone[0], "center", "rgba(0,0,0,0.9)");
+    return;
+  }
+  if (style === "minimal") {
+    ctx.fillStyle = "#fffaf0";
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 0.5, 0, TAU);
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = tone[1];
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0,0,0,0.12)";
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 3.2, 0, TAU);
+    ctx.stroke();
+    text(ctx, label.s, 0, 1, label.size, tone[2], "center", "rgba(255,255,255,0.85)");
+    return;
+  }
+  if (style === "glass") {
+    const body = ctx.createRadialGradient(-r * 0.3, -r * 0.4, 1, 0, 0, R);
+    body.addColorStop(0, "rgba(255,255,255,0.55)");
+    body.addColorStop(0.35, "rgba(255,255,255,0.12)");
+    body.addColorStop(1, "rgba(0,0,0,0.0)");
+    ctx.fillStyle = tone[1];
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 0.5, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = body;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.32, -r * 0.55, r * 0.4, r * 0.18, -0.5, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(r * 0.3, r * 0.62, r * 0.3, r * 0.1, 0.4, 0, TAU);
+    ctx.fill();
+    text(ctx, label.s, 0, 1, label.size, "#ffffff", "center", tone[2]);
+    return;
+  }
+  if (style === "chalk") {
+    ctx.fillStyle = "#24332e";
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 0.5, 0, TAU);
+    ctx.fill();
+    ctx.lineWidth = 2.6;
+    ctx.strokeStyle = "rgba(245,240,225,0.9)";
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.arc(0, 0, R - 3.2, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.93;
+    text(ctx, label.s, 0, 1, label.size, tone[0], "center", "rgba(10,20,16,0.6)");
+    ctx.globalAlpha = 1;
+    return;
+  }
+  // Candy.
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(0, 0, R, 0, TAU);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(0,0,0,0.14)";
+  ctx.stroke();
+  const face = ctx.createLinearGradient(0, -r, 0, r);
+  face.addColorStop(0, tone[0]);
+  face.addColorStop(0.55, tone[1]);
+  face.addColorStop(1, tone[1]);
+  ctx.fillStyle = face;
+  ctx.beginPath();
+  ctx.arc(0, 0, r + 0.5, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.34, -r * 0.52, r * 0.34, r * 0.17, -0.55, 0, TAU);
+  ctx.fill();
+  text(ctx, label.s, 0, 1, label.size, "#ffffff", "center", tone[2]);
+}
+
+export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v: number, scale = 1, time = 0, phase = 0, op: Op = "add", style: string = ui.look.numbers, reversed = false): void {
   const R = 20;
   const r = R - 3.5;
   const minus = v < 0;
+  // (the colours of a ball with reversed colours: a plus number as a minus number, blue as yellow and yellow as blue)
+  const cop = reversed ? swapOp(op) : op;
+  const cminus = reversed && op === "add" ? !minus : minus;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
+  if (style === "neon" || style === "candy" || style === "dark" || style === "minimal" || style === "glass" || style === "chalk") {
+    drawStyledBall(ctx, style, v, op, minus, reversed);
+    ctx.restore();
+    return;
+  }
 
   // Shadow.
   ctx.fillStyle = "rgba(0,0,0,0.3)";
@@ -668,12 +1108,17 @@ export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v:
   silver.addColorStop(0.3, "#aeb4bc");
   silver.addColorStop(0.55, "#f0f2f5");
   silver.addColorStop(1, "#7d848c");
-  ctx.fillStyle = silver;
+  const wood = ctx.createLinearGradient(-R, -R, R, R);
+  wood.addColorStop(0, "#dfaa6c");
+  wood.addColorStop(0.3, "#8a5a2c");
+  wood.addColorStop(0.55, "#cc9358");
+  wood.addColorStop(1, "#5e3a1a");
+  ctx.fillStyle = style === "wood" ? wood : silver;
   ctx.beginPath();
   ctx.arc(0, 0, R, 0, TAU);
   ctx.fill();
   ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  ctx.strokeStyle = style === "wood" ? "rgba(40,20,5,0.55)" : "rgba(0,0,0,0.4)";
   ctx.stroke();
 
   // The coloured face.
@@ -686,19 +1131,19 @@ export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v:
     face.addColorStop(0, "#8d8d99");
     face.addColorStop(0.45, "#2e2e37");
     face.addColorStop(1, "#050508");
-  } else if (op === "zero") {
+  } else if (op === "zero" || op === "ten") {
     face.addColorStop(0, "#ffd9a0");
     face.addColorStop(0.45, "#f58a1f");
     face.addColorStop(1, "#a34d05");
-  } else if (op === "mul") {
+  } else if (cop === "mul") {
     face.addColorStop(0, "#a9d4ff");
     face.addColorStop(0.45, "#2f7fe6");
     face.addColorStop(1, "#10408f");
-  } else if (op === "div") {
+  } else if (cop === "div") {
     face.addColorStop(0, "#fff2a6");
     face.addColorStop(0.45, "#f0b81c");
     face.addColorStop(1, "#a8690a");
-  } else if (minus) {
+  } else if (cminus) {
     face.addColorStop(0, "#ff8f86");
     face.addColorStop(0.45, "#df2f28");
     face.addColorStop(1, "#8a110d");
@@ -744,10 +1189,11 @@ export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v:
 
   if (op === "steel") text(ctx, signed(v), 0, 1, 20, "#ffffff", "center", "rgba(20,28,40,0.95)");
   else if (op === "dim") text(ctx, signed(v), 0, 1, 22, "#ffffff", "center", "rgba(0,0,0,0.95)");
-  else if (op === "zero") text(ctx, "0", 0, 1, 24, "#ffffff", "center", "rgba(110,50,0,0.9)");
-  else if (op === "mul") text(ctx, `\u00D7${v}`, 0, 1, 21, "#ffffff", "center", "rgba(5,30,80,0.9)");
-  else if (op === "div") text(ctx, `\u00F7${v}`, 0, 1, 21, "#ffffff", "center", "rgba(90,50,0,0.9)");
-  else text(ctx, signed(v), 0, 1, 22, "#ffffff", "center", minus ? "rgba(90,8,5,0.9)" : "rgba(5,60,28,0.9)");
+  else if (op === "zero") text(ctx, "=0", 0, 1, 22, "#ffffff", "center", "rgba(110,50,0,0.9)");
+  else if (op === "ten") text(ctx, "=10", 0, 1, 18, "#ffffff", "center", "rgba(110,50,0,0.9)");
+  else if (op === "mul") text(ctx, `\u00D7${v}`, 0, 1, 21, "#ffffff", "center", cop === "mul" ? "rgba(5,30,80,0.9)" : "rgba(90,50,0,0.9)");
+  else if (op === "div") text(ctx, `\u00F7${v}`, 0, 1, 21, "#ffffff", "center", cop === "div" ? "rgba(90,50,0,0.9)" : "rgba(5,30,80,0.9)");
+  else text(ctx, signed(v), 0, 1, 22, "#ffffff", "center", cminus ? "rgba(90,8,5,0.9)" : "rgba(5,60,28,0.9)");
   ctx.restore();
 }
 

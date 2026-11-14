@@ -1,8 +1,8 @@
 /** "menu": the book. "intro": a new kind of number is being presented (the round waits). "play": a round. "over": lost. "won": cleared a level of the book. */
-export type Phase = "menu" | "intro" | "play" | "over" | "won";
+export type Phase = "menu" | "intro" | "perk" | "play" | "over" | "won";
 
 /** The new kinds of number a chapter brings in, one at a time: the pull-down screen, the fourth cup, the 0, three bonus balls, chains, ice, ghosts, the black number, the star, the steel number and the chain of three. */
-export type Feature = "screen" | "cups" | "zero" | "points" | "life" | "slow" | "chain" | "ice" | "ghost" | "fog" | "star" | "steel" | "chain3";
+export type Feature = "screen" | "cups" | "zero" | "ten" | "points" | "life" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "chain" | "ice" | "ghost" | "fog" | "star" | "steel" | "chain3" | "diamond" | "reverse";
 
 /**
  * "tutorial": a guided round where you try each thing. "plus": the plus levels (only plus numbers).
@@ -13,14 +13,24 @@ export type Feature = "screen" | "cups" | "zero" | "points" | "life" | "slow" | 
  */
 export type Mode = "tutorial" | "plus" | "mixed" | "times" | "divide" | "space" | "endless";
 
-/** What a number does to the cup it lands in: adds itself (green and red), multiplies it (blue), divides it (yellow), sets it to 0 (orange), adds itself and hides the number of the cup (black), or is a steel number that adds itself but cannot be tapped. */
-export type Op = "add" | "mul" | "div" | "zero" | "dim" | "steel";
+/** What a number does to the cup it lands in: adds itself (green and red), multiplies it (blue), divides it (yellow), sets it to 0 (orange), sets it to 10 (orange, with a 10 on it), adds itself and hides the number of the cup (black), or is a steel number that adds itself but cannot be tapped. */
+export type Op = "add" | "mul" | "div" | "zero" | "ten" | "dim" | "steel";
 
-/** The bonus balls, with a gold border: "life" brings a dead cup back, "points" gives points, "slow" slows the numbers down, and a "star" (which jumps between the columns) clears all the cups. */
-export type Bonus = "life" | "points" | "slow" | "star";
+/**
+ * The bonus balls, with a gold border: "life" brings a dead cup back, "points" gives points, "slow" slows the numbers down, "pause"
+ * stops them for a few seconds, "bomb" blows away the numbers close to it, "cloth" gives one more pull-down screen, "shield" puts a shield on the
+ * nearest cup (it takes the number that would have killed the cup), and a "star" (which jumps between the columns) clears all the cups.
+ */
+export type Bonus = "life" | "points" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "star" | "diamond";
+
+/** The perks of the daily challenge: "slow" (the numbers fall slower), "shield" (a shield on a cup), "cloth" (one more pull-down screen), "life" (a dead cup is back), "bonus" (more bonus balls), "help" (more numbers that finish a cup), or a cup with a property (it replaces an ordinary cup). */
+export type PerkId = "slow" | "shield" | "cloth" | "life" | "bonus" | "help" | "gold" | "thermos" | "magnet" | "big" | "laser";
 
 /** What the guide says in the tutorial after something happened: "good" when it went right, "retry" when it has to be done again. */
 export type TutorialNote = "" | "good" | "retry";
+
+/** The kinds of cup: an ordinary one, and the four of the shop (gold: double points; thermos: starts with a shield; magnet: takes a number that would have killed another cup; big: does not die until it is over 12; laser: a double tap clears its column). */
+export type CupKind = "plain" | "gold" | "thermos" | "magnet" | "big" | "laser";
 
 export type GameOverReason = "deadCup" | "allDead";
 
@@ -37,12 +47,20 @@ export interface Cup {
   ripple: number;
   /** Seconds left of showing the golden 10 before the cup starts over at 0. */
   showTen: number;
+  /** What the cup started over with after the perfect 10 (0, or what was over for a big cup): the golden 10 is shown until something else lands in it. */
+  tenCarry: number;
   /** Whether that golden number is 10 (1) or minus 10 (-1). */
   tenSign: 1 | -1;
   /** 1 -> 0: a white flash (revived). */
   flash: number;
   /** A black number has landed in it: its number is hidden until it starts over, so the player has to count in their head. */
   hidden: boolean;
+  /** The properties of the cup (see CupKind): none for an ordinary cup, and any number of them (they can be combined). */
+  kinds: CupKind[];
+  /** A laser cup: seconds until it can be fired again (0: ready). */
+  charge: number;
+  /** A shield (from a shield ball): the next number that would have killed the cup is stopped, and the shield is gone. */
+  shield: boolean;
   seed: number;
 }
 
@@ -63,6 +81,8 @@ export interface NumberTile {
   chain2: number | null;
   /** A ghost number is sometimes hidden (turned over, or see-through) while it falls; null for an ordinary one. */
   ghost: Ghost | null;
+  /** Reversed colours: the ball has the colours of the opposite (a plus number is red and a minus number green, blue and yellow swap). What the number does is as it is written. */
+  flip: boolean;
   /** How many taps are left to crack the ice a number is frozen in (0: no ice). A number in ice only dives when the ice is gone. */
   ice: number;
   /** "fall": drifting down on its own. "dive": tapped, on its way into a cup. */
@@ -95,6 +115,11 @@ export type GameEvent =
   | {t: "miss"; x: number; y: number}
   | {t: "gameOver"; reason: GameOverReason; newBest: boolean}
   | {t: "bonus"; kind: Bonus; x: number; y: number; amount: number}
+  | {t: "blast"; x: number; y: number; hits: {x: number; y: number}[]}
+  | {t: "shield"; cupId: number; x: number; y: number; on: boolean}
+  | {t: "laser"; x: number; y: number; hits: {x: number; y: number}[]}
+  | {t: "zap"; x: number; y: number; hits: {x: number; y: number; at: number; ten: boolean}[]}
+  | {t: "zapHit"; x: number; y: number; ten: boolean}
   | {t: "won"; stars: 1 | 2 | 3}
   | {t: "introHide"; features: Feature[]}
   | {t: "combo"; n: number; x: number; y: number; bonus: number}
@@ -114,9 +139,24 @@ export interface GameState {
   tutorialStep: number;
   tutorialDelay: number;
   tutorialNote: TutorialNote;
-  /** Seconds of slow motion left, and seconds until the next bonus ball comes. */
+  /** The properties the player has put on the cups on the desk (from the shop), cup by cup from the left, when a round starts (the rest are ordinary). */
+  loadout: CupKind[][];
+  /** The daily challenge is being played (it is the endless game, with the same numbers for everyone, and perks after every level). The perks taken, the three to choose between now (phase "perk"), and how much the "slower" perks have slowed the numbers (1: not at all). */
+  daily: boolean;
+  perks: PerkId[];
+  perkChoices: PerkId[];
+  speedMul: number;
+  /** How many game units the playfield reaches above the top of the usual 640 (a tall phone has more room): the numbers start falling from up there. 0 on a short screen. */
+  extra: number;
+  /** The diamond is changing the numbers: seconds since it began, where it hangs, and the numbers that are to be changed (when, and to a 10 or a 0). Everything else waits. Null when no diamond is at work. */
+  zap: {time: number; x: number; y: number; end: number; steps: {id: number; at: number; ten: boolean; done: boolean}[]} | null;
+  /** Seconds of slow motion left, seconds the numbers are stopped for (a pause ball), and seconds until the next bonus ball comes. */
   slow: number;
+  pause: number;
   bonusTimer: number;
+  /** The new kinds of number that this level (or this level of the endless game) brings in and that have not been shown yet, and the seconds until the next one is made to fall. */
+  showcase: Feature[];
+  showTimer: number;
   /** The x of every column the numbers fall in (and the cups stand in): three in the first chapter, four in all the others. */
   cols: readonly number[];
   cups: Cup[];

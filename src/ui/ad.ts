@@ -2,7 +2,7 @@
 // It is not a real ad: it is a made-up coffee brand that plays for a few seconds, then lets the player carry on. It covers
 // the whole screen, so nothing under it can be pressed.
 import {H, W} from "../game/constants";
-import {CHALK, TAU, drawButton, registerHit, roundRect, text, title, write} from "./draw";
+import {CHALK, TAU, drawButton, registerHit, roundRect, text, title, ui, write} from "./draw";
 import {t} from "./i18n";
 
 /** How many seconds the ad plays before it can be closed. */
@@ -78,8 +78,8 @@ function drawCross(ctx: CanvasRenderingContext2D, cx: number, cy: number, ink: s
 }
 
 /** The ad, `adTime` seconds after it started. Closing it (the "adClose" button) only works once AD_SECONDS have gone. */
-export function drawAd(ctx: CanvasRenderingContext2D, time: number, adTime: number): void {
-  registerHit(ctx, "adBlock", {x: 0, y: 0, w: W, h: H});
+export function drawAd(ctx: CanvasRenderingContext2D, time: number, adTime: number, forEnergy = false): void {
+  registerHit(ctx, "adBlock", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
   const left = Math.max(0, AD_SECONDS - adTime);
   const done = left <= 0;
 
@@ -87,7 +87,7 @@ export function drawAd(ctx: CanvasRenderingContext2D, time: number, adTime: numb
   bg.addColorStop(0, "#ff9f43");
   bg.addColorStop(1, "#b8400c");
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
   // Rays that turn slowly behind the cup.
   ctx.save();
   ctx.translate(W / 2, 330);
@@ -138,6 +138,6 @@ export function drawAd(ctx: CanvasRenderingContext2D, time: number, adTime: numb
     ctx.arc(cx, cy, 16, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, adTime / AD_SECONDS));
     ctx.stroke();
     text(ctx, String(Math.ceil(left)), cx, cy + 1, 17, "#ffffff");
-    text(ctx, t("adReward", {n: Math.ceil(left)}), W / 2, 578, 17, "#ffffff");
+    text(ctx, t(forEnergy ? "adEnergy" : "adReward", {n: Math.ceil(left)}), W / 2, 578, 17, "#ffffff");
   }
 }

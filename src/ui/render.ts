@@ -1,7 +1,11 @@
 // Draws one frame of the game, in the game's own 360 x 640 coordinates.
+import {LASER_COOLDOWN} from "../game/cups";
+import {cupPalette, cupPattern, drawShopCup} from "./cupArt";
+import {DAILY_RUNGS} from "../game/constants";
+import {rungOfCup, rungsDone} from "../game/daily";
 import {CHAIN_LENGTH, COMBO_SECONDS, CUP_H, DIVE_HOP, H, SWEEP_DOWN, TARGET, TUTORIAL_STEPS, W} from "../game/constants";
-import {canContinue, endlessLevel, featureAge, ghostShow, goalFor, starsFor, sweepEdge} from "../game/engine";
-import type {Cup, Feature, GameState, NumberTile} from "../game/types";
+import {canContinue, endlessLevel, featureAge, ghostShow, goalFor, starsFor, sweepBottom} from "../game/engine";
+import type {Cup, Feature, GameState, NumberTile, PerkId} from "../game/types";
 import {type Room, roomOfMode} from "./background";
 import {drawAd} from "./ad";
 import {type Book, chapterOf, drawBook, openNextGame, roomOfPage} from "./book";
@@ -16,6 +20,7 @@ import {
   drawBonusBall,
   drawButton,
   drawChain,
+  drawCoin,
   drawGhostBack,
   drawHand,
   drawIce,
@@ -32,12 +37,12 @@ import {
   write,
 } from "./draw";
 import type {Fx} from "./fx";
-import {GEAR_BUTTON, PAUSE_BUTTON, drawGear, drawPause, drawPauseIcon, drawScores, drawSettings} from "./settings";
+import {GEAR_BUTTON, PAUSE_BUTTON, drawCoinPill, drawCups, drawEnergy, drawEnergyPill, drawGear, drawPause, drawPauseIcon, drawScores, drawSettings} from "./settings";
 import {deviceId, playerName} from "./profile";
 import {board} from "./scores";
 import {type Key, t} from "./i18n";
 import {BAR, litSegments, segmentLayout} from "./progress";
-import {SLOW_SECONDS} from "../game/constants";
+import {PAUSE_SECONDS, SLOW_SECONDS} from "../game/constants";
 
 /** How far (radians) a tapped number leans to the side: about 20 degrees. */
 const TILT = 0.35;
@@ -61,7 +66,7 @@ const levels = new Map<number, number>();
 let lastTime = 0;
 
 function targetLevel(c: Cup): number {
-  if (c.dead || (c.showTen > 0 && c.value === 0)) return 1;
+  if (c.dead || (c.showTen > 0 && c.value === c.tenCarry)) return 1;
   return Math.min(1, Math.max(0, Math.abs(c.value) / FULL_AT));
 }
 
@@ -126,15 +131,20 @@ function drawSaucer(ctx: CanvasRenderingContext2D, c: Cup): void {
   ctx.fill();
 }
 
+function kindColors(c: Cup) {
+  return c.dead ? null : cupPalette(c.kinds);
+}
+
 /** Handle: a thick ring with a lit edge. */
 function paintHandle(ctx: CanvasRenderingContext2D, c: Cup): void {
   ctx.lineCap = "round";
-  ctx.strokeStyle = c.dead ? "#5b5753" : "#b3aa97";
+  const kc = kindColors(c);
+  ctx.strokeStyle = c.dead ? "#5b5753" : kc ? kc.handle[0] : "#b3aa97";
   ctx.lineWidth = 7;
   ctx.beginPath();
   ctx.ellipse(31, -CUP_H * 0.5, 11, 12, 0, -Math.PI / 2, Math.PI / 2);
   ctx.stroke();
-  ctx.strokeStyle = c.dead ? "#8d8984" : "#f1ece1";
+  ctx.strokeStyle = c.dead ? "#8d8984" : kc ? kc.handle[1] : "#f1ece1";
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.ellipse(31, -CUP_H * 0.5, 11, 12, 0, -Math.PI / 2, Math.PI / 2);
@@ -143,12 +153,13 @@ function paintHandle(ctx: CanvasRenderingContext2D, c: Cup): void {
 
 /** Body: shaded across like a round cup, with a bright strip of light on the left, darker towards the bottom. */
 function paintBody(ctx: CanvasRenderingContext2D, c: Cup): void {
+  const kc = kindColors(c);
   const across = ctx.createLinearGradient(-32, 0, 32, 0);
-  across.addColorStop(0, c.dead ? "#5f5b57" : "#b9b09c");
-  across.addColorStop(0.2, c.dead ? "#9f9b95" : "#f6f2e8");
-  across.addColorStop(0.38, c.dead ? "#a9a59f" : "#ffffff");
-  across.addColorStop(0.7, c.dead ? "#7c7873" : "#ddd5c3");
-  across.addColorStop(1, c.dead ? "#4c4844" : "#a39a86");
+  across.addColorStop(0, c.dead ? "#5f5b57" : kc ? kc.body[0] : "#b9b09c");
+  across.addColorStop(0.2, c.dead ? "#9f9b95" : kc ? kc.body[1] : "#f6f2e8");
+  across.addColorStop(0.38, c.dead ? "#a9a59f" : kc ? kc.body[2] : "#ffffff");
+  across.addColorStop(0.7, c.dead ? "#7c7873" : kc ? kc.body[3] : "#ddd5c3");
+  across.addColorStop(1, c.dead ? "#4c4844" : kc ? kc.body[4] : "#a39a86");
   bodyPath(ctx);
   ctx.fillStyle = across;
   ctx.fill();
@@ -161,14 +172,16 @@ function paintBody(ctx: CanvasRenderingContext2D, c: Cup): void {
   ctx.lineWidth = 1.2;
   ctx.strokeStyle = "rgba(0,0,0,0.38)";
   ctx.stroke();
+  if (!c.dead) cupPattern(ctx, ui.look.pattern, !!kc);
 }
 
 /** Rim: a ceramic ring around the opening. */
 function paintRim(ctx: CanvasRenderingContext2D, c: Cup): void {
+  const kc = kindColors(c);
   const rim = ctx.createLinearGradient(-32, 0, 32, 0);
-  rim.addColorStop(0, c.dead ? "#76726d" : "#d3cab6");
-  rim.addColorStop(0.35, c.dead ? "#b3afa9" : "#ffffff");
-  rim.addColorStop(1, c.dead ? "#5f5b57" : "#b5ac98");
+  rim.addColorStop(0, c.dead ? "#76726d" : kc ? kc.rim[0] : "#d3cab6");
+  rim.addColorStop(0.35, c.dead ? "#b3afa9" : kc ? kc.rim[1] : "#ffffff");
+  rim.addColorStop(1, c.dead ? "#5f5b57" : kc ? kc.rim[2] : "#b5ac98");
   ctx.fillStyle = rim;
   ctx.beginPath();
   ctx.ellipse(0, -CUP_H + 2, 32, 9, 0, 0, TAU);
@@ -277,14 +290,29 @@ function drawInside(ctx: CanvasRenderingContext2D, c: Cup, level: number): void 
   ctx.restore();
 }
 
+/** How far (game units) a cup that is held is lifted off its saucer. */
+const HELD_LIFT = 5;
+
 /** Puts the origin in the middle of the cup's base, squashed a little by a number landing in it. */
 function cupTransform(ctx: CanvasRenderingContext2D, c: Cup): void {
-  ctx.translate(c.x, c.y + CUP_H / 2 - 1);
+  ctx.translate(c.x, c.y + CUP_H / 2 - 1 - (ui.heldCup === c.id ? HELD_LIFT : 0));
   ctx.scale(1 + 0.1 * c.bump, 1 - 0.1 * c.bump);
 }
 
 /** Everything behind the numbers: the saucer, the handle, the body, the rim and the inside with the coffee. */
 function drawCupBack(ctx: CanvasRenderingContext2D, c: Cup): void {
+  if (ui.heldCup === c.id) {
+    // A cup that is held: a soft golden glow on the desk round it.
+    const gy = c.y + CUP_H / 2 - 18;
+    const glow = ctx.createRadialGradient(c.x, gy, 8, c.x, gy, 66);
+    glow.addColorStop(0, "rgba(255,213,74,0.42)");
+    glow.addColorStop(0.6, "rgba(255,213,74,0.16)");
+    glow.addColorStop(1, "rgba(255,213,74,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.ellipse(c.x, gy, 66, 56, 0, 0, TAU);
+    ctx.fill();
+  }
   drawSaucer(ctx, c);
   ctx.save();
   cupTransform(ctx, c);
@@ -333,26 +361,41 @@ function drawCupFront(ctx: CanvasRenderingContext2D, c: Cup): void {
   paintRim(ctx, c);
   ctx.restore();
 
-  // A cup that is held and dragged has a yellow border (round the body and the rim).
+  // A cup that is held and dragged has a glowing golden border (round the body and the rim).
   if (ui.heldCup === c.id) {
     ctx.save();
-    ctx.lineWidth = 3.5;
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "#ffd54a";
+    ctx.lineCap = "round";
     // Only the outside of the cup is outlined, in one line: down the right side, along the bottom, up the left side and over the back
     // of the rim. Nothing is drawn across the cup (not the front of the rim, and the outline is not closed across the opening).
-    ctx.beginPath();
-    ctx.moveTo(32, -CUP_H + 2);
-    ctx.bezierCurveTo(32, -CUP_H * 0.35, 25, -3, 13, 0);
-    ctx.quadraticCurveTo(0, 5, -13, 0);
-    ctx.bezierCurveTo(-25, -3, -32, -CUP_H * 0.35, -32, -CUP_H + 2);
-    ctx.ellipse(0, -CUP_H + 2, 32, 9, 0, Math.PI, TAU);
+    const outline = () => {
+      ctx.beginPath();
+      ctx.moveTo(32, -CUP_H + 2);
+      ctx.bezierCurveTo(32, -CUP_H * 0.35, 25, -3, 13, 0);
+      ctx.quadraticCurveTo(0, 5, -13, 0);
+      ctx.bezierCurveTo(-25, -3, -32, -CUP_H * 0.35, -32, -CUP_H + 2);
+      ctx.ellipse(0, -CUP_H + 2, 32, 9, 0, Math.PI, TAU);
+    };
+    // The glow, the gold line (lighter towards the top), and a thin bright line inside it.
+    ctx.shadowColor = "rgba(255,213,74,0.95)";
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 4;
+    const gold = ctx.createLinearGradient(0, -CUP_H - 8, 0, 6);
+    gold.addColorStop(0, "#fff0a8");
+    gold.addColorStop(1, "#ffb81f");
+    ctx.strokeStyle = gold;
+    outline();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    outline();
     ctx.stroke();
     ctx.restore();
   }
 
   // The number stands on the cup.
-  const showTen = c.showTen > 0 && c.value === 0;
+  const showTen = c.showTen > 0 && c.value === c.tenCarry;
   const ty = -CUP_H * 0.36;
   if (showTen) {
     text(ctx, signed(TARGET * c.tenSign), 0, ty, 26, GOLD);
@@ -385,13 +428,64 @@ function drawCupFront(ctx: CanvasRenderingContext2D, c: Cup): void {
     ctx.fillStyle = `rgba(255,255,255,${c.flash * 0.7})`;
     ctx.fill();
   }
+  if (c.kinds.includes("laser") && !c.dead) drawLaserCharge(ctx, c);
+  if (c.shield) drawCupShield(ctx);
+  ctx.restore();
+}
+
+/** The charge of a laser cup, a little bar under the cup: it fills up, and when it is full it glows and pulses (ready: double tap the cup). */
+function drawLaserCharge(ctx: CanvasRenderingContext2D, c: Cup): void {
+  const k = 1 - c.charge / LASER_COOLDOWN;
+  const ready = c.charge <= 0;
+  const pulse = 0.5 + 0.5 * Math.sin(lastTime * 6);
+  ctx.save();
+  ctx.translate(0, 9);
+  ctx.fillStyle = "rgba(20,8,36,0.7)";
+  roundRect(ctx, -22, -3, 44, 7, 3.5);
+  ctx.fill();
+  ctx.fillStyle = ready ? `rgba(255,${120 + Math.round(90 * pulse)},255,1)` : "#b58cff";
+  roundRect(ctx, -22, -3, Math.max(5, 44 * k), 7, 3.5);
+  ctx.fill();
+  if (ready) {
+    ctx.shadowColor = "rgba(230,140,255,0.9)";
+    ctx.shadowBlur = 8 + 6 * pulse;
+    ctx.strokeStyle = "rgba(255,230,255,0.9)";
+    ctx.lineWidth = 1.4;
+    roundRect(ctx, -22, -3, 44, 7, 3.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** The shield on a cup: a see-through blue bubble round it with a soft pulse and a white glint (drawn in the cup's own coordinates). */
+function drawCupShield(ctx: CanvasRenderingContext2D): void {
+  const cy = -CUP_H * 0.55;
+  const pulse = 0.5 + 0.5 * Math.sin(lastTime * 3);
+  const fill = ctx.createRadialGradient(0, cy, 14, 0, cy, 48);
+  fill.addColorStop(0, "rgba(140,190,255,0.04)");
+  fill.addColorStop(0.75, "rgba(120,170,255,0.16)");
+  fill.addColorStop(1, `rgba(170,215,255,${0.38 + 0.2 * pulse})`);
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.ellipse(0, cy, 47, 45, 0, 0, TAU);
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = `rgba(200,230,255,${0.7 + 0.3 * pulse})`;
+  ctx.stroke();
+  ctx.lineCap = "round";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(255,255,255,0.75)";
+  ctx.beginPath();
+  ctx.arc(0, cy, 38, Math.PI * 1.12, Math.PI * 1.38);
+  ctx.stroke();
   ctx.restore();
 }
 
 // ---- Numbers --------------------------------------------------------------------------
 
 /** How much bigger the falling numbers are drawn than the balls of the book and the presentations (all kinds of them: plain, ghost, ice, steel and bonus balls). */
-const NUMBER_SIZE = 1.265;
+const NUMBER_SIZE = 1.265 * 1.05; // (5% bigger than it was)
 
 /** A falling number: a ball that bobs as it drifts, and leans to one side when it has been tapped. */
 function drawNumber(ctx: CanvasRenderingContext2D, n: NumberTile, time: number): void {
@@ -408,15 +502,15 @@ function drawNumber(ctx: CanvasRenderingContext2D, n: NumberTile, time: number):
     const show = ghostShow(n, time);
     if (n.ghost === "fade") {
       ctx.globalAlpha = 0.1 + 0.9 * show;
-      drawBall(ctx, 0, 0, n.v, n.scale, time, n.phase, n.op);
+      drawBall(ctx, 0, 0, n.v, n.scale, time, n.phase, n.op, undefined, n.flip);
     } else {
       const turn = (1 - show) * Math.PI;
       ctx.scale(Math.max(0.04, Math.abs(Math.cos(turn))), 1);
       if (turn > Math.PI / 2) drawGhostBack(ctx, 0, 0, n.scale, time, n.phase);
-      else drawBall(ctx, 0, 0, n.v, n.scale, time, n.phase, n.op);
+      else drawBall(ctx, 0, 0, n.v, n.scale, time, n.phase, n.op, undefined, n.flip);
     }
   } else {
-    drawBall(ctx, 0, 0, n.v, n.scale, time, n.phase, n.op);
+    drawBall(ctx, 0, 0, n.v, n.scale, time, n.phase, n.op, undefined, n.flip);
     if (n.ice > 0) drawIce(ctx, 0, 0, n.ice, n.scale, time, n.phase);
   }
   ctx.restore();
@@ -507,10 +601,8 @@ function drawHud(ctx: CanvasRenderingContext2D, g: GameState): void {
     drawGuide(ctx, g);
     return;
   }
-  // The score on a little plate.
-  drawPanel(ctx, 10, 10, 136, 46, 14);
-  write(ctx, t("score"), 24, 24, 11, "#cdbfa6", "left", 700);
-  text(ctx, String(g.score), 24, 42, 22, CHALK, "left");
+  // The score: just the number (no plate and no label).
+  text(ctx, String(g.score), 24, 33, 26, CHALK, "left");
   // The combo: how many perfect 10s in a row, and a bar that runs down (the time left to make the next one).
   if (g.combo >= 1 && g.comboTimer > 0) {
     const k = g.comboTimer / COMBO_SECONDS;
@@ -543,7 +635,7 @@ function drawHints(ctx: CanvasRenderingContext2D, g: GameState): void {
     ctx.stroke();
   };
   if (g.tutorialStep <= 2) {
-    for (const n of g.numbers) if (n.state === "fall" && n.y > 0) ring(n.x, n.y, 27 * NUMBER_SIZE, 27 * NUMBER_SIZE);
+    for (const n of g.numbers) if (n.state === "fall" && n.y > -g.extra) ring(n.x, n.y, 27 * NUMBER_SIZE, 27 * NUMBER_SIZE);
   } else if (g.tutorialStep === 3) {
     const dead = g.cups.find((c) => c.dead);
     if (dead) ring(dead.x, dead.y - 4, 46, 40);
@@ -559,7 +651,7 @@ function drawBanner(ctx: CanvasRenderingContext2D, g: GameState): void {
   ctx.translate(W / 2, 210);
   ctx.scale(pop, pop);
   const level = endlessLevel(g);
-  title(ctx, t("level", {n: level}), 0, 0, 54);
+  title(ctx, g.daily ? t("dailyRung", {n: level}) : t("level", {n: level}), 0, 0, 54);
   // The endless game walks through the book: say what is new on the levels where a new kind of number comes.
   const news = g.mode === "endless" ? ({2: "newMinus", 3: "newTimes", 4: "newDiv"} as Record<number, Key>)[level] : undefined;
   if (news) text(ctx, t(news), 0, 50, 19, CHALK);
@@ -595,11 +687,18 @@ function drawScreenReward(ctx: CanvasRenderingContext2D, g: GameState, y: number
   ctx.restore();
 }
 
+/** The coins that were got in the round, to the right of the score on the card. */
+function drawCardCoins(ctx: CanvasRenderingContext2D, y: number): void {
+  if (ui.lastCoins <= 0) return;
+  drawCoin(ctx, 272, y, 8.5);
+  text(ctx, `+${ui.lastCoins}`, 285, y + 1, 19, GOLD, "left");
+}
+
 /** The card after a round: a ribbon on top, what happened, and the buttons. */
 function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number, book: Book): void {
   const won = g.phase === "won";
   ctx.fillStyle = "rgba(8,6,14,0.62)";
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
   // The card pops up.
   const pop = Math.min(1, g.overTimer / 0.28);
   const ease = 1 - Math.pow(1 - pop, 3);
@@ -619,7 +718,7 @@ function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number, boo
 
   if (won) {
     // Three stars that pop in one after the other: the ones the points are worth are gold, the rest are dark.
-    const stars = g.mode === "tutorial" ? 3 : starsFor(g.mode, g.stage, g.score);
+    const stars = g.mode === "tutorial" || g.daily ? 3 : starsFor(g.mode, g.stage, g.score);
     for (let i = 0; i < 3; i++) {
       const t = Math.min(1, Math.max(0, (g.overTimer - 0.25 - i * 0.16) / 0.25));
       const s = t < 1 ? 1.35 - 0.35 * t : 1;
@@ -629,18 +728,22 @@ function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number, boo
       drawStar(ctx, 0, 0, i === 1 ? 28 : 23, i < stars, true, true);
       ctx.restore();
     }
-    const line = g.mode === "tutorial" ? t("knowBasics") : t("cupsFilled", {n: goalFor(g.mode, g.stage)});
+    const line = g.mode === "tutorial" ? t("knowBasics") : g.daily ? t("dailyCleared") : t("cupsFilled", {n: goalFor(g.mode, g.stage)});
     text(ctx, line, W / 2, g.mode === "tutorial" ? 268 : 244, g.mode === "tutorial" ? 20 : 17, CHALK);
     if (g.mode !== "tutorial") {
       write(ctx, t("score"), W / 2, 278, 12, "#cdbfa6", "center", 700);
       text(ctx, String(g.score), W / 2, 306, 36, "#ffffff");
+      drawCardCoins(ctx, 306);
     }
   } else {
     const why = t(g.overReason === "allDead" ? "allDead" : "deadCup");
     text(ctx, why, W / 2, 176, 17, CHALK);
     write(ctx, t("score"), W / 2, 218, 12, "#cdbfa6", "center", 700);
     text(ctx, String(g.score), W / 2, 252, 46, "#ffffff");
-    if (g.mode === "endless") {
+    drawCardCoins(ctx, 252);
+    if (g.daily) {
+      write(ctx, t("dailyToday", {n: rungsDone(g.level - 1), m: DAILY_RUNGS}), W / 2, 296, 17, "#e8dcc2", "center", 600);
+    } else if (g.mode === "endless") {
       if (g.newBest) text(ctx, t("newBest"), W / 2, 296, 22, GOLD);
       else write(ctx, t("record", {n: g.best}), W / 2, 296, 17, "#e8dcc2", "center", 600);
     } else {
@@ -662,9 +765,83 @@ function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number, boo
           : t("toChapter", {n: chapterOf(next.mode)});
   }
   if (reward) drawScreenReward(ctx, g, 346);
-  if (carryOn) drawButton(ctx, "continueAd", {...CONTINUE, y: AGAIN.y}, t("continueAd"), "green", {alpha: ready ? 1 : 0.4, pulse: ready ? time : undefined, size: 17});
-  drawButton(ctx, "again", {...AGAIN, y: AGAIN.y + room}, again, "primary", {alpha: ready ? 1 : 0.4, pulse: ready && !carryOn ? time : undefined, size: 22});
-  drawButton(ctx, "toBook", {...TO_BOOK, y: TO_BOOK.y + room}, t("toBook"), "secondary", {alpha: ready ? 1 : 0.4, size: 18});
+  if (carryOn) drawButton(ctx, "continueAd", {...CONTINUE, y: AGAIN.y}, ui.premium ? t("continueFree") : t("continueAd"), "green", {alpha: ready ? 1 : 0.4, pulse: ready ? time : undefined, size: 17});
+  if (g.daily) {
+    // (the daily challenge has one try a day: there is nothing to play again)
+    drawButton(ctx, "toBook", {...AGAIN, y: AGAIN.y + room}, t("toBook"), "primary", {alpha: ready ? 1 : 0.4, pulse: ready && !carryOn ? time : undefined, size: 22});
+  } else {
+    drawButton(ctx, "again", {...AGAIN, y: AGAIN.y + room}, again, "primary", {alpha: ready ? 1 : 0.4, pulse: ready && !carryOn ? time : undefined, size: 22});
+    drawButton(ctx, "toBook", {...TO_BOOK, y: TO_BOOK.y + room}, t("toBook"), "secondary", {alpha: ready ? 1 : 0.4, size: 18});
+  }
+  ctx.restore();
+}
+
+// ---- The perks of the daily challenge -------------------------------------------------
+
+const PERK_TEXT: Record<PerkId, {name: Key; lines: Key[]}> = {
+  slow: {name: "perkSlow", lines: ["perkSlowD"]},
+  shield: {name: "perkShield", lines: ["perkShieldD"]},
+  cloth: {name: "perkCloth", lines: ["perkClothD"]},
+  life: {name: "perkLife", lines: ["perkLifeD"]},
+  bonus: {name: "perkBonus", lines: ["perkBonusD"]},
+  help: {name: "perkHelp", lines: ["perkHelpD"]},
+  gold: {name: "cupGold", lines: ["cupGoldA", "cupGoldB"]},
+  thermos: {name: "cupThermos", lines: ["cupThermosA", "cupThermosB"]},
+  magnet: {name: "cupMagnet", lines: ["cupMagnetA", "cupMagnetB"]},
+  big: {name: "cupBig", lines: ["cupBigA", "cupBigB"]},
+  laser: {name: "cupLaser", lines: ["cupLaserA", "cupLaserB"]},
+};
+
+/** Breaks a text into lines that are at most `maxW` wide (in the font that is set). */
+function wrapLines(ctx: CanvasRenderingContext2D, s: string, maxW: number): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  for (const word of s.split(" ")) {
+    const next = cur ? `${cur} ${word}` : word;
+    if (cur && ctx.measureText(next).width > maxW) {
+      lines.push(cur);
+      cur = word;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/** The picture of a perk: a ball for the ones that are like the bonus balls, and a cup for the ones that give a cup a property. */
+function drawPerkIcon(ctx: CanvasRenderingContext2D, perk: PerkId, x: number, y: number, time: number): void {
+  if (perk === "slow" || perk === "shield" || perk === "cloth" || perk === "life") drawBonusBall(ctx, x, y, perk, 1.35, time);
+  else if (perk === "bonus") drawBonusBall(ctx, x, y, "points", 1.35, time);
+  else if (perk === "help") drawBall(ctx, x, y, 10, 1.3, time, 0, "ten");
+  else drawShopCup(ctx, [perk], x, y + 28, 0.7);
+}
+
+/** After every rung of the ladder: three perks to choose between (the round waits). */
+function drawPerk(ctx: CanvasRenderingContext2D, g: GameState, time: number): void {
+  ctx.fillStyle = "rgba(8,6,14,0.72)";
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+  const pop = Math.min(1, g.overTimer / 0.28);
+  const ease = 1 - Math.pow(1 - pop, 3);
+  ctx.save();
+  ctx.translate(W / 2, 300);
+  ctx.scale(0.88 + 0.12 * ease, 0.88 + 0.12 * ease);
+  ctx.translate(-W / 2, -300);
+  ctx.globalAlpha = ease;
+  drawPanel(ctx, 24, 96, 312, 436, 24);
+  drawRibbon(ctx, W / 2, 66, 250, t("perkTitle"), "#ffe27a", "#d49a14");
+  write(ctx, t("perkSub"), W / 2, 142, 14, "#e8dcc2", "center", 600);
+  const ready = g.overTimer > BUTTON_DELAY;
+  g.perkChoices.forEach((perk, i) => {
+    const b: Button = {x: 42, y: 160 + i * 118, w: 276, h: 106};
+    if (ready) registerHit(ctx, `perk:${i}`, b);
+    const pressed = ui.pressed === `perk:${i}` ? 2 : 0;
+    drawPanel(ctx, b.x, b.y + pressed, b.w, b.h, 16, "card");
+    drawPerkIcon(ctx, perk, b.x + 48, b.y + 50 + pressed, time);
+    const txt = PERK_TEXT[perk];
+    write(ctx, t(txt.name), b.x + 92, b.y + 28 + pressed, 19, "#ffffff", "left", 700);
+    ctx.font = `600 13px ${FONT}`;
+    const lines = wrapLines(ctx, txt.lines.map((k) => t(k)).join(" "), b.w - 92 - 12);
+    lines.slice(0, 3).forEach((line, k) => write(ctx, line, b.x + 92, b.y + 54 + k * 17 + pressed, 13, "#e8dcc2", "left", 600));
+  });
   ctx.restore();
 }
 
@@ -675,6 +852,7 @@ const FEATURE_TEXT: Record<Feature, {title: Key; body: Key}> = {
   screen: {title: "fScreenT", body: "fScreenD"},
   cups: {title: "fCupsT", body: "fCupsD"},
   zero: {title: "fZeroT", body: "fZeroD"},
+  ten: {title: "fTenT", body: "fTenD"},
   fog: {title: "fFogT", body: "fFogD"},
   star: {title: "fStarT", body: "fStarD"},
   steel: {title: "fSteelT", body: "fSteelD"},
@@ -682,9 +860,15 @@ const FEATURE_TEXT: Record<Feature, {title: Key; body: Key}> = {
   points: {title: "fPointsT", body: "fPointsD"},
   life: {title: "fLifeT", body: "fLifeD"},
   slow: {title: "fSlowT", body: "fSlowD"},
+  pause: {title: "fPauseT", body: "fPauseD"},
+  bomb: {title: "fBombT", body: "fBombD"},
+  cloth: {title: "fClothT", body: "fClothD"},
+  shield: {title: "fShieldT", body: "fShieldD"},
   chain: {title: "fChainT", body: "fChainD"},
   ice: {title: "fIceT", body: "fIceD"},
   ghost: {title: "fGhostT", body: "fGhostD"},
+  diamond: {title: "fDiamondT", body: "fDiamondD"},
+  reverse: {title: "fReverseT", body: "fReverseD"},
 };
 
 /** A number to show in the presentation (not part of the game). */
@@ -701,6 +885,7 @@ function demoTile(v: number, extra: Partial<NumberTile> = {}): NumberTile {
     chain: null,
     chain2: null,
     ghost: null,
+    flip: false,
     ice: 0,
     state: "fall",
     target: null,
@@ -823,9 +1008,9 @@ function drawScreenCloth(ctx: CanvasRenderingContext2D, x: number, y: number, w:
 
 /** The screen as it comes down over the numbers (and rolls up again), over everything that is in the air. */
 function drawSweep(ctx: CanvasRenderingContext2D, g: GameState): void {
-  const edge = sweepEdge(g);
-  if (edge <= 1) return;
-  drawScreenCloth(ctx, 10, 0, W - 20, edge);
+  const edge = sweepBottom(g);
+  if (edge <= 1 - g.extra) return;
+  drawScreenCloth(ctx, 10, -g.extra, W - 20, edge + g.extra);
 }
 
 /** The gold ring with the number of screens on it (the handle of the cord, and the prize on the card). */
@@ -880,8 +1065,24 @@ function drawFeatureArt(ctx: CanvasRenderingContext2D, f: Feature, cx: number, c
     drawNumber(ctx, tile, time);
     ctx.restore();
   };
-  if (f === "points" || f === "life" || f === "slow" || f === "star") {
+  if (f === "points" || f === "life" || f === "slow" || f === "star" || f === "pause" || f === "bomb" || f === "cloth" || f === "shield" || f === "diamond") {
     ball(cx, cy, 2.3, demoTile(0, {bonus: f}));
+  } else if (f === "reverse") {
+    // A plus number in red and a minus number in green, with the arrows that say the colours have been swapped.
+    ball(cx - 62, cy, 1.9, demoTile(4, {flip: true}));
+    ball(cx + 62, cy, 1.9, demoTile(-3, {flip: true}));
+    ctx.strokeStyle = "#f3ecdd";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, cy - 8);
+    ctx.lineTo(cx + 14, cy - 8);
+    ctx.lineTo(cx + 7, cy - 15);
+    ctx.moveTo(cx + 14, cy + 8);
+    ctx.lineTo(cx - 14, cy + 8);
+    ctx.lineTo(cx - 7, cy + 15);
+    ctx.stroke();
   } else if (f === "steel") {
     ball(cx, cy, 2.3, demoTile(2, {op: "steel"}));
   } else if (f === "chain3") {
@@ -922,8 +1123,12 @@ function drawFeatureArt(ctx: CanvasRenderingContext2D, f: Feature, cx: number, c
       ripple: 0,
       showTen: 0,
       tenSign: 1,
+      tenCarry: 0,
       flash: 0,
       hidden: false,
+      kinds: [],
+      charge: 0,
+      shield: false,
       seed: i * 2.3,
     }));
     for (const c of demo) drawCupBack(ctx, c);
@@ -931,6 +1136,8 @@ function drawFeatureArt(ctx: CanvasRenderingContext2D, f: Feature, cx: number, c
     ctx.restore();
   } else if (f === "zero") {
     ball(cx, cy, 2.3, demoTile(0, {op: "zero"}));
+  } else if (f === "ten") {
+    ball(cx, cy, 2.3, demoTile(10, {op: "ten"}));
   } else if (f === "fog") {
     ball(cx, cy, 2.3, demoTile(4, {op: "dim"}));
   } else if (f === "chain") {
@@ -970,7 +1177,7 @@ function drawIntro(ctx: CanvasRenderingContext2D, g: GameState, time: number): v
   const f = g.intro[0];
   if (!f) return;
   ctx.fillStyle = "rgba(8,6,14,0.66)";
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
   const pop = Math.min(1, g.overTimer / 0.28);
   const ease = 1 - Math.pow(1 - pop, 3);
   ctx.save();
@@ -1005,8 +1212,9 @@ function drawIntro(ctx: CanvasRenderingContext2D, g: GameState, time: number): v
 function drawProgress(ctx: CanvasRenderingContext2D, g: GameState, fx: Fx): void {
   if (g.mode === "tutorial") return;
   const {x, y, w, h} = BAR;
-  const lay = segmentLayout(g);
-  const lit = litSegments(g, g.level - 1 - fx.pending);
+  const cupsShown = g.level - 1 - fx.pending;
+  const lay = segmentLayout(g, cupsShown);
+  const lit = litSegments(g, cupsShown);
   const glow = fx.pop.t;
 
   // A glow around the whole bar when a segment lands.
@@ -1026,7 +1234,7 @@ function drawProgress(ctx: CanvasRenderingContext2D, g: GameState, fx: Fx): void
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = glow > 0 ? `rgba(255,226,130,${0.4 + 0.5 * glow})` : "rgba(255,225,160,0.32)";
   ctx.stroke();
-  if (g.mode === "endless") write(ctx, t("level", {n: endlessLevel(g)}), x + 14, y + h / 2 + 1, 12, CHALK, "left", 700);
+  if (g.mode === "endless") write(ctx, g.daily ? t("dailyRung", {n: rungOfCup(cupsShown).rung}) : t("level", {n: endlessLevel(g)}), x + 14, y + h / 2 + 1, 12, CHALK, "left", 700);
 
   for (let i = 0; i < lay.count; i++) {
     const sx = lay.x0 + i * (lay.segW + lay.gap);
@@ -1079,17 +1287,74 @@ function drawProgress(ctx: CanvasRenderingContext2D, g: GameState, fx: Fx): void
   }
 }
 
+/** The diamond at work: it hangs where it was tapped, a little bigger, and fades away when it has changed the last number. */
+function drawZapDiamond(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const z = g.zap;
+  if (!z) return;
+  const a = Math.min(1, Math.max(0, (z.end - z.time) / 0.4));
+  const pop = Math.min(1, z.time / 0.2);
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.translate(z.x, z.y);
+  const k = (0.9 + 0.5 * (1 - Math.pow(1 - pop, 3))) * NUMBER_SIZE;
+  ctx.scale(k, k);
+  drawBonusBall(ctx, 0, 0, "diamond", 1, g.time);
+  ctx.restore();
+}
+
+/** While the diamond is at work everything waits: a cold blue tint over the screen. */
+function drawZapVeil(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const z = g.zap;
+  if (!z) return;
+  const a = Math.min(1, z.time / 0.25, (z.end - z.time) / 0.4);
+  ctx.fillStyle = `rgba(30,60,150,${0.24 * Math.max(0, a)})`;
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+}
+
+/** A pause ball is on: a cool green tint and green edges, and a bar with the pause sign that runs down. */
+function drawFrozen(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const k = Math.min(1, g.pause / PAUSE_SECONDS);
+  ctx.fillStyle = "rgba(70,220,150,0.08)";
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+  const edge = ctx.createRadialGradient(W / 2, H / 2, H * 0.34, W / 2, H / 2, H * 0.78);
+  edge.addColorStop(0, "rgba(50,210,140,0)");
+  edge.addColorStop(1, "rgba(50,210,140,0.3)");
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+  if (g.mode === "tutorial") return;
+  ctx.save();
+  ctx.translate(0, -g.extra);
+  drawPanel(ctx, 10, 62, 136, 26, 12);
+  ctx.fillStyle = "#c4f7d8";
+  roundRect(ctx, 21, 68, 3.5, 14, 1.5);
+  ctx.fill();
+  roundRect(ctx, 28.5, 68, 3.5, 14, 1.5);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.14)";
+  roundRect(ctx, 42, 70, 92, 10, 5);
+  ctx.fill();
+  const bar = ctx.createLinearGradient(0, 70, 0, 80);
+  bar.addColorStop(0, "#c4f7d8");
+  bar.addColorStop(1, "#2fbf7e");
+  ctx.fillStyle = bar;
+  roundRect(ctx, 42, 70, Math.max(6, 92 * k), 10, 5);
+  ctx.fill();
+  ctx.restore();
+}
+
 /** Slow motion: a cool blue tint over the screen, blue edges, and a bar under the score that runs down. */
 function drawSlow(ctx: CanvasRenderingContext2D, g: GameState): void {
   const k = Math.min(1, g.slow / SLOW_SECONDS);
   ctx.fillStyle = "rgba(80,160,255,0.09)";
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
   const edge = ctx.createRadialGradient(W / 2, H / 2, H * 0.34, W / 2, H / 2, H * 0.78);
   edge.addColorStop(0, "rgba(60,150,255,0)");
   edge.addColorStop(1, "rgba(60,150,255,0.34)");
   ctx.fillStyle = edge;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
   if (g.mode === "tutorial") return;
+  ctx.save();
+  ctx.translate(0, -g.extra);
   drawPanel(ctx, 10, 62, 136, 26, 12);
   // A little hourglass, and a bar that runs down.
   ctx.strokeStyle = "#b8ecff";
@@ -1113,24 +1378,71 @@ function drawSlow(ctx: CanvasRenderingContext2D, g: GameState): void {
   ctx.fillStyle = bar;
   roundRect(ctx, 42, 70, Math.max(6, 92 * k), 10, 5);
   ctx.fill();
+  ctx.restore();
 }
 
 // ---- A whole frame --------------------------------------------------------------------
 
 /** The room behind the game: the one of the mode being played, or, in the book, the one of the page (fading between two). */
 function drawRoom(ctx: CanvasRenderingContext2D, g: GameState, rooms: Record<Room, HTMLCanvasElement>, book: Book): void {
+  // (a room that has been chosen in the shop is the one everywhere; otherwise every game and every page of the book has its own)
+  const chosen = ui.look.room !== "auto" && rooms[ui.look.room as Room] ? (ui.look.room as Room) : null;
   if (g.phase !== "menu") {
-    ctx.drawImage(rooms[roomOfMode(g.mode)], 0, 0, W, H);
+    ctx.drawImage(rooms[chosen ?? roomOfMode(g.mode)], 0, -g.extra, W, H + g.extra);
     return;
   }
   const i = Math.floor(book.pos);
   const f = book.pos - i;
-  ctx.drawImage(rooms[roomOfPage(i)], 0, 0, W, H);
+  ctx.drawImage(rooms[chosen ?? roomOfPage(i)], 0, -g.extra, W, H + g.extra);
   if (f > 0.001) {
     ctx.globalAlpha = f;
-    ctx.drawImage(rooms[roomOfPage(i + 1)], 0, 0, W, H);
+    ctx.drawImage(rooms[chosen ?? roomOfPage(i + 1)], 0, -g.extra, W, H + g.extra);
     ctx.globalAlpha = 1;
   }
+}
+
+/** What happens when something is bought: a ring of light and a spray of spinning coins where the button was, and how much it cost floats up. */
+function drawBuyFx(ctx: CanvasRenderingContext2D, extra: number): void {
+  const f = ui.buyFx;
+  if (f < 0 || f >= 1.2) return;
+  ctx.save();
+  ctx.translate(0, -extra); // (the place of the button is where it is on the screen)
+  const {x, y} = ui.buyAt;
+  const ring = Math.min(1, f / 0.45);
+  ctx.globalAlpha = 0.85 * (1 - ring);
+  ctx.lineWidth = 1 + 3 * (1 - ring);
+  ctx.strokeStyle = "#ffe27a";
+  ctx.beginPath();
+  ctx.arc(x, y, 8 + ring * 32, 0, TAU);
+  ctx.stroke();
+  for (let i = 0; i < 12; i++) {
+    const a = -Math.PI / 2 + ((i - 5.5) / 5.5) * 1.15;
+    const sp = 120 + ((i * 37) % 11) * 11;
+    const px = x + Math.cos(a) * sp * f;
+    const py = y + Math.sin(a) * sp * f + 0.5 * 520 * f * f;
+    ctx.globalAlpha = Math.max(0, Math.min(1, (1.0 - f) * 2.2));
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.scale(Math.max(0.15, Math.abs(Math.cos(f * 11 + i))), 1);
+    drawCoin(ctx, 0, 0, 4.5 + (i % 3));
+    ctx.restore();
+  }
+  const rise = Math.min(1, f / 0.9);
+  ctx.globalAlpha = Math.min(1, f / 0.1) * (1 - Math.max(0, (f - 0.6) / 0.6));
+  text(ctx, "\u2212" + ui.buyN, x, y - 26 - rise * 22, 18, "#fff3c0", "center", "rgba(70,40,5,0.9)");
+  ctx.restore();
+}
+
+/** A short message over the bottom of the screen (it fades away). */
+function drawNotice(ctx: CanvasRenderingContext2D): void {
+  if (!ui.notice || ui.noticeTime <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, ui.noticeTime / 0.4);
+  ctx.font = `700 15px ${FONT}`;
+  const w = Math.min(W - 24, ctx.measureText(ui.notice).width + 36);
+  drawPanel(ctx, W / 2 - w / 2, 520, w, 38, 14);
+  write(ctx, ui.notice, W / 2, 539, 15, "#ffffff", "center", 700);
+  ctx.restore();
 }
 
 /**
@@ -1150,6 +1462,17 @@ export function drawGame(
 ): void {
   beginUi(ctx);
   ctx.globalAlpha = 1;
+  // The game is drawn against the bottom of the screen; a tall phone has `extra` units more above it. What belongs at the top of the screen
+  // (the score, the buttons) is drawn with `atTop`, and the full-screen pages cover the extra part too.
+  ui.extra = g.extra;
+  ctx.save();
+  ctx.translate(0, g.extra);
+  const atTop = (draw: () => void) => {
+    ctx.save();
+    ctx.translate(0, -g.extra);
+    draw();
+    ctx.restore();
+  };
   drawRoom(ctx, g, rooms, book);
 
   if (g.phase === "menu") {
@@ -1161,16 +1484,21 @@ export function drawGame(
     // The cups furthest back first, so the ones in front cover them. The front of every cup is drawn
     // after the numbers, so a number sinking into a cup disappears behind the cup's front edge.
     updateLevels(g);
-    const cups = [...g.cups].sort((a, b) => a.y - b.y);
+    // (the cup that is held is drawn last, in front of all the others)
+    const cups = [...g.cups].sort((a, b) => (ui.heldCup === a.id ? 1 : 0) - (ui.heldCup === b.id ? 1 : 0) || a.y - b.y);
     for (const c of cups) drawCupBack(ctx, c);
     fx.drawSteam(ctx);
     drawChains(ctx, g);
-    for (const n of g.numbers) drawNumber(ctx, n, g.time);
+    // (a bonus ball that is just falling never lands in a cup: it is drawn after the cups, so that it goes in front of them, not through them)
+    const passing = (n: NumberTile): boolean => n.bonus !== null && n.state === "fall";
+    for (const n of g.numbers) if (!passing(n)) drawNumber(ctx, n, g.time);
     // The cord with the ring is under the screen: when the screen comes down it covers it.
-    drawScreenHandle(ctx, g, g.time);
+    atTop(() => drawScreenHandle(ctx, g, g.time));
     drawSweep(ctx, g);
     drawHints(ctx, g);
     for (const c of cups) drawCupFront(ctx, c);
+    for (const n of g.numbers) if (passing(n)) drawNumber(ctx, n, g.time);
+    drawZapDiamond(ctx, g);
     drawTutorialHand(ctx, g);
     fx.drawTop(ctx);
     ctx.restore();
@@ -1178,22 +1506,41 @@ export function drawGame(
     // The progress bar, and the stars flying down to it, stay still when the screen shakes.
     drawProgress(ctx, g, fx);
     fx.drawFlyers(ctx);
-    if (g.phase === "play" && g.slow > 0) drawSlow(ctx, g);
-    if (g.phase === "play" || (g.phase === "won" && g.overTimer < 0)) drawHud(ctx, g);
+    drawZapVeil(ctx, g);
+    if (g.phase === "play" && g.pause > 0) drawFrozen(ctx, g);
+    else if (g.phase === "play" && g.slow > 0) drawSlow(ctx, g);
+    if (g.phase === "play" || (g.phase === "won" && g.overTimer < 0)) atTop(() => drawHud(ctx, g));
     drawBanner(ctx, g);
     if (g.phase === "intro") drawIntro(ctx, g, g.time);
+    if (g.phase === "perk") drawPerk(ctx, g, g.time);
     if ((g.phase === "over" || g.phase === "won") && g.overTimer >= 0) drawCard(ctx, g, g.time, book);
     fx.drawCelebration(ctx);
   }
-  drawTopButtons(ctx, g);
+  // The settings, and in the book the energy and the coins, are at the top of the screen (which is higher than the book on a tall phone).
+  atTop(() => drawTopButtons(ctx, g));
+  if (g.phase === "menu") {
+    atTop(() => {
+      drawEnergyPill(ctx, ui.energyN, ui.energyNext, ui.premium);
+      if (ui.extra >= 50) drawCoinPill(ctx, ui.coins);
+    });
+  } else if (ui.energyFx >= 0 && ui.energyFx < 1) {
+    // (a try that is started from the card after a round: the pill is there for a moment, to show what it cost)
+    atTop(() => drawEnergyPill(ctx, ui.energyN, ui.energyNext, ui.premium));
+  }
 
   if (ui.pauseOpen) drawPause(ctx, muted, music, g.time);
   if (ui.settingsOpen) drawSettings(ctx, {muted, music, volume, unlockAll: book.unlockAll, name: playerName(), hiddenIntros: g.hideIntros.size > 0}, g.time);
   if (ui.scoresOpen) drawScores(ctx, board, deviceId(), g.time);
-  if (ui.adOpen) drawAd(ctx, g.time, ui.adTime);
+  if (ui.energyOpen) drawEnergy(ctx, ui.energyN, ui.energyNext, g.time);
+  if (ui.cupsOpen) drawCups(ctx);
+  if (ui.adOpen) drawAd(ctx, g.time, ui.adTime, ui.adFor === "energy");
+
+  drawNotice(ctx);
+  drawBuyFx(ctx, g.extra);
 
   if (fade > 0.001) {
     ctx.fillStyle = `rgba(10,6,16,${Math.min(1, fade)})`;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, -ui.extra, W, H + ui.extra);
   }
+  ctx.restore();
 }

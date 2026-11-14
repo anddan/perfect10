@@ -929,41 +929,69 @@ function terrace(ctx: CanvasRenderingContext2D): void {
 
 // ---- Putting it together --------------------------------------------------------------
 
-function dim(ctx: CanvasRenderingContext2D): void {
+function dim(ctx: CanvasRenderingContext2D, extra: number): void {
   // The whole room is a little dimmed, and darker at the corners.
   ctx.fillStyle = "rgba(10,8,18,0.2)";
-  ctx.fillRect(0, 0, W, H);
-  const v = ctx.createRadialGradient(W / 2, H * 0.55, H * 0.25, W / 2, H * 0.55, H * 0.75);
+  ctx.fillRect(0, 0, W, H + extra);
+  const v = ctx.createRadialGradient(W / 2, extra + H * 0.55, H * 0.25, W / 2, extra + H * 0.55, H * 0.75);
   v.addColorStop(0, "rgba(0,0,0,0)");
   v.addColorStop(1, "rgba(0,0,0,0.5)");
   ctx.fillStyle = v;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, W, H + extra);
 }
 
-/** The finished picture of a room, at `pxPerUnit` pixels for every game unit. */
-function makeRoom(room: Room, pxPerUnit: number): HTMLCanvasElement {
+/** The tones of the light that can be put over a room: layers of colour, each with the way it is mixed with the picture. */
+const TINTS: Record<string, [GlobalCompositeOperation, string][]> = {
+  sunset: [["overlay", "rgba(255,128,48,0.6)"], ["source-over", "rgba(255,90,60,0.1)"]],
+  night: [["multiply", "rgba(80,100,200,0.7)"], ["overlay", "rgba(40,60,170,0.4)"]],
+  forest: [["overlay", "rgba(70,170,90,0.55)"], ["multiply", "rgba(160,225,170,0.3)"]],
+  sepia: [["saturation", "rgba(128,128,128,1)"], ["multiply", "rgba(214,172,120,0.9)"]],
+};
+
+/**
+ * The finished picture of a room, at `pxPerUnit` pixels for every game unit. On a tall phone the picture is `extra` units taller: the room
+ * is drawn as it always is, against the bottom, and the wall goes on up to the top (the top edge of the room is stretched upwards).
+ */
+function makeRoom(room: Room, pxPerUnit: number, extra: number, tint: string): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = Math.max(1, Math.round(W * pxPerUnit));
-  c.height = Math.max(1, Math.round(H * pxPerUnit));
+  c.height = Math.max(1, Math.round((H + extra) * pxPerUnit));
   const ctx = c.getContext("2d")!;
-  ctx.scale(c.width / W, c.height / H);
+  const k = c.width / W;
+  ctx.scale(k, k);
+  ctx.translate(0, extra);
   if (room === "classroom") classroom(ctx);
   else if (room === "cafe") cafe(ctx);
   else if (room === "library") library(ctx);
   else if (room === "bakery") bakery(ctx);
   else if (room === "spaceship") spaceship(ctx);
   else terrace(ctx);
-  dim(ctx);
+  ctx.translate(0, -extra);
+  if (extra > 0) {
+    // (the top few units of the room, stretched up to the top of the picture)
+    const strip = Math.max(1, Math.round(3 * k));
+    const above = Math.round(extra * k);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(c, 0, above, c.width, strip, 0, 0, c.width, above + 1);
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+  }
+  dim(ctx, extra);
+  for (const [op, color] of TINTS[tint] ?? []) {
+    ctx.globalCompositeOperation = op;
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, W, H + extra);
+  }
+  ctx.globalCompositeOperation = "source-over";
   return c;
 }
 
-export function makeBackgrounds(pxPerUnit: number): Record<Room, HTMLCanvasElement> {
+export function makeBackgrounds(pxPerUnit: number, extra = 0, tint = "none"): Record<Room, HTMLCanvasElement> {
   return {
-    classroom: makeRoom("classroom", pxPerUnit),
-    cafe: makeRoom("cafe", pxPerUnit),
-    library: makeRoom("library", pxPerUnit),
-    bakery: makeRoom("bakery", pxPerUnit),
-    spaceship: makeRoom("spaceship", pxPerUnit),
-    terrace: makeRoom("terrace", pxPerUnit),
+    classroom: makeRoom("classroom", pxPerUnit, extra, tint),
+    cafe: makeRoom("cafe", pxPerUnit, extra, tint),
+    library: makeRoom("library", pxPerUnit, extra, tint),
+    bakery: makeRoom("bakery", pxPerUnit, extra, tint),
+    spaceship: makeRoom("spaceship", pxPerUnit, extra, tint),
+    terrace: makeRoom("terrace", pxPerUnit, extra, tint),
   };
 }

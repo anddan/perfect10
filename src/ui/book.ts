@@ -1,13 +1,20 @@
 // The start menu: a book that fills the screen. Drag a page sideways to turn it, or press the next button.
 // Page 1 is the tutorial, page 2 the plus levels (nine, three on every row), page 3 the plus and minus levels,
 // and the last page is the endless game. Every page of the book is in its own room (see background.ts).
-import {W, STAGES} from "../game/constants";
+import {rungGoal} from "../game/daily";
+import {DAILY_BONUS, DAILY_REWARD, DAILY_RUNGS, SCREEN_MAX, W, STAGES} from "../game/constants";
+import {CUP_PRICE, SHOP_CUPS} from "../game/cups";
+import {LOOK_KINDS, type LookKind, looksOf, lookKey} from "../game/looks";
+import {CLOTH_PRICE, ENERGY_PRICE, MAX_COPIES, refillPrice} from "./wallet";
+import {ENERGY_MAX} from "./energy";
+import {COIN_PACKS, CURRENCY, PREMIUM} from "./purchase";
 import {goalFor, starsFor} from "../game/engine";
 import type {GameState, Mode} from "../game/types";
 import {roomOfMode, type Room} from "./background";
-import {t} from "./i18n";
+import {drawShopCup} from "./cupArt";
+import {type Key, t} from "./i18n";
 import {playerName} from "./profile";
-import {drawTrophy} from "./settings";
+import {drawBolt, drawTrophy} from "./settings";
 import {
   type Button,
   FONT,
@@ -15,6 +22,8 @@ import {
   INK,
   TAU,
   drawBall,
+  drawBonusBall,
+  drawCoin,
   drawStar,
   drawButton,
   logoTitle,
@@ -23,6 +32,7 @@ import {
   softShadow,
   text,
   ui,
+  wrapLines,
   write,
 } from "./draw";
 
@@ -34,8 +44,14 @@ const HOLE_R = 4.6;
 /** Where the book is (game units): nearly the whole screen, so a whole page is shown. */
 export const BOOK = {x: 14, y: 62, w: 332, h: 514};
 
-/** What each page of the book is. */
-export const PAGE_MODES: Mode[] = ["tutorial", "plus", "mixed", "times", "divide", "space", "endless"];
+/** What each page of the book is: the games, and after them the daily challenge (the ladder) and the shop. */
+export type Page = Mode | "daily" | "shop" | "looks" | "buy";
+export const PAGES: Page[] = ["tutorial", "daily", "plus", "mixed", "times", "divide", "space", "endless", "shop", "looks", "buy"];
+/** The pages of the daily challenge and the shop. */
+export const DAILY_PAGE = PAGES.indexOf("daily");
+export const SHOP_PAGE = PAGES.indexOf("shop");
+export const BUY_PAGE = PAGES.indexOf("buy");
+export const LOOKS_PAGE = PAGES.indexOf("looks");
 
 /** The chapters of the book, with twelve levels each, in order. */
 export const CHAPTER_MODES = ["plus", "mixed", "times", "divide", "space"] as const;
@@ -49,7 +65,7 @@ export function isChapter(mode: Mode): mode is ChapterMode {
 export function chapterOf(mode: Mode): number {
   return Math.max(0, (CHAPTER_MODES as readonly Mode[]).indexOf(mode)) + 1;
 }
-const LAST = PAGE_MODES.length - 1;
+const LAST = PAGES.length - 1;
 
 export interface Book {
   /** Which page is showing: 2 is the third page, 2.4 is a page that is 40 percent of the way to being turned. */
@@ -66,6 +82,8 @@ export interface Book {
   cleared: Set<string>;
   /** Every level is open (for testing). The locks are still there in the real game. */
   unlockAll: boolean;
+  /** Premium has been bought: every level and the endless game are open. */
+  premium: boolean;
   /** The most cups that have been filled in a level (the dots on its tile light up for them), as "plus-3" and so on. */
   bestCups: Map<string, number>;
   /** The most points that have been got in a cleared level (shown under its number), as "plus-3" and so on. */
@@ -85,6 +103,7 @@ export function createBook(page = 0, cleared: Iterable<string> = [], unlockAll =
     windupFrom: p,
     cleared: new Set(cleared),
     unlockAll,
+    premium: false,
     bestCups: new Map(Object.entries(bestCups)),
     bestScores: new Map(Object.entries(bestScores)),
     turns: 0,
@@ -117,12 +136,11 @@ export function markCleared(b: Book, mode: Mode, stage: number): void {
 
 /** The page a mode lives on. */
 export function pageOfMode(mode: Mode): number {
-  return Math.max(0, PAGE_MODES.indexOf(mode));
+  return Math.max(0, PAGES.indexOf(mode));
 }
 
-/** The most stars there are in a chapter (three in each of its twelve levels), and how many of them open the next chapter (at least: more is fine). */
+/** The most stars there are in a chapter (three in each of its twelve levels). */
 export const CHAPTER_STARS = 3 * STAGES;
-export const STARS_TO_OPEN = 24;
 /** How many stars, all chapters added together (180 at most), open the endless game. */
 export const STARS_FOR_ENDLESS = 120;
 
@@ -130,6 +148,12 @@ export const STARS_FOR_ENDLESS = 120;
 export function starsOfLevel(b: Book, mode: Mode, stage: number): number {
   const key = clearedKey(mode, stage);
   return b.cleared.has(key) ? starsFor(mode, stage, b.bestScores.get(key) ?? 0) : 0;
+}
+
+/** Whether every level of a chapter has been cleared (that opens the next chapter). */
+export function chapterCleared(b: Book, mode: ChapterMode): boolean {
+  for (let s = 1; s <= STAGES; s++) if (!b.cleared.has(clearedKey(mode, s))) return false;
+  return true;
 }
 
 /** The stars got in all the levels of a chapter (0 to 36). */
@@ -146,16 +170,16 @@ export function totalStars(b: Book): number {
 
 /**
  * Whether a level can be played. The levels come one after the other: the first plus level is open, every other
- * level opens when the one before it has been cleared, and the first level of a chapter when at least 24 of the 36 stars of the
- * chapter before it have been got (a level that has been cleared stays open). The endless game opens when 120 stars have been got in
+ * level opens when the one before it has been cleared, and the first level of a chapter when every level of the chapter before it has
+ * been cleared (a level that has been cleared stays open). The endless game opens when 120 stars have been got in
  * all the chapters together. The tutorial is always open.
  */
 export function isUnlocked(b: Book, mode: Mode, stage: number): boolean {
-  if (b.unlockAll) return true;
+  if (b.unlockAll || b.premium) return true;
   if (mode === "endless") return totalStars(b) >= STARS_FOR_ENDLESS;
   const chapter = CHAPTER_MODES.indexOf(mode as ChapterMode);
   if (chapter < 0) return true;
-  if (stage <= 1) return chapter === 0 || b.cleared.has(clearedKey(mode, 1)) || chapterStars(b, CHAPTER_MODES[chapter - 1]) >= STARS_TO_OPEN;
+  if (stage <= 1) return chapter === 0 || b.cleared.has(clearedKey(mode, 1)) || chapterCleared(b, CHAPTER_MODES[chapter - 1]);
   return b.cleared.has(clearedKey(mode, stage - 1));
 }
 
@@ -167,7 +191,8 @@ export function openNextGame(b: Book, mode: Mode, stage: number): {mode: Mode; s
 
 /** The room behind a page of the book. */
 export function roomOfPage(page: number): Room {
-  return roomOfMode(PAGE_MODES[Math.min(LAST, Math.max(0, page))]);
+  const p = PAGES[Math.min(LAST, Math.max(0, page))];
+  return p === "daily" ? "terrace" : p === "shop" ? "bakery" : p === "looks" ? "classroom" : p === "buy" ? "cafe" : roomOfMode(p);
 }
 
 /** The game that follows another in the book: level after level, then the next page, ending in the endless game. */
@@ -947,13 +972,9 @@ function drawLevelsPage(ctx: CanvasRenderingContext2D, b: Book, mode: ChapterMod
       b.bestScores.get(clearedKey(mode, i + 1)) ?? 0
     );
   }
-  // At the bottom: how many stars open this chapter (if it is shut), or else how many open the next one (the last chapter: the endless game).
-  const hint = !isUnlocked(b, mode, 1)
-    ? t("openChapter", {n: chapter - 1, m: STARS_TO_OPEN})
-    : chapter < CHAPTER_MODES.length
-      ? t("openChapterNext", {n: chapter + 1, m: STARS_TO_OPEN})
-      : t("openEndless", {n: STARS_FOR_ENDLESS});
-  writeWithStar(ctx, hint, w / 2, 497, 15, "#5b4a36");
+  // At the bottom: what opens this chapter (if it is shut), or else what opens the next one (nothing is said in the last chapter).
+  const hint = !isUnlocked(b, mode, 1) ? t("openChapter", {n: chapter - 1}) : chapter < CHAPTER_MODES.length ? t("openChapterNext", {n: chapter + 1}) : "";
+  if (hint) write(ctx, hint, w / 2, 497, 14, "#5b4a36", "center", 600);
 }
 
 function drawEndlessPage(ctx: CanvasRenderingContext2D, b: Book, g: GameState, time: number): void {
@@ -989,6 +1010,579 @@ function drawEndlessPage(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
     drawLock(ctx, w / 2, BOOK.h - 84, 1.1);
     writeWithStar(ctx, t("openEndless", {n: STARS_FOR_ENDLESS}), w / 2, BOOK.h - 36, 15, "#5b4a36");
   }
+}
+
+/** A price or an amount: a coin and the number. (x, y) is the middle. */
+function coinAmount(ctx: CanvasRenderingContext2D, n: number, x: number, y: number, size: number, color: string, outline: string): void {
+  ctx.font = `700 ${size}px ${FONT}`;
+  const tw = ctx.measureText(String(n)).width;
+  const start = x - (tw + size + 4) / 2;
+  drawCoin(ctx, start + size / 2, y, size * 0.5);
+  text(ctx, String(n), start + size + 4, y + 1, size, color, "left", outline);
+}
+
+/** A soft card for the shop and the store: cream paper with a warm edge, a sheen along the top and a shadow (green when it is owned, gold when it is the one to pick). */
+function softCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r = 14, tone: "cream" | "green" | "gold" = "cream"): void {
+  softShadow(ctx, x, y + 1, w, h, r, 6, 0.2);
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  if (tone === "green") {
+    g.addColorStop(0, "#f2faea");
+    g.addColorStop(1, "#dcefce");
+  } else if (tone === "gold") {
+    g.addColorStop(0, "#fff7d8");
+    g.addColorStop(1, "#f7e0a2");
+  } else {
+    g.addColorStop(0, "#fffaf0");
+    g.addColorStop(1, "#f5ead2");
+  }
+  ctx.fillStyle = g;
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fill();
+  ctx.save();
+  roundRect(ctx, x, y, w, h, r);
+  ctx.clip();
+  const sheen = ctx.createLinearGradient(0, y, 0, y + h * 0.5);
+  sheen.addColorStop(0, "rgba(255,255,255,0.6)");
+  sheen.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = sheen;
+  ctx.fillRect(x, y, w, h * 0.5);
+  ctx.restore();
+  ctx.lineWidth = tone === "gold" ? 2 : 1.3;
+  ctx.strokeStyle = tone === "green" ? "rgba(47,174,94,0.6)" : tone === "gold" ? "rgba(214,150,20,0.9)" : "rgba(120,85,40,0.3)";
+  roundRect(ctx, x, y, w, h, r);
+  ctx.stroke();
+}
+
+/** A thin line with a small diamond in the middle, under the title of a page. */
+function flourish(ctx: CanvasRenderingContext2D, cx: number, y: number, half: number): void {
+  ctx.strokeStyle = "rgba(150,110,50,0.45)";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(cx - half, y);
+  ctx.lineTo(cx - 9, y);
+  ctx.moveTo(cx + 9, y);
+  ctx.lineTo(cx + half, y);
+  ctx.stroke();
+  ctx.fillStyle = "#c9a35a";
+  ctx.beginPath();
+  ctx.moveTo(cx, y - 4);
+  ctx.lineTo(cx + 5, y);
+  ctx.lineTo(cx, y + 4);
+  ctx.lineTo(cx - 5, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** The coins of the wallet, as a pill in the top right corner of a page. */
+function coinPill(ctx: CanvasRenderingContext2D, coins: number): void {
+  const w = BOOK.w;
+  ctx.font = `700 15px ${FONT}`;
+  const tw = ctx.measureText(String(coins)).width;
+  const pw = tw + 44;
+  ctx.fillStyle = "rgba(90,60,25,0.13)";
+  roundRect(ctx, w - 14 - pw, 10, pw, 26, 13);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(90,60,25,0.25)";
+  ctx.stroke();
+  write(ctx, String(coins), w - 14 - 30, 24, 15, "#5b4a36", "right", 700);
+  drawCoin(ctx, w - 14 - 15, 23, 8.5);
+}
+
+/** The label, the big title and the line under the title that every one of these pages starts with. */
+function pageHead(ctx: CanvasRenderingContext2D, label: string, title: string, color: string, sub: string): void {
+  const w = BOOK.w;
+  write(ctx, label, w / 2, 36, 13, "#8a6d3b", "center", 700);
+  write(ctx, title, w / 2, 76, 44, color, "center", 700);
+  write(ctx, sub, w / 2, 108, 14.5, "#5b4a36", "center", 600);
+  flourish(ctx, w / 2, 124, 96);
+}
+
+/** What a shop item is, in at most two lines in the room that there is (the text gets smaller if it is long). */
+function shopText(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, room: number, maxLines = 2, startSize = 11.5): void {
+  let size = startSize;
+  let lines: string[] = [];
+  for (; size >= 8.5; size -= 0.5) {
+    ctx.font = `600 ${size}px ${FONT}`;
+    lines = wrapLines(ctx, s, room);
+    if (lines.length <= maxLines) break;
+  }
+  lines.slice(0, maxLines).forEach((line, k) => write(ctx, line, x, y + k * (size + 1.6), size, "#6a583f", "left", 600));
+}
+
+const SHOP_TEXT = {
+  gold: {name: "cupGold", a: "cupGoldA", b: "cupGoldB"},
+  thermos: {name: "cupThermos", a: "cupThermosA", b: "cupThermosB"},
+  magnet: {name: "cupMagnet", a: "cupMagnetA", b: "cupMagnetB"},
+  big: {name: "cupBig", a: "cupBigA", b: "cupBigB"},
+  laser: {name: "cupLaser", a: "cupLaserA", b: "cupLaserB"},
+} as const;
+
+/** A row of tabs on a pill, with the chosen one lit. The ids of the hits are `${prefix}:${i}`. */
+function tabBar(ctx: CanvasRenderingContext2D, labels: string[], active: number, prefix: string, y: number): void {
+  const tx = 26;
+  const tw = BOOK.w - 26 - 14;
+  const th = 28;
+  ctx.fillStyle = "rgba(90,60,25,0.14)";
+  roundRect(ctx, tx, y, tw, th, 14);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(90,60,25,0.25)";
+  ctx.stroke();
+  const tabW = tw / labels.length;
+  labels.forEach((label, i) => {
+    const on = active === i;
+    if (on) {
+      const g = ctx.createLinearGradient(0, y, 0, y + th);
+      g.addColorStop(0, "#ffe98f");
+      g.addColorStop(1, "#f2b320");
+      ctx.fillStyle = g;
+      roundRect(ctx, tx + i * tabW + 2, y + 2, tabW - 4, th - 4, 12);
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = "#9c610a";
+      ctx.stroke();
+    }
+    registerHit(ctx, `${prefix}:${i}`, {x: tx + i * tabW, y, w: tabW, h: th});
+    write(ctx, label, tx + i * tabW + tabW / 2, y + th / 2 + 1, 12, on ? "#4a2a05" : "#6a583f", "center", 700);
+  });
+}
+
+/** The shop: two tabs, the cups with powers (and the cloth) and the energy (with the continue token). */
+function drawShopPage(ctx: CanvasRenderingContext2D): void {
+  pageHead(ctx, t("shopLabel"), t("shop"), "#a86b10", ui.shopTab === 0 ? t("shopSub") : t("suppliesSub"));
+  coinPill(ctx, ui.coins);
+  if (ui.shopTab === 0) drawButton(ctx, "cups:open", {x: 26, y: 9, w: 104, h: 28}, t("cupsBtn"), "secondary", {size: 14});
+  tabBar(ctx, [t("shopTab0"), t("shopTab1")], ui.shopTab, "shop:tab", 134);
+  if (ui.shopTab === 0) drawShopCups(ctx);
+  else drawShopEnergy(ctx);
+}
+
+/** A card for every cup with a power (and one for the cloth), with what it does and what it costs; the pips show how many copies there are. */
+function drawShopCups(ctx: CanvasRenderingContext2D): void {
+  const w = BOOK.w;
+  const x0 = 26;
+  const cw = w - 26 - 14;
+  const top = 168;
+  const pitch = 62;
+  const ch = 56;
+  SHOP_CUPS.forEach((kind, i) => {
+    const y0 = top + i * pitch;
+    const txt = SHOP_TEXT[kind];
+    const copies = ui.owned[kind] ?? 0;
+    const owned = copies > 0;
+    softCard(ctx, x0, y0, cw, ch, 14, owned ? "green" : "cream");
+    // (a card of a cup that has been bought opens the dialog for putting it on the cups; the button on it buys one more)
+    if (owned) registerHit(ctx, `shop:own:${kind}`, {x: x0, y: y0, w: cw, h: ch});
+    ctx.fillStyle = "rgba(110,80,40,0.1)";
+    ctx.beginPath();
+    ctx.arc(x0 + 34, y0 + 28, 24, 0, TAU);
+    ctx.fill();
+    drawShopCup(ctx, [kind], x0 + 34, y0 + 44, 0.66);
+    write(ctx, t(txt.name), x0 + 72, y0 + 17, 16, INK, "left", 700);
+    // One pip for every copy that has been bought (a cup that is to have the power needs a copy of its own: up to one for every cup).
+    ctx.font = `700 16px ${FONT}`;
+    const pipX = x0 + 72 + ctx.measureText(t(txt.name)).width + 10;
+    for (let p = 0; p < MAX_COPIES; p++) {
+      ctx.fillStyle = p < copies ? "#f2b320" : "rgba(110,80,40,0.18)";
+      ctx.strokeStyle = p < copies ? "#8a5208" : "rgba(110,80,40,0.3)";
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.arc(pipX + p * 9, y0 + 16, 3.4, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    }
+    shopText(ctx, `${t(txt.a)} ${t(txt.b)}`, x0 + 72, y0 + 32, cw - 72 - 96, 2, 12.5);
+    const btn = {x: x0 + cw - 86, y: y0 + 10, w: 76, h: 36};
+    if (copies >= MAX_COPIES) {
+      drawButton(ctx, `shop:own:${kind}`, btn, t("shopFull"), "green", {size: 17});
+    } else {
+      const afford = ui.coins >= CUP_PRICE[kind];
+      drawButton(ctx, `shop:buy:${kind}`, btn, "", afford ? "primary" : "secondary", {
+        draw: (c, cx, cy2, ink) => coinAmount(c, CUP_PRICE[kind], cx, cy2, 17, afford ? ink : "#f6efe0", afford ? "rgba(255,246,206,0.75)" : "rgba(14,8,24,0.85)"),
+      });
+    }
+  });
+  ctx.font = `600 12px ${FONT}`;
+  wrapLines(ctx, t("shopHint"), w - 50)
+    .slice(0, 2)
+    .forEach((line, k) => write(ctx, line, w / 2, 490 + k * 14, 12, "#6a583f", "center", 600));
+}
+
+/** The energy for coins (one point, or a full refill) and the continue token that carries on a lost round without an ad. */
+function drawShopEnergy(ctx: CanvasRenderingContext2D): void {
+  const w = BOOK.w;
+  const x0 = 26;
+  const cw = w - 26 - 14;
+  const missing = ENERGY_MAX - ui.energyN;
+  const items = [
+    {id: "shop:energy1", name: t("supEnergy1"), desc: `${t("supEnergy1D")} ${t("shopClothB", {n: ui.energyN, m: ENERGY_MAX})}`, price: ENERGY_PRICE, off: missing < 1, icon: 0},
+    {id: "shop:energyFull", name: t("supRefill"), desc: t("supRefillD", {n: missing}), price: refillPrice(missing), off: missing < 1, icon: 1},
+    {id: "shop:cloth", name: t("shopCloth"), desc: `${t("shopClothA")} ${t("shopClothB", {n: ui.screens, m: SCREEN_MAX})}`, price: CLOTH_PRICE, off: ui.screens >= SCREEN_MAX, icon: 2},
+  ];
+  items.forEach((it, i) => {
+    const y0 = 176 + i * 106;
+    softCard(ctx, x0, y0, cw, 94, 16, "cream");
+    ctx.fillStyle = "rgba(110,80,40,0.1)";
+    ctx.beginPath();
+    ctx.arc(x0 + 40, y0 + 47, 27, 0, TAU);
+    ctx.fill();
+    if (it.icon === 0) drawBolt(ctx, x0 + 40, y0 + 47, 38, true);
+    else if (it.icon === 1) {
+      drawBolt(ctx, x0 + 29, y0 + 51, 26, true);
+      drawBolt(ctx, x0 + 52, y0 + 51, 26, true);
+      drawBolt(ctx, x0 + 40, y0 + 43, 34, true);
+    } else {
+      ctx.save();
+      ctx.translate(x0 + 40, y0 + 47);
+      ctx.scale(1.05, 1.05);
+      drawBonusBall(ctx, 0, 0, "cloth", 1, 0);
+      ctx.restore();
+    }
+    write(ctx, it.name, x0 + 78, y0 + 24, 17, INK, "left", 700);
+    shopText(ctx, it.desc, x0 + 78, y0 + 42, cw - 78 - 96, 3);
+    const btn = {x: x0 + cw - 86, y: y0 + 29, w: 76, h: 36};
+    if (it.off) drawButton(ctx, it.id, btn, t("shopFull"), "secondary", {size: 15});
+    else {
+      const afford = ui.coins >= it.price;
+      drawButton(ctx, it.id, btn, "", afford ? "primary" : "secondary", {
+        draw: (c, cx, cy2, ink) => coinAmount(c, it.price, cx, cy2, 16, afford ? ink : "#f6efe0", afford ? "rgba(255,246,206,0.75)" : "rgba(14,8,24,0.85)"),
+      });
+    }
+  });
+}
+
+/** The ladder of the daily challenge: six rungs with the cups each needs and what it pays, how far up you got today, and the button for today's try. */
+function drawDailyPage(ctx: CanvasRenderingContext2D, time: number): void {
+  const w = BOOK.w;
+  pageHead(ctx, t("dayLabel"), t("dailyTitle"), "#b05a1c", t("dailySub"));
+  coinPill(ctx, ui.coins);
+  const railL = 138;
+  const railR = 194;
+  const top = 144;
+  const bottom = 352;
+  const step = 34;
+  // The two rails of the ladder, in wood with a lit edge.
+  for (const x of [railL, railR]) {
+    const wood = ctx.createLinearGradient(x - 4, 0, x + 4, 0);
+    wood.addColorStop(0, "#9a693f");
+    wood.addColorStop(0.45, "#e3b583");
+    wood.addColorStop(1, "#6f4a2a");
+    ctx.fillStyle = wood;
+    roundRect(ctx, x - 4, top, 8, bottom - top + 20, 3.5);
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(60,30,10,0.55)";
+    ctx.stroke();
+  }
+  for (let i = 0; i < DAILY_RUNGS; i++) {
+    const y = bottom - i * step;
+    const reached = i < ui.dailyRungs;
+    const last = i === DAILY_RUNGS - 1;
+    // The rung.
+    const bar = ctx.createLinearGradient(0, y - 7, 0, y + 7);
+    if (reached) {
+      bar.addColorStop(0, "#fff3a8");
+      bar.addColorStop(1, "#e8a91c");
+    } else {
+      bar.addColorStop(0, "#e3b583");
+      bar.addColorStop(1, "#a8774a");
+    }
+    ctx.fillStyle = bar;
+    roundRect(ctx, railL - 3, y - 7, railR - railL + 6, 14, 6);
+    ctx.fill();
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = reached ? "#8a5208" : "rgba(60,30,10,0.65)";
+    ctx.stroke();
+    if (reached) {
+      ctx.strokeStyle = "#5e3a06";
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo((railL + railR) / 2 - 5, y);
+      ctx.lineTo((railL + railR) / 2 - 1.5, y + 3.5);
+      ctx.lineTo((railL + railR) / 2 + 5.5, y - 3.5);
+      ctx.stroke();
+    }
+    // On the left: the rung, and the cups it needs.
+    write(ctx, t("dailyRung", {n: i + 1}), railL - 18, y - 4, 14, reached ? "#8a5208" : INK, "right", 700);
+    write(ctx, t("dailyCups", {n: rungGoal(i + 1)}), railL - 18, y + 9, 10.5, "#7a6648", "right", 600);
+    // On the right: what it pays, in a small pill (gold for the top).
+    const amount = DAILY_REWARD[i] + (last ? DAILY_BONUS : 0);
+    ctx.font = `700 14px ${FONT}`;
+    const pw = ctx.measureText(String(amount)).width + 34;
+    ctx.fillStyle = reached ? "rgba(255,213,74,0.55)" : last ? "rgba(255,213,74,0.35)" : "rgba(90,60,25,0.12)";
+    roundRect(ctx, railR + 18, y - 11, pw, 22, 11);
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = reached || last ? "rgba(168,107,16,0.7)" : "rgba(90,60,25,0.25)";
+    ctx.stroke();
+    drawCoin(ctx, railR + 18 + 13, y, 7.5);
+    write(ctx, String(amount), railR + 18 + 25, y + 1, 14, reached || last ? "#7a4a05" : "#5b4a36", "left", 700);
+  }
+  // A star on top of the ladder: what waits for the one who gets all the way up.
+  drawStar(ctx, (railL + railR) / 2, top - 4, 11, true, true, true);
+  t("dailyInfo")
+    .split("|")
+    .forEach((line, k) => write(ctx, line, w / 2, 396 + k * 16, 12.5, "#6a583f", "center", 600));
+  if (!ui.dailyUsed) {
+    drawButton(ctx, "daily:play", {x: w / 2 - 112, y: BOOK.h - 92, w: 224, h: 56}, t("dailyPlay"), "primary", {pulse: time, size: 24});
+  } else {
+    write(ctx, ui.dailyCleared ? t("dailyCleared") : t("dailyToday", {n: ui.dailyRungs, m: DAILY_RUNGS}), w / 2, BOOK.h - 66, 17, ui.dailyCleared ? "#a86b10" : INK, "center", 700);
+    write(ctx, t("dailyWait"), w / 2, BOOK.h - 38, 14, "#6a583f", "center", 600);
+  }
+}
+
+/** A pile of coins, bigger for a bigger pack: (x, y) is the middle of the bottom of the pile. */
+function coinPile(ctx: CanvasRenderingContext2D, x: number, y: number, level: number): void {
+  const rows: [number, number][][] = [
+    [[-9, 0], [9, 0], [0, -8]],
+    [[-17, 0], [0, 0], [17, 0], [-8, -9], [9, -9], [0, -18]],
+    [[-26, 0], [-9, 0], [9, 0], [26, 0], [-17, -9], [0, -9], [17, -9], [-8, -18], [9, -18], [0, -27]],
+  ];
+  const r = level === 2 ? 11 : 10;
+  for (const [dx, dy] of rows[level]) drawCoin(ctx, x + dx, y + dy - r, r);
+}
+
+/** A small round check mark (a white tick on a green disc). */
+function tick(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  const g = ctx.createLinearGradient(0, y - r, 0, y + r);
+  g.addColorStop(0, "#7ae79a");
+  g.addColorStop(1, "#1f9c4d");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
+  ctx.fill();
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = "#0f5a2a";
+  ctx.stroke();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = Math.max(1.6, r * 0.28);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.45, y + r * 0.02);
+  ctx.lineTo(x - r * 0.1, y + r * 0.38);
+  ctx.lineTo(x + r * 0.5, y - r * 0.34);
+  ctx.stroke();
+}
+
+/** A small ribbon over the top edge of a card ("popular", "best value"). */
+function cardTag(ctx: CanvasRenderingContext2D, cx: number, y: number, label: string): void {
+  ctx.font = `800 10.5px ${FONT}`;
+  const w = ctx.measureText(label).width + 20;
+  const g = ctx.createLinearGradient(0, y - 9, 0, y + 9);
+  g.addColorStop(0, "#ffe27a");
+  g.addColorStop(1, "#e59a14");
+  ctx.fillStyle = g;
+  roundRect(ctx, cx - w / 2, y - 9, w, 18, 9);
+  ctx.fill();
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = "#8a5208";
+  ctx.stroke();
+  write(ctx, label, cx, y + 0.5, 10.5, "#4a2a05", "center", 800);
+}
+
+/** The store: three packs of coins side by side, and Premium (the best deal) on a card of its own. */
+function drawBuyPage(ctx: CanvasRenderingContext2D): void {
+  const w = BOOK.w;
+  pageHead(ctx, t("buyLabel"), t("buy"), "#23753f", t("buySub"));
+  coinPill(ctx, ui.coins);
+  write(ctx, t("buyCoinsHead"), 28, 146, 13, "#8a6d3b", "left", 700);
+  const cw = 90;
+  const gap = (w - 26 - 14 - 3 * cw) / 2;
+  const tags = [null, t("buyPopular"), t("buyBest")];
+  COIN_PACKS.forEach((pack, i) => {
+    const x = 26 + i * (cw + gap);
+    const y = 160;
+    const h = 150;
+    softCard(ctx, x, y, cw, h, 14, i === 1 ? "gold" : "cream");
+    coinPile(ctx, x + cw / 2, y + 74, i);
+    text(ctx, String(pack.coins), x + cw / 2, y + 90, 24, INK, "center", "rgba(255,250,235,0.8)");
+    write(ctx, t("buyUnit"), x + cw / 2, y + 107, 12, "#7a6648", "center", 600);
+    drawButton(ctx, `buy:${pack.id}`, {x: x + 7, y: y + h - 36, w: cw - 14, h: 30}, `${pack.price} ${CURRENCY}`, "primary", {size: 15});
+    const tag = tags[i];
+    if (tag) cardTag(ctx, x + cw / 2, y, tag);
+  });
+  // Premium.
+  const px = 26;
+  const py = 326;
+  const pw = w - 26 - 14;
+  const ph = 178;
+  softShadow(ctx, px, py, pw, ph, 18, 7, 0.35);
+  const card = ctx.createLinearGradient(0, py, 0, py + ph);
+  card.addColorStop(0, "#4b3a66");
+  card.addColorStop(1, "#271e3d");
+  ctx.fillStyle = card;
+  roundRect(ctx, px, py, pw, ph, 18);
+  ctx.fill();
+  ctx.save();
+  roundRect(ctx, px, py, pw, ph, 18);
+  ctx.clip();
+  const glow = ctx.createRadialGradient(px + 52, py + 34, 4, px + 52, py + 34, 120);
+  glow.addColorStop(0, "rgba(255,213,74,0.35)");
+  glow.addColorStop(1, "rgba(255,213,74,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(px, py, pw, ph);
+  ctx.restore();
+  ctx.lineWidth = 2.2;
+  ctx.strokeStyle = "#f2c24a";
+  roundRect(ctx, px, py, pw, ph, 18);
+  ctx.stroke();
+  // The emblem, the name and what it is.
+  const em = ctx.createLinearGradient(0, py + 12, 0, py + 56);
+  em.addColorStop(0, "#fff0a0");
+  em.addColorStop(1, "#e59a14");
+  ctx.fillStyle = em;
+  ctx.beginPath();
+  ctx.arc(px + 36, py + 36, 20, 0, TAU);
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#8a5208";
+  ctx.stroke();
+  drawStar(ctx, px + 36, py + 37, 12.5, true, true, true);
+  write(ctx, t("premium"), px + 66, py + 29, 24, GOLD, "left", 700);
+  write(ctx, t("premTag"), px + 67, py + 49, 11, "#cdbfe6", "left", 700);
+  [t("premCoins", {n: PREMIUM.coins}), t("premOpen"), t("premFree")].forEach((line, k) => {
+    tick(ctx, px + 24, py + 72 + k * 22, 8);
+    write(ctx, line, px + 40, py + 73 + k * 22, 13.5, "#f3ecdd", "left", 600);
+  });
+  if (ui.premium) {
+    tick(ctx, px + pw / 2 - 40, py + ph - 26, 11);
+    write(ctx, t("premOwned"), px + pw / 2 - 24, py + ph - 26, 18, "#9be8a9", "left", 700);
+  } else {
+    drawButton(ctx, "buy:premium", {x: px + (pw - 200) / 2, y: py + ph - 44, w: 200, h: 34}, `${PREMIUM.price} ${CURRENCY}`, "primary", {size: 19});
+  }
+}
+
+const LOOK_NAME: Record<string, Key> = {
+  "cupColor:porcelain": "lkPorcelain",
+  "cupColor:sky": "lkSky",
+  "cupColor:rose": "lkRose",
+  "cupColor:mint": "lkMint",
+  "cupColor:midnight": "lkMidnight",
+  "cupColor:sunset": "lkSunset",
+  "pattern:none": "lkPlain",
+  "pattern:dots": "lkDots",
+  "pattern:stripes": "lkStripes",
+  "pattern:stars": "lkStars",
+  "room:auto": "lkAuto",
+  "room:classroom": "lkClassroom",
+  "room:cafe": "lkCafe",
+  "room:library": "lkLibrary",
+  "room:bakery": "lkBakery",
+  "room:spaceship": "lkSpaceship",
+  "room:terrace": "lkTerrace",
+  "tint:none": "lkNatural",
+  "tint:sunset": "lkSunset",
+  "tint:night": "lkNight",
+  "tint:forest": "lkForest",
+  "tint:sepia": "lkSepia",
+  "numbers:classic": "lkClassic",
+  "numbers:neon": "lkNeon",
+  "numbers:candy": "lkCandy",
+  "numbers:wood": "lkWood",
+  "numbers:dark": "lkDark",
+  "numbers:minimal": "lkMinimal",
+  "numbers:glass": "lkGlass",
+  "numbers:chalk": "lkChalk",
+};
+
+const LOOK_TABS: Key[] = ["lookTab0", "lookTab1", "lookTab2", "lookTab3", "lookTab4"];
+
+/** Two colours for the little picture of each tone of light (the sky, and the desk). */
+const TINT_SWATCH: Record<string, [string, string, string]> = {
+  none: ["#7c8a90", "#4b5256", "#f3ecdd"],
+  sunset: ["#ff9a52", "#7a2e3c", "#ffe0a0"],
+  night: ["#27337a", "#0f1330", "#dfe6ff"],
+  forest: ["#5fae6c", "#1f4a2c", "#e8ffd0"],
+  sepia: ["#c9a577", "#6a4a2a", "#f6e6c8"],
+};
+
+/** The little picture on a card of the looks: a cup, a piece of a room, a tone of light or three balls. */
+function drawLookPreview(ctx: CanvasRenderingContext2D, kind: LookKind, id: string, x: number, y: number, w: number): void {
+  const cx = x + w / 2;
+  if (kind === "cupColor") drawShopCup(ctx, [], cx, y + 56, 0.64, {cupColor: id, pattern: "none"});
+  else if (kind === "pattern") drawShopCup(ctx, [], cx, y + 56, 0.64, {cupColor: ui.look.cupColor, pattern: id});
+  else if (kind === "numbers") {
+    drawBall(ctx, cx - 25, y + 34, 5, 0.6, 0, 0, "add", id);
+    drawBall(ctx, cx, y + 36, -3, 0.6, 0, 0, "add", id);
+    drawBall(ctx, cx + 25, y + 34, 2, 0.6, 0, 0, "mul", id);
+  } else {
+    const pw = w - 12;
+    const ph = 50;
+    const px = x + 6;
+    const py = y + 8;
+    ctx.save();
+    roundRect(ctx, px, py, pw, ph, 9);
+    ctx.clip();
+    if (kind === "room") {
+      const pics = ui.roomPics;
+      const slices = id === "auto" ? ["classroom", "cafe", "spaceship"] : [id];
+      slices.forEach((room, i) => {
+        const pic = pics?.[room];
+        if (!pic) return;
+        const k = pic.width / W;
+        const sw = pic.width / slices.length;
+        const sh = (pic.width * ph) / pw;
+        const sy = Math.min(pic.height - sh, (ui.extra + 330) * k - sh);
+        ctx.drawImage(pic, (i * pic.width) / slices.length, Math.max(0, sy), sw, sh, px + (i * pw) / slices.length, py, pw / slices.length + 0.5, ph);
+      });
+    } else {
+      // A tone of light: sky and ground in its colours, and a sun (or a moon).
+      const sw = TINT_SWATCH[id] ?? TINT_SWATCH.none;
+      const sky = ctx.createLinearGradient(0, py, 0, py + ph);
+      sky.addColorStop(0, sw[0]);
+      sky.addColorStop(1, sw[1]);
+      ctx.fillStyle = sky;
+      ctx.fillRect(px, py, pw, ph);
+      ctx.fillStyle = sw[2];
+      ctx.beginPath();
+      ctx.arc(px + pw * 0.7, py + ph * 0.38, 9, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillRect(px, py + ph * 0.72, pw, ph * 0.28);
+    }
+    ctx.restore();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = "rgba(60,40,20,0.35)";
+    roundRect(ctx, px, py, pw, ph, 9);
+    ctx.stroke();
+  }
+}
+
+/** The looks: a tab for every kind, and a grid of cards under it. A card shows what it is, and has a button to buy it, put it on, or (when it is on) a mark. */
+function drawLooksPage(ctx: CanvasRenderingContext2D): void {
+  const w = BOOK.w;
+  pageHead(ctx, t("lookLabel"), t("looks"), "#8a3fa0", t("looksSub"));
+  coinPill(ctx, ui.coins);
+  const tx = 26;
+  const tw = w - 26 - 14;
+  tabBar(ctx, LOOK_TABS.map((k) => t(k)), ui.lookTab, "looks:tab", 134);
+  // The cards.
+  const kind = LOOK_KINDS[Math.min(LOOK_KINDS.length - 1, Math.max(0, ui.lookTab))];
+  const gap = 8;
+  const cw = (tw - 2 * gap) / 3;
+  const ch = 100;
+  looksOf(kind).forEach((look, i) => {
+    const x = tx + (i % 3) * (cw + gap);
+    const y = 176 + Math.floor(i / 3) * (ch + 8);
+    const owned = look.price === 0 || ui.looksOwned.includes(lookKey(kind, look.id));
+    const on = ui.look[kind] === look.id;
+    softCard(ctx, x, y, cw, ch, 14, on ? "green" : "cream");
+    drawLookPreview(ctx, kind, look.id, x, y, cw);
+    write(ctx, t(LOOK_NAME[`${kind}:${look.id}`]), x + cw / 2, y + 66, 12, INK, "center", 700);
+    const btn = {x: x + 7, y: y + ch - 24, w: cw - 14, h: 19};
+    if (on) drawButton(ctx, `looks:use:${kind}:${look.id}`, btn, t("lookOn"), "green", {size: 11.5});
+    else if (owned) drawButton(ctx, `looks:use:${kind}:${look.id}`, btn, t("lookPick"), "primary", {size: 11.5});
+    else {
+      const afford = ui.coins >= look.price;
+      drawButton(ctx, `looks:buy:${kind}:${look.id}`, btn, "", afford ? "primary" : "secondary", {
+        draw: (c, bx, by, ink) => coinAmount(c, look.price, bx, by, 12, afford ? ink : "#f6efe0", afford ? "rgba(255,246,206,0.75)" : "rgba(14,8,24,0.85)"),
+      });
+    }
+  });
 }
 
 /** The paper of one page, and what is written on it. Drawn at the origin: the caller puts it where it goes. */
@@ -1032,8 +1626,12 @@ function paintPage(ctx: CanvasRenderingContext2D, index: number, b: Book, g: Gam
     ctx.stroke();
   }
 
-  const mode = PAGE_MODES[index];
+  const mode = PAGES[index];
   if (mode === "tutorial") drawTutorialPage(ctx, b, time);
+  else if (mode === "daily") drawDailyPage(ctx, time);
+  else if (mode === "shop") drawShopPage(ctx);
+  else if (mode === "looks") drawLooksPage(ctx);
+  else if (mode === "buy") drawBuyPage(ctx);
   else if (isChapter(mode)) drawLevelsPage(ctx, b, mode);
   else drawEndlessPage(ctx, b, g, time);
   ctx.restore();
@@ -1120,7 +1718,9 @@ function chevron(ctx: CanvasRenderingContext2D, x: number, y: number, dir: 1 | -
 }
 
 const PREV_BUTTON: Button = {x: 14, y: 590, w: 54, h: 42};
-const NEXT_BUTTON: Button = {x: W - 14 - 132, y: 590, w: 132, h: 42};
+const NEXT_BUTTON: Button = {x: W - 14 - 100, y: 594, w: 100, h: 34};
+/** The strip with the page numbers, between the two buttons (game units): a finger dragged along it turns the pages. */
+export const PAGER = {x: PREV_BUTTON.x + PREV_BUTTON.w, w: NEXT_BUTTON.x - (PREV_BUTTON.x + PREV_BUTTON.w)};
 
 function drawNav(ctx: CanvasRenderingContext2D, b: Book, time: number): void {
   if (b.target > 0) drawButton(ctx, "prev", PREV_BUTTON, "", "round", {draw: (c, cx, cy, ink) => chevron(c, cx - 1, cy, -1, ink)});
@@ -1129,26 +1729,60 @@ function drawNav(ctx: CanvasRenderingContext2D, b: Book, time: number): void {
     drawButton(ctx, "next", NEXT_BUTTON, "", "primary", {
       pulse: time,
       draw: (c, cx, cy, ink) => {
-        c.font = `700 21px ${FONT}`;
+        c.font = `700 17px ${FONT}`;
         const tw = c.measureText(label).width;
-        const start = cx - (tw + 22) / 2;
-        text(c, label, start, cy + 1, 21, ink, "left", "rgba(255,246,206,0.75)");
-        chevron(c, start + tw + 14, cy, 1, ink);
+        const start = cx - (tw + 18) / 2;
+        text(c, label, start, cy + 1, 17, ink, "left", "rgba(255,246,206,0.75)");
+        chevron(c, start + tw + 12, cy, 1, ink);
       },
     });
   }
-  // One dot for each page, in the space between the two buttons (they sit close together now that there are so many pages); the one it is on is bright.
-  const here = Math.round(b.pos);
-  for (let i = 0; i <= LAST; i++) {
-    const x = (PREV_BUTTON.x + PREV_BUTTON.w + NEXT_BUTTON.x) / 2 + (i - LAST / 2) * 15;
-    ctx.fillStyle = i === here ? GOLD : "rgba(243,236,221,0.4)";
-    ctx.strokeStyle = "rgba(20,10,4,0.6)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(x, 611, i === here ? 6 : 4.5, 0, TAU);
+  // The pages, as numbers: the first and the last, and the one you are on with its neighbours (the pages in between are "..."), so that it
+  // stays small however many pages there are. Every number can be pressed, to go straight to that page.
+  const here = ui.scrubAmt > 0.02 ? b.target : Math.round(b.pos);
+  const shown = [...new Set([0, LAST, here - 1, here, here + 1].filter((i) => i >= 0 && i <= LAST))].sort((a, c) => a - c);
+  const items: (number | null)[] = [];
+  shown.forEach((p, k) => {
+    items.push(p);
+    const next = shown[k + 1];
+    if (next !== undefined && next - p === 2) items.push(p + 1);
+    else if (next !== undefined && next - p > 2) items.push(null);
+  });
+  // (the whole strip can be pressed and dragged along, to turn the pages quickly: see GameCanvas)
+  registerHit(ctx, "pageStrip", {x: PAGER.x, y: 593, w: PAGER.w, h: 36});
+  const chipW = 22;
+  const gapW = 2;
+  // While a finger is dragged along the strip the page it is on swells (and its neighbours a little), the way the icons of a dock do.
+  // (the numbers further away shrink to make room, so that the strip does not grow past the buttons)
+  const grow = (p: number) => 1 + ui.scrubAmt * (p === here ? 0.6 : Math.abs(p - here) === 1 ? 0.2 : -0.27);
+  const widths = items.map((p) => (p === null ? chipW * (1 - 0.27 * ui.scrubAmt) : chipW * grow(p)));
+  const total = widths.reduce((a, c) => a + c, 0) + (items.length - 1) * gapW;
+  let x = (PREV_BUTTON.x + PREV_BUTTON.w + NEXT_BUTTON.x) / 2 - total / 2;
+  items.forEach((p, k) => {
+    const wk = widths[k];
+    const cx = x + wk / 2;
+    x += wk + gapW;
+    if (p === null) {
+      write(ctx, "…", cx, 609, 14, "rgba(243,236,221,0.7)", "center", 700);
+      return;
+    }
+    const s = grow(p);
+    const on = p === here;
+    const h = 20 * s;
+    registerHit(ctx, `page:${p}`, {x: cx - wk / 2 - 1, y: 595, w: wk + 2, h: 32});
+    if (on) {
+      const g = ctx.createLinearGradient(0, 610 - h / 2, 0, 610 + h / 2);
+      g.addColorStop(0, "#ffe98f");
+      g.addColorStop(1, "#f2b320");
+      ctx.fillStyle = g;
+    } else ctx.fillStyle = "rgba(20,10,4,0.38)";
+    roundRect(ctx, cx - wk / 2, 610 - h / 2, wk, h, h / 2);
     ctx.fill();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = on ? "#9c610a" : "rgba(243,236,221,0.3)";
     ctx.stroke();
-  }
+    write(ctx, String(p + 1), cx, 610.5, 11.5 * s, on ? "#4a2a05" : "#f3ecdd", "center", 700);
+  });
 }
 
 /** The spiral that holds the booklet together: a wire that comes up over the edge of the cover and goes down into a hole in the pages. */
@@ -1188,7 +1822,8 @@ function drawSpiral(ctx: CanvasRenderingContext2D, x: number, y: number): void {
 export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, time: number): void {
   const {x, y, w, h} = BOOK;
 
-  logoTitle(ctx, "PERFECT 10", W / 2, 32, 34);
+  // (the title is at the top of the screen, which on a tall phone is higher than the book)
+  logoTitle(ctx, "PERFECT 10", W / 2, 32 - ui.extra, 26);
 
   // The book lying on the table: its shadow, the green leather cover, and the edges of the pages under the top one.
   ctx.fillStyle = "rgba(0,0,0,0.34)";

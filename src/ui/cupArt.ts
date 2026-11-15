@@ -23,6 +23,9 @@ export const STYLE_COLORS: Record<string, Palette> = {
   mint: {body: ["#4aa88a", "#9fe6cd", "#e8fff6", "#74d0b0", "#2f6f5a"], rim: ["#62bda0", "#f0fffa", "#3f8670"], handle: ["#3f8670", "#c9f3e4"]},
   midnight: {body: ["#2a2f55", "#4f5a9a", "#8a95d8", "#414b86", "#14172e"], rim: ["#3a4275", "#a9b4ee", "#20254a"], handle: ["#20254a", "#7a86c8"]},
   sunset: {body: ["#c4572a", "#ffa468", "#ffe0c4", "#f08048", "#8a3412"], rim: ["#d9683a", "#fff0e4", "#a24420"], handle: ["#a24420", "#ffc9a2"]},
+  lemon: {body: ["#b89a1c", "#f7e46a", "#fffbd0", "#efd04a", "#8a7410"], rim: ["#d1b22c", "#fffbd6", "#a08814"], handle: ["#a08814", "#fbef9a"]},
+  lilac: {body: ["#7a5ab0", "#c9a8f0", "#f3e8ff", "#ab88dc", "#523a82"], rim: ["#9170c4", "#f6eeff", "#6a4c9c"], handle: ["#6a4c9c", "#dcc6f6"]},
+  graphite: {body: ["#33363c", "#6a6f7a", "#aeb4c0", "#50555f", "#1c1e22"], rim: ["#444850", "#c4cad6", "#2a2c32"], handle: ["#2a2c32", "#8f95a2"]},
 };
 
 /** The outline of the body of a cup (the origin is the middle of its base). */
@@ -35,7 +38,7 @@ function bodyOutline(ctx: CanvasRenderingContext2D): void {
   ctx.closePath();
 }
 
-/** A pattern over the body of a cup (dots, stripes or stars), in white on a coloured cup and in a warm brown on a white one. */
+/** A pattern over the body of a cup (dots, stripes, waves, hearts, checks or stars), in white on a coloured cup and in a warm brown on a white one. */
 export function cupPattern(ctx: CanvasRenderingContext2D, pattern: string, onColor: boolean): void {
   if (pattern === "none") return;
   ctx.save();
@@ -52,6 +55,41 @@ export function cupPattern(ctx: CanvasRenderingContext2D, pattern: string, onCol
     }
   } else if (pattern === "stripes") {
     for (let y = -50; y < 0; y += 11) ctx.fillRect(-34, y, 68, 5);
+  } else if (pattern === "waves") {
+    // Rows of waves across the cup.
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = "round";
+    for (let y = -46; y < 0; y += 11) {
+      ctx.beginPath();
+      for (let x = -34; x <= 34; x += 2) {
+        const yy = y + Math.sin(x * 0.28 + y) * 2.6;
+        if (x === -34) ctx.moveTo(x, yy);
+        else ctx.lineTo(x, yy);
+      }
+      ctx.stroke();
+    }
+  } else if (pattern === "hearts") {
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 5; col++) {
+        const x = -28 + col * 14 + (row % 2 ? 7 : 0);
+        const y = -41 + row * 15;
+        const s = 4;
+        ctx.beginPath();
+        ctx.moveTo(x, y + s * 0.95);
+        ctx.bezierCurveTo(x - s * 1.7, y - s * 0.1, x - s * 0.8, y - s * 1.3, x, y - s * 0.4);
+        ctx.bezierCurveTo(x + s * 0.8, y - s * 1.3, x + s * 1.7, y - s * 0.1, x, y + s * 0.95);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  } else if (pattern === "checks") {
+    // A chequerboard of little squares.
+    for (let row = 0; row < 6; row++) {
+      for (let col = -4; col < 4; col++) {
+        if ((row + col + 8) % 2 === 0) ctx.fillRect(col * 8.5, -50 + row * 8.5, 8.5, 8.5);
+      }
+    }
   } else {
     for (let row = 0; row < 3; row++) {
       for (let col = 0; col < 5; col++) {
@@ -153,8 +191,9 @@ export function drawCupBadges(ctx: CanvasRenderingContext2D, kinds: readonly Cup
   let r: number;
   let spots: [number, number][];
   if (mode === "game") {
-    r = n > 3 ? 4.2 : 4.8;
-    spots = list.map((_, i) => [(i - (n - 1) / 2) * (r * 2 + 1.6), 9]);
+    // (under the saucer: between the cup and the bar of the progress at the bottom of the screen)
+    r = n > 3 ? 5 : 5.8;
+    spots = list.map((_, i) => [(i - (n - 1) / 2) * (r * 2 + 1.8), 23]);
   } else if (mode === "below") {
     r = n > 3 ? 7 : 8;
     spots = list.map((_, i) => [(i - (n - 1) / 2) * (r * 2 + 2), 15]);

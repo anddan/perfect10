@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest";
-import {SCORE_MAX, TOP_ROWS, board, scoreDoc, scoresEnabled, submitScore, toRows} from "./scores";
+import {FIREBASE_CONFIG} from "./firebaseConfig";
+import {COLLECTION, SCORE_MAX, SCORE_MODES, TOP_ROWS, board, boards, scoreDoc, scoresEnabled, toRows} from "./scores";
 
 describe("the document of a score", () => {
   it("has the device, a clean name, a whole score that is not too big, and the time", () => {
@@ -40,10 +41,21 @@ describe("the rows of the top list", () => {
   });
 });
 
-describe("while the project is not connected", () => {
-  it("keeps everything on the device and never fails", async () => {
-    expect(scoresEnabled()).toBe(false);
-    expect(board.status).toBe("off");
-    await expect(submitScore("Kalle", 500)).resolves.toBe(false);
+describe("the connection to the project", () => {
+  it("is made to the Firebase project of the game, so the list is on (and starts by loading)", () => {
+    expect(FIREBASE_CONFIG?.projectId).toBe("perfect10-190ed");
+    expect(FIREBASE_CONFIG?.appId).toMatch(/^1:[0-9]+:web:/);
+    expect(scoresEnabled()).toBe(true);
+    expect(board.status).toBe("loading");
+  });
+});
+
+describe("a top list for every game", () => {
+  it("has its own collection for the endless game and for each match mode, and a board for each", () => {
+    expect(COLLECTION).toEqual({endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight"});
+    expect(new Set(SCORE_MODES.map((m) => COLLECTION[m])).size).toBe(3);
+    expect(boards.endless).toBe(board);
+    expect(boards.save).not.toBe(boards.endless);
+    expect(boards.save.rows).toEqual([]);
   });
 });

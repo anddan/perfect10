@@ -54,6 +54,22 @@ export function write(
   ctx.fillText(s, x, y);
 }
 
+/** How wide the lettering of the logo is at a size (with the air between the letters and the dark edge round them). */
+export function logoWidth(ctx: CanvasRenderingContext2D, s: string, size: number): number {
+  ctx.save();
+  ctx.font = `700 100px ${FONT}`;
+  if ("letterSpacing" in ctx) (ctx as unknown as {letterSpacing: string}).letterSpacing = "5px";
+  const unit = ctx.measureText(s).width / 100;
+  ctx.restore();
+  return size * (unit + 0.26);
+}
+
+/** The lettering of the logo as big as it can be (at most `maxSize`) and still be `width` wide, centred on x. */
+export function logoTitleFit(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, width: number, maxSize: number): void {
+  const size = Math.min(maxSize, (maxSize * width) / Math.max(1, logoWidth(ctx, s, maxSize)));
+  logoTitle(ctx, s, x, y, size);
+}
+
 /**
  * The lettering of the logo: a soft shadow, a dark edge, a thin golden edge, gold that goes from yellow to deep orange, and a
  * faint shine that fades out over the top half of the letters.
@@ -128,6 +144,7 @@ export function signed(v: number): string {
   return v < 0 ? `−${-v}` : String(v);
 }
 
+import type {Package} from "../game/daily";
 import type {Bonus, Op} from "../game/types";
 import type {Lang} from "./i18n";
 
@@ -240,6 +257,27 @@ export const ui = {
   coins: 0,
   /** The tab of the shop that is showing (0: the cups, 1: the energy). */
   shopTab: 0,
+  /** The very first time the game is started: the page where the language is chosen and a new game is started. */
+  startOpen: false,
+  /** How far the header (energy, title, settings) is moved up from right above the book, to stand in the middle of the empty space above it on a tall phone (0 or less). */
+  headerDy: 0,
+  /** The title on a row of its own above the energy and the settings (when there is room above the book): how many rows the header has (1 or 2), and how far the title is moved. */
+  headerRows: 1,
+  /** Whether the contents shows all the chapters (otherwise only the one the player is on). */
+  tocOpen: false,
+  titleDy: 0,
+  /** The biggest size of the title when it has a row of its own (it follows the room there is). */
+  titleMax: 44,
+  /** The days in a row: which day of the week today is, how many days there are to show, whether today is counted, and whether a package is waiting. */
+  streakDay: 1,
+  streakCount: 0,
+  streakToday: false,
+  streakGift: false,
+  /** The package that has just been opened (what was in it), and how long ago. */
+  packageOpen: null as Package | null,
+  packageAge: 0,
+  /** How far the book is lifted from the bottom edge (a tall phone). */
+  lift: 0,
   /** A finger is being dragged along the page numbers of the book, and how much the number that it is on has swollen (0 to 1, easing). */
   scrubbing: false,
   scrubAmt: 0,
@@ -247,6 +285,8 @@ export const ui = {
   buyFx: -1,
   buyAt: {x: 0, y: 0},
   buyN: 0,
+  /** Whether the effect is for coins that came in (a shower of coins and "+N") and not for coins that were spent. */
+  buyGain: false,
   /** The looks that are on (cup colour, pattern, room, tone of the light, style of the numbers), the ones that have been bought, the tab of the page for them, and the pictures of the rooms (for showing them). */
   look: {cupColor: "porcelain", pattern: "none", room: "auto", tint: "none", numbers: "classic"} as Record<string, string>,
   looksOwned: [] as string[],
@@ -260,6 +300,11 @@ export const ui = {
   /** How many pull-down screens there are in the book (for the shop). */
   screens: 0,
   owned: {} as Record<string, number>,
+  /** How many saucers of each kind are under the cups in the game (two, three or four of a kind glow). */
+  saucerSet: {} as Record<string, number>,
+  /** The saucers that have been bought (how many of each) and the one under each cup of the desk. */
+  saucers: {} as Record<string, number>,
+  saucerSlots: [] as (string | null)[],
   /** The properties on each cup of the desk, the dialog for them (open or not), which cup is chosen in it, and the property that was just bought (marked there). */
   slots: [] as string[][],
   cupsOpen: false,
@@ -274,8 +319,22 @@ export const ui = {
   extra: 0,
   /** The settings page is open (the game waits behind it). */
   settingsOpen: false,
-  /** The top list of the endless game is open. */
+  /** The top list of a game is open, and which game's it is. */
   scoresOpen: false,
+  scoresMode: "endless" as "endless" | "save" | "sixeight",
+  /** The match modes that have been bought, the best score of every game, and whether the match modes are open in the contents. */
+  modes: [] as string[],
+  bests: {endless: 0, save: 0, sixeight: 0} as Record<string, number>,
+  modesOpen: false,
+  /** The match mode page that was visited last: the contents shows it, with the line that opens all the match modes under it. */
+  lastMatch: "endless" as string,
+  /** Whether a match mode page has been visited at all (only then does the contents say "last" on it). */
+  hasLastMatch: false,
+  /** How far the contents list is scrolled (game units), and how far it can be (0: it all fits). */
+  tocScroll: 0,
+  /** The dead cup of Save the cup shows no number (only its red cross). */
+  deadBlank: false,
+  tocMax: 0,
   /** The pause page is open during a round (the game waits behind it). */
   pauseOpen: false,
   /** The id of the cup that is being held and dragged (it is drawn with a yellow border), or null. */
@@ -283,7 +342,11 @@ export const ui = {
   /** The make-believe ad is showing (before one more try, or for energy), and how many seconds ago it started. */
   adOpen: false,
   adTime: 0,
-  adFor: "continue" as "continue" | "energy",
+  adFor: "continue" as "continue" | "energy" | "coins" | "retry",
+  /** Whether today's try of the daily challenge can be tried again (it did not get to the goal line, and the one retry of the day is not used). */
+  dailyRetry: false,
+  /** Whether the video for coins can be watched today (it can once a day). */
+  videoReady: false,
   /** The energy page is open; how much energy there is, and the seconds until the next point comes back. */
   energyOpen: false,
   energyN: 10,
@@ -342,7 +405,7 @@ export function drawButton(
   b: Button,
   label: string,
   kind: ButtonKind = "primary",
-  opts: {alpha?: number; pulse?: number; size?: number; draw?: (ctx: CanvasRenderingContext2D, cx: number, cy: number, ink: string) => void} = {}
+  opts: {alpha?: number; pulse?: number; size?: number; ad?: boolean; draw?: (ctx: CanvasRenderingContext2D, cx: number, cy: number, ink: string) => void} = {}
 ): void {
   const look = LOOKS[kind];
   const pressed = ui.pressed === id;
@@ -390,7 +453,46 @@ export function drawButton(
   ctx.restore();
 
   if (opts.draw) opts.draw(ctx, b.w / 2, dy + b.h / 2, look.ink);
-  if (label) text(ctx, label, b.w / 2, dy + b.h / 2 + 1, opts.size ?? 20, look.ink, "center", look.outline);
+  if (label && opts.ad) {
+    // A button that plays an ad: a little video camera with a play triangle in front of the words, so that it is seen that there is an ad to watch.
+    const size = opts.size ?? 20;
+    ctx.font = `700 ${size}px ${FONT}`;
+    const iw = size * 1.3;
+    const gap = 7;
+    const tw = ctx.measureText(label).width;
+    const left = b.w / 2 - (iw + gap + tw) / 2;
+    drawAdIcon(ctx, left + iw / 2, dy + b.h / 2 + 0.5, iw, look.ink, look.bottom);
+    text(ctx, label, left + iw + gap + tw / 2, dy + b.h / 2 + 1, size, look.ink, "center", look.outline);
+  } else if (label) text(ctx, label, b.w / 2, dy + b.h / 2 + 1, opts.size ?? 20, look.ink, "center", look.outline);
+  ctx.restore();
+}
+
+/** A little video camera with a play triangle in its body: (cx, cy) is the middle, w how wide. */
+export function drawAdIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, ink: string, face: string): void {
+  const h = w * 0.62;
+  const bodyW = w * 0.68;
+  const left = cx - w / 2;
+  ctx.save();
+  ctx.fillStyle = ink;
+  roundRect(ctx, left, cy - h / 2, bodyW, h, h * 0.22);
+  ctx.fill();
+  // The lens, on the right.
+  ctx.beginPath();
+  ctx.moveTo(left + bodyW + 1, cy - h * 0.12);
+  ctx.lineTo(left + w, cy - h * 0.38);
+  ctx.lineTo(left + w, cy + h * 0.38);
+  ctx.lineTo(left + bodyW + 1, cy + h * 0.12);
+  ctx.closePath();
+  ctx.fill();
+  // The play triangle.
+  const bx = left + bodyW / 2;
+  ctx.fillStyle = face;
+  ctx.beginPath();
+  ctx.moveTo(bx - h * 0.16, cy - h * 0.24);
+  ctx.lineTo(bx - h * 0.16, cy + h * 0.24);
+  ctx.lineTo(bx + h * 0.26, cy);
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 }
 
@@ -1081,16 +1183,52 @@ function drawStyledBall(ctx: CanvasRenderingContext2D, style: string, v: number,
   text(ctx, label.s, 0, 1, label.size, "#ffffff", "center", tone[2]);
 }
 
+/** Sun rays round a ball of radius `R` (drawn at the origin): a warm glow, and twelve rays, long and short, that turn slowly and breathe. */
+function drawSunRays(ctx: CanvasRenderingContext2D, R: number, time: number): void {
+  const breathe = 1 + 0.12 * Math.sin(time * 3);
+  ctx.save();
+  const glow = ctx.createRadialGradient(0, 0, R * 0.6, 0, 0, R * 1.9);
+  glow.addColorStop(0, "rgba(255,170,40,0.55)");
+  glow.addColorStop(1, "rgba(255,170,40,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, 0, R * 1.9, 0, TAU);
+  ctx.fill();
+  ctx.rotate(time * 0.45);
+  ctx.lineJoin = "round";
+  for (let i = 0; i < 12; i++) {
+    const long = i % 2 === 0;
+    const a = (i * TAU) / 12;
+    const from = R - 2;
+    const to = R + (long ? 9 : 5.5) * breathe;
+    const half = long ? 0.15 : 0.12;
+    ctx.fillStyle = long ? "#ffb52e" : "#ff9a1f";
+    ctx.strokeStyle = "rgba(130,60,0,0.55)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a - half) * from, Math.sin(a - half) * from);
+    ctx.lineTo(Math.cos(a) * to, Math.sin(a) * to);
+    ctx.lineTo(Math.cos(a + half) * from, Math.sin(a + half) * from);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v: number, scale = 1, time = 0, phase = 0, op: Op = "add", style: string = ui.look.numbers, reversed = false): void {
   const R = 20;
   const r = R - 3.5;
   const minus = v < 0;
   // (the colours of a ball with reversed colours: a plus number as a minus number, blue as yellow and yellow as blue)
-  const cop = reversed ? swapOp(op) : op;
-  const cminus = reversed && op === "add" ? !minus : minus;
+  const rev = reversed || style === "reverse";
+  const cop = rev ? swapOp(op) : op;
+  const cminus = rev && op === "add" ? !minus : minus;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
+  // The orange 10 shines like a little sun: a soft glow and rays that turn slowly, behind the ball.
+  if (op === "ten") drawSunRays(ctx, R, time + phase);
   if (style === "neon" || style === "candy" || style === "dark" || style === "minimal" || style === "glass" || style === "chalk") {
     drawStyledBall(ctx, style, v, op, minus, reversed);
     ctx.restore();

@@ -1,4 +1,6 @@
 import {describe, expect, it} from "vitest";
+import {DEFAULT_LOOK, looksOf} from "../game/looks";
+import {ROOMS} from "./background";
 import {CUP_COLORS, STYLE_COLORS, cupPalette} from "./cupArt";
 
 describe("the colours of a cup", () => {
@@ -20,5 +22,16 @@ describe("the colours of a cup", () => {
     expect(cupPalette([], "porcelain")).toBeNull();
     expect(cupPalette([], "nonsense")).toBeNull();
     expect(cupPalette(["magnet"], "sky")).toEqual(CUP_COLORS.magnet);
+  });
+});
+
+describe("every look of the shop can be drawn", () => {
+  it("has a colour for every cup colour, and a room for every room", () => {
+    for (const look of looksOf("cupColor")) {
+      if (look.id !== DEFAULT_LOOK.cupColor) expect(STYLE_COLORS[look.id], look.id).toBeDefined();
+    }
+    for (const look of looksOf("room")) {
+      if (look.id !== DEFAULT_LOOK.room) expect(ROOMS, look.id).toContain(look.id);
+    }
   });
 });

@@ -17,6 +17,10 @@ describe("the looks of the shop", () => {
     for (const l of LOOKS) if (l.id !== DEFAULT_LOOK[l.kind]) expect(l.price, l.kind + l.id).toBeGreaterThan(0);
   });
 
+  it("have a theme of the numbers with the colours the wrong way round", () => {
+    expect(findLook("numbers", "reverse")?.price).toBeGreaterThan(0);
+  });
+
   it("find a look, and not a thing that is not in the shop", () => {
     expect(findLook("room", "cafe")?.price).toBeGreaterThan(0);
     expect(findLook("room", "garage")).toBeUndefined();

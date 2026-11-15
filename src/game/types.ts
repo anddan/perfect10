@@ -1,17 +1,25 @@
+import type {SaucerKind} from "./saucers";
+
 /** "menu": the book. "intro": a new kind of number is being presented (the round waits). "play": a round. "over": lost. "won": cleared a level of the book. */
 export type Phase = "menu" | "intro" | "perk" | "play" | "over" | "won";
 
 /** The new kinds of number a chapter brings in, one at a time: the pull-down screen, the fourth cup, the 0, three bonus balls, chains, ice, ghosts, the black number, the star, the steel number and the chain of three. */
-export type Feature = "screen" | "cups" | "zero" | "ten" | "points" | "life" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "chain" | "ice" | "ghost" | "fog" | "star" | "steel" | "chain3" | "diamond" | "reverse";
+export type Feature = "screen" | "cups" | "zero" | "ten" | "points" | "life" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "chain" | "ice" | "ghost" | "fog" | "star" | "steel" | "chain3" | "diamond" | "cup3" | "vchain" | "fade";
 
 /**
- * "tutorial": a guided round where you try each thing. "plus": the plus levels (only plus numbers).
+ * "tutorial": a guided round where you try each thing. "plus": the plus levels (only plus numbers). "minus": only minus numbers (reach −10).
  * "mixed": the plus and minus levels. "times": the same, with blue multiplication numbers as well.
  * "divide": all of those, with yellow division numbers as well.
  * "space": all of them at once, on a spaceship.
  * "endless": plus and minus, with no end.
  */
-export type Mode = "tutorial" | "plus" | "mixed" | "times" | "divide" | "space" | "endless";
+/**
+ * The match modes, which are the endless game with rules of their own: "save" (Save the cup: one of the four cups is dead from the start, only 1s fall, and a 1
+ * that gets into the dead cup is the end; it gets faster and faster) and "sixeight" (6 or 8: only 6s, 8s and numbers that divide by 2 fall).
+ */
+export type Variant = "save" | "sixeight";
+
+export type Mode = "tutorial" | "plus" | "minus" | "mixed" | "times" | "divide" | "space" | "endless";
 
 /** What a number does to the cup it lands in: adds itself (green and red), multiplies it (blue), divides it (yellow), sets it to 0 (orange), sets it to 10 (orange, with a 10 on it), adds itself and hides the number of the cup (black), or is a steel number that adds itself but cannot be tapped. */
 export type Op = "add" | "mul" | "div" | "zero" | "ten" | "dim" | "steel";
@@ -23,8 +31,8 @@ export type Op = "add" | "mul" | "div" | "zero" | "ten" | "dim" | "steel";
  */
 export type Bonus = "life" | "points" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "star" | "diamond";
 
-/** The perks of the daily challenge: "slow" (the numbers fall slower), "shield" (a shield on a cup), "cloth" (one more pull-down screen), "life" (a dead cup is back), "bonus" (more bonus balls), "help" (more numbers that finish a cup), or a cup with a property (it replaces an ordinary cup). */
-export type PerkId = "slow" | "shield" | "cloth" | "life" | "bonus" | "help" | "gold" | "thermos" | "magnet" | "big" | "laser";
+/** The perks of the daily challenge: "slow" (the numbers fall slower), "shield" (a shield on a cup), "cloth" (one more pull-down screen), "life" (a dead cup is back), "bonus" (more bonus balls), "help" (more numbers that finish a cup), "remove" (a dead cup is taken away), or a cup with a property (it replaces an ordinary cup). */
+export type PerkId = "slow" | "shield" | "cloth" | "life" | "bonus" | "help" | "remove" | "gold" | "thermos" | "magnet" | "big" | "laser" | "sparse" | "special" | "points";
 
 /** What the guide says in the tutorial after something happened: "good" when it went right, "retry" when it has to be done again. */
 export type TutorialNote = "" | "good" | "retry";
@@ -57,6 +65,8 @@ export interface Cup {
   hidden: boolean;
   /** The properties of the cup (see CupKind): none for an ordinary cup, and any number of them (they can be combined). */
   kinds: CupKind[];
+  /** The saucer the cup stands on (from the shop): see saucers.ts. */
+  saucer?: SaucerKind;
   /** A laser cup: seconds until it can be fired again (0: ready). */
   charge: number;
   /** A shield (from a shield ball): the next number that would have killed the cup is stopped, and the shield is gone. */
@@ -81,8 +91,6 @@ export interface NumberTile {
   chain2: number | null;
   /** A ghost number is sometimes hidden (turned over, or see-through) while it falls; null for an ordinary one. */
   ghost: Ghost | null;
-  /** Reversed colours: the ball has the colours of the opposite (a plus number is red and a minus number green, blue and yellow swap). What the number does is as it is written. */
-  flip: boolean;
   /** How many taps are left to crack the ice a number is frozen in (0: no ice). A number in ice only dives when the ice is gone. */
   ice: number;
   /** "fall": drifting down on its own. "dive": tapped, on its way into a cup. */
@@ -109,7 +117,7 @@ export type GameEvent =
   | {t: "tap"}
   | {t: "ice"; x: number; y: number; broke: boolean}
   | {t: "land"; x: number; y: number; v: number; op: Op; cupId: number}
-  | {t: "levelUp"; cupId: number; level: number}
+  | {t: "levelUp"; cupId: number; level: number; done: number}
   | {t: "revive"; cupId: number}
   | {t: "bust"; cupId: number}
   | {t: "miss"; x: number; y: number}
@@ -141,10 +149,17 @@ export interface GameState {
   tutorialNote: TutorialNote;
   /** The properties the player has put on the cups on the desk (from the shop), cup by cup from the left, when a round starts (the rest are ordinary). */
   loadout: CupKind[][];
+  /** The saucers the player has put on the desk (from the shop), under the cups from the left, when a round starts (null: an ordinary saucer). */
+  saucerLoadout: (SaucerKind | null)[];
   /** The daily challenge is being played (it is the endless game, with the same numbers for everyone, and perks after every level). The perks taken, the three to choose between now (phase "perk"), and how much the "slower" perks have slowed the numbers (1: not at all). */
   daily: boolean;
+  /** The match mode that is being played (it is the endless game, with rules of its own), and the seconds it has been going. */
+  variant: Variant | null;
+  variantTime: number;
   perks: PerkId[];
   perkChoices: PerkId[];
+  /** How many times each of them is taken if it is chosen (sometimes a perk is offered as x2 or x3: x2 of the shield puts a shield on two cups). */
+  perkTimes: number[];
   speedMul: number;
   /** How many game units the playfield reaches above the top of the usual 640 (a tall phone has more room): the numbers start falling from up there. 0 on a short screen. */
   extra: number;
@@ -181,6 +196,10 @@ export interface GameState {
   /** How many perfect 10s have come in a row, each within a few seconds of the one before it (0 when there is no combo going), and the seconds left to make the next one. */
   combo: number;
   comboTimer: number;
+  /** How much of the progress has faded away (from level 3 of plus & minus, and in the endless game): in twentieths of a perfect 10, one every so often. */
+  drain: number;
+  /** The seconds since the last step of it (the progress fades with time). */
+  drainClock: number;
   /** A cup has died and the heart that brings it back has not come yet: the next bonus ball is a life ball. */
   lifeDue: boolean;
   /** The level was cleared with three stars, and that gave a pull-down screen (for the effect on the card). */

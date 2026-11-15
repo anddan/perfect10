@@ -1,10 +1,11 @@
 import {describe, expect, it} from "vitest";
 import {LASER_COOLDOWN} from "./cups";
-import {cupsToClimb, dailyReward, dayKey, rungEnds, rungGoal, rungOfCup, rungsDone, seedOfDay, seededRandom} from "./daily";
+import {PERKS, PERK_LIMIT, PERK_SLOWER, SPECIAL_PERKS, STREAK_DAYS, previousDay, recordDay, rollPackage, streakCoins, streakCount, streakDayFor, streakFactor, cupsToClimb, dailyReward, dayKey, rungEnds, rungGoal, rungOfCup, rungsDone, seedOfDay, seededRandom} from "./daily";
 import {DAILY_BONUS, DAILY_REWARD, DAILY_RUNGS} from "./constants";
 import {BOMB_RADIUS, BONUS_POINTS, PAUSE_SECONDS, COLS, CUP_H, CUP_START_Y, CUP_W, SCREEN_MAX, SLOW_SECONDS, STAGES, SWEEP_DOWN, SWEEP_EDGE, SWEEP_HOLD, SWEEP_UP, W} from "./constants";
-import {ENDLESS_PACE, FEATURES, canContinue, continueGame, createGame, cupAt, dropCup, endIntro, fallSpeed, featureAge, ghostShow, goalFor, paceOf, starsFor, choosePerk, fireLaser, speedFactorOf, startDaily, sweepBottom, sweepEdge, useScreen, maxNumber, moveCup, nearestAliveCup, endlessLevel, recordBest, showMenu, spawnInterval, stageSpawnFactor, stageSpeedFactor, startGame, tapAt, untangleCups, update} from "./engine";
-import type {GameState, Mode, NumberTile} from "./types";
+import {ENDLESS_PACE, FEATURES, canContinue, continueGame, createGame, cupAt, dropCup, endIntro, fallSpeed, featureAge, ghostShow, goalFor, fadeOn, fadeSeconds, saucerCount, paceOf, startVariant, variantRamp, variantRate, progressOf, starsFor, choosePerk, fireLaser, speedFactorOf, startDaily, sweepBottom, sweepEdge, useScreen, maxNumber, moveCup, nearestAliveCup, endlessLevel, recordBest, showMenu, spawnInterval, stageSpawnFactor, stageSpeedFactor, startGame, tapAt, untangleCups, update} from "./engine";
+import {saucerPower, type SaucerKind} from "./saucers";
+import type {GameState, Mode, NumberTile, PerkId} from "./types";
 
 /** A new game where no new kind of number is presented (the round starts at once). The tests of the presentations use createGame. */
 function testGame(rng?: () => number, best?: number): GameState {
@@ -45,7 +46,6 @@ function drop(g: GameState, x: number, y: number, v: number): NumberTile {
     tilt: 0,
     phase: 0,
     scale: 1,
-    flip: false,
     done: false,
   };
   g.numbers.push(n);
@@ -599,7 +599,7 @@ describe("the levels of the book", () => {
 
   it("only the endless game keeps a best score", () => {
     const g = testGame(() => 0.5, 10);
-    startGame(g, "plus");
+    startGame(g, "plus", 3);
     g.spawnTimer = 1e9;
     g.score = 500;
     g.cups[2].dead = true;
@@ -1485,7 +1485,7 @@ describe("presenting a new kind of number", () => {
       ["divide", 7, "shield"],
       ["times", 4, "ice"],
       ["divide", 4, "ghost"],
-      ["space", 4, "fog"],
+      ["space", 12, "fog"],
       ["space", 7, "steel"],
       ["space", 10, "chain3"],
       ["space", 1, "star"],
@@ -1534,7 +1534,7 @@ describe("presenting a new kind of number", () => {
       ["divide", 4, "ghost"],
       ["divide", 7, "shield"],
       ["space", 1, "star"],
-      ["space", 4, "fog"],
+      ["space", 12, "fog"],
       ["space", 7, "steel"],
       ["space", 10, "chain3"],
     ];
@@ -1604,8 +1604,8 @@ describe("presenting a new kind of number", () => {
   });
 
   it("does not come on any other level, in the tutorial or in the endless game", () => {
-    const presenting = new Set(["plus:2", "mixed:1", "plus:4", "plus:7", "plus:10", "mixed:4", "mixed:7", "plus:12", "mixed:10", "times:7", "times:10", "divide:7", "times:4", "divide:4", "space:1", "space:4", "space:7", "space:10", "space:12", "divide:10"]);
-    for (const mode of ["plus", "mixed", "times", "divide", "space"] as const) {
+    const presenting = new Set(["plus:2", "mixed:1", "plus:4", "plus:7", "plus:10", "mixed:4", "mixed:7", "plus:12", "mixed:10", "times:7", "times:10", "divide:7", "times:4", "divide:4", "space:1", "space:7", "space:10", "space:12", "divide:10", "plus:3", "times:1", "mixed:3"]);
+    for (const mode of ["plus", "minus", "mixed", "times", "divide", "space"] as const) {
       for (let stage = 1; stage <= STAGES; stage++) {
         expect(start(mode, stage).phase === "intro", `${mode} ${stage}`).toBe(presenting.has(`${mode}:${stage}`));
       }
@@ -1762,8 +1762,8 @@ describe("the space chapter", () => {
     expect(all.some((n) => n.ghost !== null)).toBe(true);
   });
 
-  it("presents the star on level 1, the black number on level 4, steel on level 7, the triple chain on level 10, the reversed colours on level 12 and nothing else", () => {
-    const first: Record<number, string> = {1: "star", 4: "fog", 7: "steel", 10: "chain3", 12: "reverse"};
+  it("presents the star on level 1, steel on level 7, the triple chain on level 10, the black number on level 12 and nothing else", () => {
+    const first: Record<number, string> = {1: "star", 7: "steel", 10: "chain3", 12: "fog"};
     for (let stage = 1; stage <= STAGES; stage++) {
       const g = createGame(() => 0.5);
       startGame(g, "space", stage);
@@ -1794,11 +1794,10 @@ describe("the black number", () => {
     return all;
   }
 
-  it("only comes from level 4 of the last chapter", () => {
-    for (const [mode, stage] of [["plus", 12], ["mixed", 12], ["times", 12], ["divide", 12], ["space", 3]] as const) {
+  it("only comes on the last level of the last chapter", () => {
+    for (const [mode, stage] of [["plus", 12], ["mixed", 12], ["times", 12], ["divide", 12], ["space", 4], ["space", 11]] as const) {
       expect(dark(made(mode, stage)), `${mode} ${stage}`).toHaveLength(0);
     }
-    expect(dark(made("space", 4)).length).toBeGreaterThan(0);
     expect(dark(made("space", 12)).length).toBeGreaterThan(0);
   });
 
@@ -1857,18 +1856,41 @@ describe("the black number", () => {
   });
 });
 
-describe("three cups in the first chapter, four in the rest", () => {
+describe("three cups in the first two chapters, four in the rest", () => {
   const start = (mode: Mode): GameState => {
     const g = testGame(() => 0.5);
     startGame(g, mode, 1);
     return g;
   };
 
-  it("has three cups in three columns, in the middle of the screen, in the plus chapter", () => {
-    for (const stage of [1, 6, 12]) {
+  it("has two cups on the first two levels, and presents the third cup on level 3", () => {
+    for (const stage of [1, 2]) {
+      const g = testGame(() => 0.5);
+      startGame(g, "plus", stage);
+      expect(g.cols, `plus ${stage}`).toEqual([135, 225]);
+      expect(g.cups.map((c) => c.x)).toEqual([135, 225]);
+    }
+    const g = createGame(() => 0.5);
+    startGame(g, "plus", 3);
+    expect(g.phase).toBe("intro");
+    expect(g.intro).toContain("cup3");
+    expect(g.cups).toHaveLength(3);
+  });
+
+  it("has three cups in three columns, in the middle of the screen, from level 3 of the plus chapter", () => {
+    for (const stage of [3, 6, 12]) {
       const g = testGame(() => 0.5);
       startGame(g, "plus", stage);
       expect(g.cols, `plus ${stage}`).toEqual([90, 180, 270]);
+      expect(g.cups.map((c) => c.x)).toEqual([90, 180, 270]);
+    }
+  });
+
+  it("has three cups in the minus chapter", () => {
+    for (const stage of [1, 6, 12]) {
+      const g = testGame(() => 0.5);
+      startGame(g, "minus", stage);
+      expect(g.cols, `minus ${stage}`).toEqual([90, 180, 270]);
       expect(g.cups.map((c) => c.x)).toEqual([90, 180, 270]);
     }
   });
@@ -1887,7 +1909,7 @@ describe("three cups in the first chapter, four in the rest", () => {
       seed = (seed * 1664525 + 1013904223) % 4294967296;
       return seed / 4294967296;
     });
-    startGame(g, "plus", 1);
+    startGame(g, "plus", 3);
     const seen = new Set<number>();
     for (let i = 0; i < 400; i++) {
       g.numbers = [];
@@ -1899,7 +1921,8 @@ describe("three cups in the first chapter, four in the rest", () => {
   });
 
   it("swaps cups between the three columns, and always ends in three different ones", () => {
-    const g = start("plus");
+    const g = testGame(() => 0.5);
+    startGame(g, "plus", 3);
     const [a, b, c] = g.cups;
     a.value = 1;
     b.value = 2;
@@ -2910,9 +2933,11 @@ describe("the daily challenge", () => {
     expect(g.numbers[t0].y).toBe(y); // (nothing falls while the perks are shown)
     expect(tapAt(g, g.cols[0], y)).toBe(false);
     expect(choosePerk(g, 5)).toBe(false);
+    const times = g.perkTimes[0];
+    expect(times).toBeGreaterThanOrEqual(1);
     expect(choosePerk(g, 0)).toBe(true);
     expect(g.phase).toBe("play");
-    expect(g.perks).toHaveLength(1);
+    expect(g.perks).toHaveLength(times); // (a perk that is offered as x2 is taken twice)
   });
 
   it("has a slower perk that slows the numbers, and cup perks that give a cup its property", () => {
@@ -2924,14 +2949,14 @@ describe("the daily challenge", () => {
     expect(speedFactorOf(g)).toBeLessThan(before);
     g.phase = "perk";
     g.perkChoices = ["laser", "thermos", "gold"];
-    g.cups[2].value = 6; // (the fullest cup gets it)
+    g.cups[1].value = 6; // (the fullest cup gets it)
     choosePerk(g, 0);
-    expect(g.cups[2].kinds).toEqual(["laser"]);
+    expect(g.cups[1].kinds).toEqual(["laser"]);
     g.phase = "perk";
     g.perkChoices = ["thermos", "gold", "big"];
     choosePerk(g, 0);
     expect(g.cups.filter((c) => c.kinds.includes("thermos") && c.shield)).toHaveLength(1);
-    expect(g.cups[2].kinds).toEqual(["laser", "thermos"]); // (it went on the cup that was fullest, on top of what it had)
+    expect(g.cups[1].kinds).toEqual(["laser", "thermos"]); // (it went on the cup that was fullest, on top of what it had)
   });
 
   it("needs one more cup on every rung: 5, then 6, then 7 and so on", () => {
@@ -3055,63 +3080,853 @@ describe("the diamond", () => {
   });
 });
 
-describe("the reversed colours", () => {
-  function made(mode: Mode, stage: number, count = 400): NumberTile[] {
-    const g = testGame(() => 0.5);
+describe("the minus chapter", () => {
+  /** The numbers that fall in a level, over many spawns (with the same random numbers every time). */
+  function fallen(mode: Mode, stage: number, count = 400): NumberTile[] {
+    let seed = 8081;
+    const g = testGame(() => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    });
     startGame(g, mode, stage);
-    const rnd = (() => {
-      let a = 12345;
-      return () => {
-        a = (a * 1664525 + 1013904223) % 4294967296;
-        return a / 4294967296;
-      };
-    })();
-    g.rng = rnd;
-    g.spawnTimer = 1e9;
-    g.showcase = [];
-    const list: NumberTile[] = [];
+    const all: NumberTile[] = [];
     for (let i = 0; i < count; i++) {
       g.numbers = [];
       g.spawnTimer = 0;
-      update(g, 0.001);
-      g.spawnTimer = 1e9;
-      list.push(...g.numbers.filter((n) => !n.bonus));
+      update(g, 0.01);
+      all.push(...g.numbers);
     }
-    return list;
+    return all;
   }
 
-  it("come from the last level of the book, and only then (nothing is reversed before it)", () => {
-    expect(made("space", 11).some((n) => n.flip)).toBe(false);
-    expect(made("plus", 1).some((n) => n.flip)).toBe(false);
-    const late = made("space", 12);
-    const share = late.filter((n) => n.flip).length / late.length;
-    expect(share).toBeGreaterThan(0.1);
-    expect(share).toBeLessThan(0.3);
+  it("lets only minus numbers fall (the oranges 0 and 10 are the same everywhere)", () => {
+    for (const stage of [1, 6, 12]) {
+      const numbers = fallen("minus", stage).filter((n) => !n.bonus && (n.op === "add" || n.op === "steel" || n.op === "dim"));
+      expect(numbers.length, `minus ${stage}`).toBeGreaterThan(0);
+      expect(numbers.every((n) => n.v < 0), `minus ${stage}`).toBe(true);
+    }
   });
 
-  it("never turn a number that is not an ordinary one (the orange, the black and the steel numbers keep their colours)", () => {
-    for (const n of made("space", 12)) if (n.flip) expect(["add", "mul", "div"]).toContain(n.op);
+  it("has plus numbers in the chapter before it and the one after it", () => {
+    expect(fallen("plus", 6).some((n) => n.op === "add" && n.v > 0)).toBe(true);
+    const mixed = fallen("mixed", 6).filter((n) => n.op === "add");
+    expect(mixed.some((n) => n.v > 0)).toBe(true);
+    expect(mixed.some((n) => n.v < 0)).toBe(true);
   });
 
-  it("do not change what a number does, only how it looks", () => {
+  it("fills a cup with minus 10: a perfect 10", () => {
     const g = testGame(() => 0.5);
-    startGame(g, "space", 12);
+    startGame(g, "minus", 1);
     g.spawnTimer = 1e9;
-    g.cups[0].value = 6;
-    const n = drop(g, g.cols[0], 400, 4);
-    n.flip = true; // (a plus 4 in red)
+    g.cups[1].value = -4;
+    const n = drop(g, g.cols[1], 200, -6);
     tapAndSettle(g, n);
-    expect(g.level).toBe(2); // (6 + 4 = 10: a perfect 10 all the same)
+    expect(g.events.some((e) => e.t === "levelUp" && e.cupId === g.cups[1].id)).toBe(true);
   });
 
-  it("are made to fall a few seconds into the last level, where they are presented", () => {
+  it("needs as many cups as the plus chapter, and is the same kind of level (twelve of them)", () => {
+    for (let stage = 1; stage <= STAGES; stage++) expect(goalFor("minus", stage)).toBe(goalFor("plus", stage));
+    expect(goalFor("minus", STAGES)).toBe(8);
+  });
+
+  it("is where the book is after the plus chapter: the new things of plus are already there, and the ones of the next chapter are not", () => {
     const g = testGame(() => 0.5);
-    startGame(g, "space", 12);
-    g.hideIntros = new Set(FEATURES);
-    startGame(g, "space", 12);
+    startGame(g, "minus", 1);
+    expect(featureAge(g, "zero")).toBeGreaterThanOrEqual(0);
+    expect(featureAge(g, "cups")).toBe(-1); // (the fourth cup comes with plus and minus)
+    startGame(g, "mixed", 1);
+    expect(featureAge(g, "cups")).toBe(0);
+  });
+});
+
+describe("a hanging chain", () => {
+  function pairs(mode: Mode, stage: number, count = 600): NumberTile[][] {
+    let seed = 4242;
+    const g = testGame(() => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    });
+    startGame(g, mode, stage);
+    const found: NumberTile[][] = [];
+    for (let i = 0; i < count; i++) {
+      g.numbers = [];
+      g.spawnTimer = 0;
+      update(g, 0.01);
+      if (g.numbers.length === 2 && g.numbers[0].x === g.numbers[1].x && g.numbers[0].chain !== null) found.push([...g.numbers]);
+    }
+    return found;
+  }
+
+  it("only comes from the first level of the times chapter", () => {
+    expect(pairs("mixed", STAGES)).toHaveLength(0);
+    expect(pairs("times", 1).length).toBeGreaterThan(0);
+  });
+
+  it("is two small numbers on a chain, one above the other, in one column", () => {
+    const [[a, b]] = pairs("times", 1);
+    expect(a.x).toBe(b.x);
+    expect(a.chain).toBe(b.id);
+    expect(b.chain).toBe(a.id);
+    expect(Math.abs(a.y - b.y)).toBeGreaterThan(40);
+    expect(Math.abs(a.v)).toBeLessThanOrEqual(3);
+    expect(Math.abs(b.v)).toBeLessThanOrEqual(3);
+  });
+
+  it("falls into the same cup, whichever of the two is tapped", () => {
+    for (const tapLower of [true, false]) {
+      const g = testGame(() => 0.5);
+      startGame(g, "times", 1);
+      g.spawnTimer = 1e9;
+      const low = drop(g, g.cols[1], 200, 2);
+      const high = drop(g, g.cols[1], 146, 3);
+      low.chain = high.id;
+      high.chain = low.id;
+      const tapped = tapLower ? low : high;
+      expect(tapAt(g, tapped.x, tapped.y), `lower ${tapLower}`).toBe(true);
+      for (let i = 0; i < 60 * 6 && g.numbers.length > 0; i++) update(g, 1 / 60);
+      expect(g.numbers, `lower ${tapLower}`).toHaveLength(0);
+      expect(g.cups[1].value, `lower ${tapLower}`).toBe(5);
+      expect(g.cups.every((c) => !c.dead)).toBe(true);
+    }
+  });
+});
+
+describe("the perk that takes a dead cup away", () => {
+  it("is one of the perks of the daily challenge", () => {
+    expect(PERKS).toContain("remove");
+  });
+
+  it("takes the dead cup away, so that there is one cup less", () => {
+    const g = playing();
+    g.cups[1].dead = true;
+    g.phase = "perk";
+    g.perkChoices = ["remove"];
+    expect(choosePerk(g, 0)).toBe(true);
+    expect(g.cups).toHaveLength(3);
+    expect(g.cups.some((c) => c.dead)).toBe(false);
+    expect(g.phase).toBe("play");
+  });
+
+  it("leaves the cups alone when none of them is dead", () => {
+    const g = playing();
+    g.phase = "perk";
+    g.perkChoices = ["remove"];
+    expect(choosePerk(g, 0)).toBe(true);
+    expect(g.cups).toHaveLength(4);
+  });
+});
+
+describe("days in a row on the ladder", () => {
+  it("knows the day before a day, also over the end of a month and a year", () => {
+    expect(previousDay("2026-11-15")).toBe("2026-11-14");
+    expect(previousDay("2026-03-01")).toBe("2026-02-28");
+    expect(previousDay("2027-01-01")).toBe("2026-12-31");
+  });
+
+  it("starts on day 1, and goes on to the next day when yesterday was counted", () => {
+    expect(streakDayFor(null, "2026-11-15")).toBe(1);
+    let s = recordDay(null, "2026-11-15");
+    expect(s).toEqual({last: "2026-11-15", count: 1, gift: false});
+    expect(streakDayFor(s, "2026-11-15")).toBe(1); // (today is counted already)
+    expect(recordDay(s, "2026-11-15")).toBe(s); // (and does not count twice)
+    expect(streakDayFor(s, "2026-11-16")).toBe(2);
+    s = recordDay(s, "2026-11-16");
+    expect(s.count).toBe(2);
+    expect(streakCount(s, "2026-11-16")).toBe(2);
+    expect(streakCount(s, "2026-11-17")).toBe(2); // (yesterday was counted: today can still be counted)
+  });
+
+  it("starts over when a day is missed", () => {
+    let s = recordDay(null, "2026-11-10");
+    s = recordDay(s, "2026-11-11");
+    s = recordDay(s, "2026-11-12");
+    expect(s.count).toBe(3);
+    expect(streakCount(s, "2026-11-14")).toBe(0); // (the 13th was missed)
+    expect(streakDayFor(s, "2026-11-14")).toBe(1);
+    expect(recordDay(s, "2026-11-14").count).toBe(1);
+  });
+
+  it("brings a package on the seventh day, which waits until it is opened and is not lost when the streak starts over", () => {
+    let s = null as ReturnType<typeof recordDay> | null;
+    for (let d = 1; d <= STREAK_DAYS; d++) {
+      s = recordDay(s, "2026-11-" + String(d).padStart(2, "0"));
+      expect(s.gift, "day " + d).toBe(d === STREAK_DAYS);
+    }
+    // The week starts over on the day after the seventh.
+    expect(streakDayFor(s, "2026-11-08")).toBe(1);
+    const next = recordDay(s, "2026-11-08");
+    expect(next.count).toBe(1);
+    expect(next.gift).toBe(true); // (the package is still waiting)
+    // A day is missed, and the package is still there.
+    expect(recordDay(next, "2026-11-20").gift).toBe(true);
+  });
+
+  it("pays a little more coins every day: 10 percent more a day, 60 percent on the seventh", () => {
+    expect(streakFactor(1)).toBe(1);
+    expect(streakFactor(2)).toBeCloseTo(1.1);
+    expect(streakFactor(7)).toBeCloseTo(1.6);
+    expect(streakFactor(99)).toBeCloseTo(1.6);
+    expect(streakCoins(10, 1)).toBe(10);
+    expect(streakCoins(10, 7)).toBe(16);
+    expect(streakCoins(50, 3)).toBe(60);
+  });
+
+  it("gives something from a package: coins, cloths, energy or a cup", () => {
+    const kinds = new Set<string>();
+    let seed = 99;
+    const rng = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+    for (let i = 0; i < 300; i++) {
+      const p = rollPackage(rng);
+      kinds.add(p.kind);
+      if (p.kind === "coins") expect(p.n).toBeGreaterThanOrEqual(150);
+      if (p.kind === "coins") expect(p.n).toBeLessThanOrEqual(400);
+      if (p.kind === "cup") expect(["gold", "thermos", "magnet", "big", "laser"]).toContain(p.cup);
+    }
+    expect([...kinds].sort()).toEqual(["cloth", "coins", "cup", "energy"]);
+  });
+});
+
+describe("progress that fades with time (plus & minus, level 3 and on, and the endless game)", () => {
+  function fading(mode: Mode = "mixed", stage = 3): GameState {
+    const g = testGame(() => 0.5);
+    startGame(g, mode, stage);
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
-    for (let i = 0; i < 60 * 8 && !g.numbers.some((m) => m.flip); i++) update(g, 1 / 60);
-    expect(g.numbers.some((m) => m.flip)).toBe(true);
+    g.showcase = [];
+    return g;
+  }
+
+  /** Lets the game run for some seconds. */
+  function run(g: GameState, seconds: number): void {
+    for (let t = 0; t < seconds; t += 0.05) update(g, 0.05);
+  }
+
+  it("is a new kind of number from level 3 of plus & minus, and stays in the chapters after it", () => {
+    for (const [mode, stage, age] of [["mixed", 2, -1], ["mixed", 3, 0], ["mixed", 4, 1], ["times", 1, 10], ["space", 12, 45]] as const) {
+      const g = fading(mode, stage);
+      expect(featureAge(g, "fade"), `${mode} ${stage}`).toBe(age);
+    }
+    expect(featureAge(fading("plus", 12), "fade")).toBe(-1);
+    expect(featureAge(fading("minus", 12), "fade")).toBe(-1);
+    expect(featureAge(fading("tutorial", 0), "fade")).toBe(-1);
+  });
+
+  it("takes 22 seconds on levels 1-3, 20 on 4-6, 18 on 7-9 and 16 on 10-12 (a whole perfect 10)", () => {
+    const secs = (mode: Mode, stage: number) => fadeSeconds(fading(mode, stage));
+    expect([secs("mixed", 3), secs("times", 1), secs("times", 3)]).toEqual([22, 22, 22]);
+    expect([secs("mixed", 4), secs("divide", 6)]).toEqual([20, 20]);
+    expect([secs("mixed", 7), secs("space", 9)]).toEqual([18, 18]);
+    expect([secs("mixed", 10), secs("space", 12)]).toEqual([16, 16]);
+  });
+
+  it("fades the progress while no perfect 10 comes: a whole one in 22 seconds on level 3", () => {
+    const g = fading();
+    g.level = 3; // (two perfect 10s done)
+    run(g, 11.2);
+    expect(g.drain).toBe(10);
+    expect(progressOf(g)).toBeCloseTo(1.5, 10);
+    run(g, 11);
+    expect(g.drain).toBe(20);
+    expect(progressOf(g)).toBeCloseTo(1, 10);
+  });
+
+  it("goes faster on the higher levels", () => {
+    const g = fading("mixed", 10);
+    g.level = 3;
+    run(g, 16.3);
+    expect(g.drain).toBe(20);
+  });
+
+  it("is slowed down by slow motion, and stopped by the pause ball", () => {
+    const g = fading();
+    g.level = 3;
+    g.pause = 100;
+    run(g, 10);
+    expect(g.drain).toBe(0);
+    g.pause = 0;
+    g.slow = 100;
+    run(g, 11.2);
+    expect(g.drain).toBeGreaterThan(0);
+    expect(g.drain).toBeLessThan(10);
+  });
+
+  it("never goes below nothing done", () => {
+    const g = fading();
+    run(g, 60);
+    expect(g.drain).toBe(0);
+    g.level = 2;
+    run(g, 80);
+    expect(g.drain).toBe(20);
+    expect(progressOf(g)).toBe(0);
+  });
+
+  it("is refilled by a new perfect 10: what had faded of the last cup is back, and a whole cup that is gone stays gone", () => {
+    const g = fading();
+    g.level = 3;
+    g.drain = 7;
+    g.drainClock = 0.9;
+    g.cups[1].value = 6;
+    tapAndSettle(g, drop(g, 135, 200, 4));
+    expect(g.level).toBe(4);
+    expect(g.drain).toBe(0);
+    expect(g.drainClock).toBeLessThan(0.2); // (the time starts over)
+    expect(progressOf(g)).toBe(3);
+    const e = g.events.find((x) => x.t === "levelUp");
+    expect(e && e.t === "levelUp" ? e.done : -1).toBe(3);
+    // (one whole cup has faded away, and a part of the next: the part is refilled, the cup is still gone)
+    const h = fading();
+    h.level = 4;
+    h.drain = 27;
+    h.cups[1].value = 6;
+    tapAndSettle(h, drop(h, 135, 200, 4));
+    expect(h.drain).toBe(20);
+    expect(progressOf(h)).toBe(3);
+  });
+
+  it("clears the level only when the progress that is left reaches the goal", () => {
+    const goal = goalFor("mixed", 3);
+    // (the last cup is made, but a whole one has faded away: not enough yet)
+    const g = fading();
+    g.level = goal; // goal - 1 perfect 10s done
+    g.drain = 20;
+    g.cups[1].value = 6;
+    tapAndSettle(g, drop(g, 135, 200, 4));
+    expect(g.level - 1).toBe(goal);
+    expect(g.phase).toBe("play");
+    // (with enough left it is cleared)
+    const h = fading();
+    h.level = goal + 1;
+    h.drain = 20;
+    h.cups[1].value = 6;
+    tapAndSettle(h, drop(h, 135, 200, 4));
+    expect(h.phase).toBe("won");
+  });
+
+  it("starts over with a new round", () => {
+    const g = fading();
+    g.level = 3;
+    run(g, 5);
+    expect(g.drain).toBeGreaterThan(0);
+    startGame(g, "mixed", 3);
+    expect(g.drain).toBe(0);
+    expect(g.drainClock).toBe(0);
+    showMenu(g);
+    expect(g.drain).toBe(0);
+  });
+
+  describe("in the endless game", () => {
+    it("starts on its third level, with 24 seconds, and goes faster the further it gets (two seconds every third level, at least 10)", () => {
+      const g = fading("endless", 0);
+      expect(fadeOn(g)).toBe(false);
+      g.level = 11; // (level 3 of the endless game)
+      expect(fadeOn(g)).toBe(true);
+      const at = (level: number) => {
+        g.level = (level - 1) * 5 + 1;
+        return fadeSeconds(g);
+      };
+      expect([at(3), at(4), at(7), at(10), at(13), at(40)]).toEqual([24, 22, 20, 18, 16, 10]);
+    });
+
+    it("fades the cups of the bar it is on, never one that was filled before", () => {
+      const g = fading("endless", 0);
+      g.level = 11; // (ten cups, the bar of level 3 is empty: nothing to lose)
+      run(g, 30);
+      expect(g.drain).toBe(0);
+      g.level = 13; // (two cups on the bar)
+      run(g, 24.5);
+      expect(g.drain).toBe(20);
+      run(g, 100);
+      expect(g.drain).toBe(40);
+      expect(progressOf(g)).toBe(10);
+      expect(endlessLevel(g)).toBe(3);
+    });
+
+    it("needs the bar filled, what has faded counted off, for the next level", () => {
+      const g = fading("endless", 0);
+      g.level = 15; // (four cups on the bar of level 3)
+      g.drain = 20; // (one of them has faded away)
+      g.cups[1].value = 6;
+      tapAndSettle(g, drop(g, 135, 200, 4));
+      expect(g.level).toBe(16);
+      expect(endlessLevel(g)).toBe(3);
+      expect(g.banner).toBe(0);
+      // (a cup with no fading: five cups fill the bar)
+      const h = fading("endless", 0);
+      h.level = 15;
+      h.drain = 0;
+      h.cups[1].value = 6;
+      tapAndSettle(h, drop(h, 135, 200, 4));
+      expect(endlessLevel(h)).toBe(4);
+      expect(h.banner).toBeGreaterThan(0);
+    });
+
+    it("is not in the daily challenge", () => {
+      const g = testGame(() => 0.5);
+      startDaily(g, "2026-11-14");
+      g.spawnTimer = 1e9;
+      g.bonusTimer = 1e9;
+      g.level = 20;
+      expect(fadeOn(g)).toBe(false);
+      run(g, 30);
+      expect(g.drain).toBe(0);
+    });
+  });
+});
+
+describe("the saucers of the shop", () => {
+  function withSaucers(saucers: (SaucerKind | null)[], mode: Mode = "mixed", stage = 1): GameState {
+    const g = testGame(() => 0.5);
+    g.saucerLoadout = saucers;
+    startGame(g, mode, stage);
+    g.spawnTimer = 1e9;
+    return g;
+  }
+  const none = (): GameState => withSaucers([]);
+
+  it("go under the cups from the left, and count only the ones that have a cup (three cups in the first chapters)", () => {
+    const g = withSaucers(["slow", "points", null, "slow"]);
+    expect(g.cups.map((c) => c.saucer)).toEqual(["slow", "points", undefined, "slow"]);
+    expect(saucerCount(g, "slow")).toBe(2);
+    const h = withSaucers(["slow", "slow", "slow", "slow"], "plus", 3);
+    expect(h.cups).toHaveLength(3);
+    expect(saucerCount(h, "slow")).toBe(3);
+    expect(saucerCount(withSaucers(["slow", "slow", "slow", "slow"], "plus", 1), "slow")).toBe(2);
+    const tut = withSaucers(["slow", "slow", "slow", "slow"], "tutorial", 0);
+    expect(saucerCount(tut, "slow")).toBe(0);
+  });
+
+  it("two, three or four of a kind give a bonus: they work like two and a half, four and six", () => {
+    expect([0, 1, 2, 3, 4].map(saucerPower)).toEqual([0, 1, 2.5, 4, 6]);
+  });
+
+  it("slow: every one makes the numbers fall 5% slower, and two, three or four of them a bit more (four: 30%)", () => {
+    const base = speedFactorOf(none());
+    expect(speedFactorOf(withSaucers(["slow"]))).toBeCloseTo(base * 0.95, 10);
+    expect(speedFactorOf(withSaucers(["slow", "slow"]))).toBeCloseTo(base * 0.875, 10);
+    expect(speedFactorOf(withSaucers(["slow", "slow", "slow"]))).toBeCloseTo(base * 0.8, 10);
+    expect(speedFactorOf(withSaucers(["slow", "slow", "slow", "slow"]))).toBeCloseTo(base * 0.7, 10);
+    const e = withSaucers(["slow", "slow"], "endless", 0);
+    expect(speedFactorOf(e)).toBeCloseTo(0.875, 10);
+  });
+
+  it("sparse: every one makes 10% fewer numbers come (the time between them is longer)", () => {
+    const wait = (g: GameState): number => {
+      g.spawnTimer = 0;
+      update(g, 0.001);
+      return g.spawnTimer;
+    };
+    const base = wait(none());
+    expect(wait(withSaucers(["sparse"]))).toBeCloseTo(base / 0.9, 6);
+    expect(wait(withSaucers(["sparse", "sparse"]))).toBeCloseTo(base / 0.75, 6);
+    expect(wait(withSaucers(["sparse", "sparse", "sparse", "sparse"]))).toBeCloseTo(base / 0.4, 6);
+  });
+
+  it("special: every one brings 10% more bonus balls (they come sooner)", () => {
+    const base = none().bonusTimer;
+    expect(withSaucers(["special", "special"]).bonusTimer).toBeCloseTo(base / 1.25, 6);
+    expect(withSaucers(["special", "special", "special", "special"]).bonusTimer).toBeCloseTo(base / 1.6, 6);
+  });
+
+  it("points: every one gives 50% more points (two work like two and a half)", () => {
+    const score = (saucers: (SaucerKind | null)[]): number => {
+      const g = withSaucers(saucers);
+      g.cups[1].value = 6;
+      tapAndSettle(g, drop(g, 135, 200, 4));
+      return g.score;
+    };
+    const base = score([]);
+    expect(base).toBeGreaterThan(0);
+    expect(score(["points", "points"])).toBe(Math.round(base * 2.25)); // (two of a kind work like two and a half)
+    expect(score([null, "points"])).toBe(Math.round(base * 1.5));
+  });
+});
+
+describe("the cups of the daily challenge: two, then three, then four", () => {
+  function daily(loadout: string[][] = []): GameState {
+    const g = testGame(() => 0.5);
+    g.loadout = loadout as GameState["loadout"];
+    startDaily(g, "2026-11-14");
+    g.spawnTimer = 1e9;
+    g.bonusTimer = 1e9;
+    return g;
+  }
+
+  /** Climbs a rung: the cups that are done are set so that the next perfect 10 is the one that ends it (5, then 11, then 18 cups), and a perk is chosen. */
+  function climb(g: GameState, cupsAtEnd: number, pick = 0): void {
+    g.level = cupsAtEnd;
+    g.numbers = [];
+    g.showcase = [];
+    const cup = g.cups.find((c) => !c.dead)!;
+    cup.value = 9;
+    tapAndSettle(g, drop(g, cup.x, 400, 1));
+    expect(g.phase).toBe("perk");
+    expect(choosePerk(g, pick)).toBe(true);
+  }
+
+  it("starts with two cups, with what the player has on the first two from the shop", () => {
+    const g = daily([["gold"], ["magnet"], ["laser"]]);
+    expect(g.cols).toEqual([135, 225]);
+    expect(g.cups.map((c) => c.x)).toEqual([135, 225]);
+    expect(g.cups.map((c) => c.kinds)).toEqual([["gold"], ["magnet"]]);
+  });
+
+  it("gets a third cup after the first rung, and a fourth after the third, on the right, with its own power", () => {
+    const g = daily([["gold"], ["magnet"], ["laser"], ["big"]]);
+    g.cups[0].value = 3;
+    climb(g, 5);
+    expect(g.cols).toEqual([90, 180, 270]);
+    expect(g.cups.map((c) => c.x).sort((a, b) => a - b)).toEqual([90, 180, 270]);
+    const third = g.cups.find((c) => c.x === 270)!;
+    expect(third.value).toBe(0);
+    expect(third.kinds).toEqual(["laser"]);
+    expect(g.cups.find((c) => c.x === 90)!.kinds).toContain("gold"); // (the cups that were there keep what they had)
+    climb(g, 11); // (the second rung: still three)
+    expect(g.cups).toHaveLength(3);
+    climb(g, 18);
+    expect(g.cols).toEqual([45, 135, 225, 315]);
+    expect(g.cups).toHaveLength(4);
+    expect(g.cups.find((c) => c.x === 315)!.kinds).toContain("big");
+  });
+
+  it("does not bring a cup back that a perk took away", () => {
+    const g = daily();
+    g.cups[1].dead = true;
+    g.phase = "perk";
+    g.perkChoices = ["remove"];
+    expect(choosePerk(g, 0)).toBe(true);
+    expect(g.cups).toHaveLength(1);
+    climb(g, 5);
+    expect(g.cups).toHaveLength(2); // (one that was there, and the new one of the rung)
+  });
+});
+
+describe("perks that are offered as x2 or x3 in the daily challenge", () => {
+  function daily(): GameState {
+    const g = testGame(() => 0.5);
+    startDaily(g, "2026-11-14");
+    g.spawnTimer = 1e9;
+    g.bonusTimer = 1e9;
+    g.cups[0].value = 0;
+    return g;
+  }
+
+  it("take effect that many times: x2 of the shield puts a shield on two cups", () => {
+    const g = daily();
+    g.phase = "perk";
+    g.perkChoices = ["shield", "slow", "cloth"];
+    g.perkTimes = [2, 1, 1];
+    expect(choosePerk(g, 0)).toBe(true);
+    expect(g.cups.filter((c) => c.shield)).toHaveLength(2);
+    expect(g.perks).toEqual(["shield", "shield"]);
+  });
+
+  it("put the same power on two different cups, make two cups come back, and slow the numbers twice", () => {
+    const g = daily();
+    g.phase = "perk";
+    g.perkChoices = ["gold", "slow", "life"];
+    g.perkTimes = [2, 2, 1];
+    choosePerk(g, 0);
+    expect(g.cups.map((c) => c.kinds)).toEqual([["gold"], ["gold"]]);
+    const before = speedFactorOf(g);
+    g.phase = "perk";
+    g.perkChoices = ["slow"];
+    g.perkTimes = [2];
+    choosePerk(g, 0);
+    expect(speedFactorOf(g)).toBeCloseTo(before * PERK_SLOWER * PERK_SLOWER, 10);
+    for (const c of g.cups) c.dead = true;
+    g.cups[0].value = 13;
+    g.phase = "perk";
+    g.perkChoices = ["life"];
+    g.perkTimes = [2];
+    choosePerk(g, 0);
+    expect(g.cups.filter((c) => !c.dead)).toHaveLength(2);
+  });
+
+  it("are offered now and then, never more than they can be used, and the same for everyone on the same day", () => {
+    const offered = (seed: number): number[] => {
+      let s = seed;
+      const g = testGame(() => {
+        s = (s * 1664525 + 1013904223) % 4294967296;
+        return s / 4294967296;
+      });
+      startDaily(g, "2026-11-14");
+      const all: number[] = [];
+      for (let i = 0; i < 80; i++) {
+        g.phase = "play";
+        g.perks = [];
+        g.screens = 0;
+        for (const c of g.cups) {
+          c.shield = false;
+          c.kinds = [];
+          c.dead = false;
+        }
+        g.cups[0].dead = i % 2 === 0;
+        g.level = 5;
+        g.numbers = [];
+        const cup = g.cups.find((c) => !c.dead)!;
+        cup.value = 9;
+        g.showcase = [];
+        drop(g, cup.x, 400, 1);
+        for (let k = 0; k < 300 && g.numbers.length > 0 && g.phase === "play"; k++) update(g, 1 / 60);
+        if ((g.phase as string) === "perk") all.push(...g.perkTimes);
+      }
+      return all;
+    };
+    const a = offered(7);
+    expect(a.length).toBeGreaterThan(0);
+    expect(a.some((n) => n > 1)).toBe(true);
+    expect(a.every((n) => n >= 1 && n <= 3)).toBe(true);
+    expect(offered(7)).toEqual(a);
+  });
+});
+
+describe("special perks in the daily challenge (the ones the saucers have)", () => {
+  function daily(day = "2026-11-14"): GameState {
+    const g = testGame(() => 0.5);
+    startDaily(g, day); // (the numbers, and the perks on offer, follow the day)
+    g.spawnTimer = 1e9;
+    g.bonusTimer = 1e9;
+    g.showcase = [];
+    return g;
+  }
+
+  it("are not in the ordinary perks, but have limits", () => {
+    for (const p of SPECIAL_PERKS) {
+      expect(PERKS).not.toContain(p);
+      expect(PERK_LIMIT[p]).toBeGreaterThan(0);
+    }
+  });
+
+  it("come now and then in the offer, one of the three, and not more of them than there can be", () => {
+    let withSpecial = 0;
+    for (let i = 0; i < 300; i++) {
+      const g = daily(`2026-${String(1 + (i % 12)).padStart(2, "0")}-${String(1 + (Math.floor(i / 12) % 28)).padStart(2, "0")}`);
+      g.perks = i % 2 === 0 ? [] : ["points", "points", "points"];
+      g.level = 5;
+      g.numbers = [];
+      const cup = g.cups[0];
+      cup.value = 9;
+      drop(g, cup.x, 400, 1);
+      for (let k = 0; k < 300 && g.numbers.length > 0 && (g.phase as string) === "play"; k++) update(g, 1 / 60);
+      if ((g.phase as string) !== "perk") continue;
+      expect(g.perkChoices.length).toBeGreaterThanOrEqual(1);
+      expect(new Set(g.perkChoices).size).toBe(g.perkChoices.length);
+      const special = g.perkChoices.filter((p) => SPECIAL_PERKS.includes(p));
+      expect(special.length).toBeLessThanOrEqual(1);
+      if (i % 2 === 1) expect(g.perkChoices).not.toContain("points");
+      if (special.length > 0) withSpecial++;
+    }
+    expect(withSpecial).toBeGreaterThan(20);
+    expect(withSpecial).toBeLessThan(150);
+  });
+
+  it("fewer numbers: every one makes 10% fewer numbers come, and they add up with the saucers", () => {
+    const wait = (g: GameState): number => {
+      g.spawnTimer = 0;
+      update(g, 0.001);
+      return g.spawnTimer;
+    };
+    const base = wait(daily());
+    const g = daily();
+    g.perks = ["sparse", "sparse"];
+    expect(wait(g)).toBeCloseTo(base / 0.8, 6);
+    const h = daily();
+    h.saucerLoadout = ["sparse", "sparse"];
+    startDaily(h, "2026-11-14");
+    h.spawnTimer = 1e9;
+    h.bonusTimer = 1e9;
+    h.perks = ["sparse", "sparse"];
+    const both = wait(h);
+    expect(both).toBeCloseTo(base / 0.55, 6); // (two saucers work like two and a half, and the two perks are two more)
+  });
+
+  it("more specials: the bonus balls come sooner", () => {
+    const next = (perks: PerkId[]): number => {
+      const g = daily();
+      g.perks = perks;
+      g.bonusTimer = 0;
+      update(g, 0.001);
+      return g.bonusTimer;
+    };
+    const base = next([]);
+    expect(next(["special", "special"])).toBeCloseTo(base / 1.2, 6);
+  });
+
+  it("more points: every one gives 50% more points", () => {
+    const score = (perks: PerkId[]): number => {
+      const g = daily();
+      g.perks = perks;
+      g.cups[1].value = 6;
+      tapAndSettle(g, drop(g, g.cups[1].x, 200, 4));
+      return g.score;
+    };
+    const base = score([]);
+    expect(base).toBeGreaterThan(0);
+    expect(score(["points", "points"])).toBe(base * 2);
+  });
+});
+
+describe("the match modes: Save the cup and 6 or 8", () => {
+  function lcg(seed: number): () => number {
+    let s = seed;
+    return () => {
+      s = (s * 1664525 + 1013904223) % 4294967296;
+      return s / 4294967296;
+    };
+  }
+  function started(variant: "save" | "sixeight", seed = 5): GameState {
+    const g = testGame(lcg(seed));
+    g.loadout = [["gold"], ["magnet"], ["big"], ["laser"]];
+    g.saucerLoadout = ["slow", "points", null, null];
+    startVariant(g, variant);
+    return g;
+  }
+  /** The numbers that come in some seconds (every one is seen once). */
+  function seen(g: GameState, seconds: number): NumberTile[] {
+    const all = new Map<number, NumberTile>();
+    for (let t = 0; t < seconds; t += 0.05) {
+      update(g, 0.05);
+      for (const n of g.numbers) all.set(n.id, {...n});
+    }
+    return [...all.values()];
+  }
+
+  it("Save the cup: four regular cups, one of them dead from the start, and nothing from the shop", () => {
+    const g = started("save");
+    expect(g.mode).toBe("endless");
+    expect(g.variant).toBe("save");
+    expect(g.cups).toHaveLength(4);
+    expect(g.cups.filter((c) => c.dead)).toHaveLength(1);
+    expect(g.cups.find((c) => c.dead)!.value).toBeGreaterThan(10);
+    for (const c of g.cups) {
+      expect(c.kinds).toEqual([]);
+      expect(c.saucer).toBeUndefined();
+      expect(c.shield).toBe(false);
+    }
+    expect(g.continuesLeft).toBe(0); // (no carrying on after an ad: it would bring the dead cup back)
+    expect(g.screens).toBe(0);
+  });
+
+  it("Save the cup: only 1s fall, and no bonus balls or new kinds of number, however long it goes on", () => {
+    const g = started("save");
+    const deadOne = g.cups.find((c) => c.dead)!;
+    deadOne.dead = false; // (so that the round does not end: only the numbers are looked at)
+    deadOne.value = 0;
+    const numbers = seen(g, 40);
+    expect(numbers.length).toBeGreaterThan(10);
+    expect(numbers.every((n) => n.v === 1 && n.op === "add" && n.bonus === null && n.chain === null && n.ghost === null && n.ice === 0)).toBe(true);
+    for (const f of FEATURES) expect(featureAge(g, f), f).toBe(-1);
+    g.bonusTimer = 0;
+    update(g, 0.05);
+    expect(g.bonusTimer).toBeGreaterThan(1e6);
+    expect(g.numbers.some((n) => n.bonus !== null)).toBe(false);
+  });
+
+  it("Save the cup: a 1 over the dead cup cannot be saved by a tap, a 1 over a living cup goes into it, and moving the dead cup away saves it", () => {
+    // (a tap on a 1 over the dead cup: it hops and falls into it)
+    const g = started("save");
+    g.spawnTimer = 1e9;
+    const dead = g.cups.find((c) => c.dead)!;
+    const doomed = drop(g, dead.x, 200, 1);
+    expect(tapAt(g, doomed.x, doomed.y)).toBe(true);
+    for (let i = 0; i < 600 && g.phase === "play"; i++) update(g, 1 / 60);
+    expect(g.phase).toBe("over");
+    expect(g.overReason).toBe("deadCup");
+    expect(canContinue(g)).toBe(false);
+    // (a 1 over a living cup: a tap puts it in the cup)
+    const h = started("save");
+    h.spawnTimer = 1e9;
+    const living = h.cups.find((c) => !c.dead)!;
+    tapAndSettle(h, drop(h, living.x, 200, 1));
+    expect(living.value).toBe(1);
+    expect(h.phase).toBe("play");
+    // (the dead cup is moved to another column, and the 1 that was over it falls into the living cup that came there instead)
+    const k = started("save");
+    k.spawnTimer = 1e9;
+    const dead2 = k.cups.find((c) => c.dead)!;
+    const from = dead2.x;
+    const other = k.cups.find((c) => !c.dead && Math.abs(c.x - from) < 100)!;
+    const falling = drop(k, from, 300, 1);
+    moveCup(k, dead2, other.x);
+    dropCup(k, dead2);
+    expect(dead2.x).not.toBe(from);
+    expect(other.x).toBe(from);
+    for (let i = 0; i < 2000 && k.numbers.includes(falling) && k.phase === "play"; i++) update(k, 1 / 60);
+    expect(k.phase).toBe("play");
+    expect(other.value).toBe(1);
+  });
+
+  it("Save the cup: gets faster and faster (the numbers fall faster and come oftener, up to five times)", () => {
+    const g = started("save");
+    g.spawnTimer = 1e9;
+    g.rng = () => 0.5; // (the time between numbers is a little different every time: not here)
+    const wait = (): number => {
+      g.spawnTimer = 0;
+      update(g, 0.001);
+      return g.spawnTimer;
+    };
+    const speed0 = speedFactorOf(g);
+    expect(variantRamp(g)).toBeCloseTo(1.15, 10); // (a bit faster than the endless game from the start)
+    expect(variantRate(g)).toBeCloseTo(1.3, 10);
+    const wait0 = wait();
+    g.variantTime = 36;
+    expect(variantRamp(g)).toBeCloseTo(2.15, 3);
+    expect(speedFactorOf(g)).toBeCloseTo((speed0 * 2.15) / 1.15, 3);
+    g.variantTime = 30;
+    expect(variantRate(g)).toBeCloseTo(2.3, 3);
+    expect(wait()).toBeCloseTo((wait0 * 1.3) / 2.3, 3);
+    g.variantTime = 1e6;
+    expect(variantRamp(g)).toBe(5.5);
+    expect(variantRate(g)).toBe(7);
+    // (the other mode does not speed up with the seconds)
+    expect(variantRamp(started("sixeight"))).toBe(1);
+    expect(variantRate(started("sixeight"))).toBe(1);
+  });
+
+  it("6 or 8: only 6s, 8s and numbers that divide by 2 fall, with the cups and saucers from the shop", () => {
+    const g = started("sixeight");
+    expect(g.variant).toBe("sixeight");
+    expect(g.cups.map((c) => c.kinds)).toEqual([["gold"], ["magnet"], ["big"], ["laser"]]);
+    expect(g.cups.map((c) => c.saucer)).toEqual(["slow", "points", undefined, undefined]);
+    expect(g.cups.some((c) => c.dead)).toBe(false);
+    const numbers = seen(g, 60);
+    expect(numbers.length).toBeGreaterThan(20);
+    const kinds = new Set(numbers.map((n) => `${n.op}${n.v}`));
+    expect([...kinds].sort()).toEqual(["add6", "add8", "div2"]);
+    expect(numbers.every((n) => n.bonus === null)).toBe(true);
+  });
+
+  it("6 or 8: 8 divided by 2 is 4 and 4 and 6 make 10", () => {
+    const g = started("sixeight");
+    g.spawnTimer = 1e9;
+    g.cups.forEach((c) => (c.kinds = []));
+    g.cups[1].value = 8;
+    const div = drop(g, g.cups[1].x, 200, 2);
+    div.op = "div";
+    tapAndSettle(g, div);
+    expect(g.cups[1].value).toBe(4);
+    tapAndSettle(g, drop(g, g.cups[1].x, 200, 6));
+    expect(g.level).toBe(2); // (a perfect 10)
+    expect(g.cups[1].value).toBe(0);
+  });
+
+  it("start over as ordinary rounds again: the next ordinary round has no match mode", () => {
+    const g = started("save");
+    startGame(g, "endless");
+    expect(g.variant).toBeNull();
+    expect(g.cups.some((c) => c.dead)).toBe(false);
+    startGame(g, "plus", 1);
+    expect(g.variant).toBeNull();
+  });
+
+  it("keep their own record in the same way as the endless game", () => {
+    const g = started("sixeight");
+    g.best = 10;
+    g.score = 50;
+    expect(recordBest(g)).toBe(true);
+    expect(g.best).toBe(50);
   });
 });

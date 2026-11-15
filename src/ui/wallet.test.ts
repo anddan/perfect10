@@ -1,7 +1,8 @@
 import {describe, expect, it} from "vitest";
 import {CUP_PRICE} from "../game/cups";
+import {SAUCER_PRICE} from "../game/saucers";
 import {DEFAULT_LOOK, findLook} from "../game/looks";
-import {CLOTH_PRICE, ENERGY_PRICE, MAX_COPIES, REFILL_PER_POINT, SLOT_COUNT, addCoins, allOnCup, buyCloth, buyLook, equipLook, ownsLook, buyEnergyPoint, buyEnergyRefill, refillPrice, buyCup, clearCup, createWallet, loadWallet, loadout, placed, saveWallet, spare, toggleOnCup} from "./wallet";
+import {ONLINE_PRICE, VARIANT_PRICE, buyMode, ownsMode, priceOfMode, CLOTH_PRICE, ENERGY_PRICE, MAX_COPIES, REFILL_PER_POINT, SLOT_COUNT, addCoins, allOnCup, buyCloth, buyLook, equipLook, ownsLook, buyEnergyPoint, buyEnergyRefill, refillPrice, buyCup, buySaucer, clearCup, createWallet, cycleSaucer, saucersOn, loadWallet, loadout, placed, saveWallet, spare, toggleOnCup} from "./wallet";
 
 describe("the wallet and the shop", () => {
   it("sells a cloth (a pull-down screen) for coins, as long as there is room for one more", () => {
@@ -132,7 +133,7 @@ describe("the wallet and the shop", () => {
 
   it("puts every property there is a copy to spare of on a cup at once, or takes them all off", () => {
     const w = createWallet();
-    addCoins(w, 1000);
+    addCoins(w, 2000);
     buyCup(w, "laser");
     buyCup(w, "gold");
     expect(allOnCup(w, 2)).toBe(true);
@@ -177,5 +178,102 @@ describe("the wallet and the shop", () => {
     expect(loadout(loadWallet())).toEqual([["gold"], [], [], []]); // (one copy: it stays on the first cup)
     store.set("p10-wallet", "garbage");
     expect(loadWallet()).toEqual(createWallet());
+  });
+});
+
+describe("the saucers of the shop", () => {
+  it("are bought for coins, up to one for every cup, and put under the first cup that has none", () => {
+    const w = createWallet();
+    expect(buySaucer(w, "slow")).toBe(false); // (no coins)
+    addCoins(w, SAUCER_PRICE.slow * 5);
+    expect(buySaucer(w, "slow")).toBe(true);
+    expect(buySaucer(w, "slow")).toBe(true);
+    expect(w.saucerSlots).toEqual(["slow", "slow", null, null]);
+    expect(w.coins).toBe(SAUCER_PRICE.slow * 3);
+    expect(buySaucer(w, "slow")).toBe(true);
+    expect(buySaucer(w, "slow")).toBe(true);
+    expect(w.saucers.slow).toBe(MAX_COPIES);
+    expect(buySaucer(w, "slow")).toBe(false); // (as many as there are cups)
+    expect(saucersOn(w, "slow")).toBe(4);
+  });
+
+  it("can only be four on the desk: one that is bought with the places full is kept, not put on", () => {
+    const w = createWallet();
+    addCoins(w, 10000);
+    for (let i = 0; i < 4; i++) buySaucer(w, "slow");
+    expect(buySaucer(w, "points")).toBe(true);
+    expect(w.saucers.points).toBe(1);
+    expect(w.saucerSlots).toEqual(["slow", "slow", "slow", "slow"]);
+  });
+
+  it("are changed under a cup to the next kind there is a copy to spare of, and then to none", () => {
+    const w = createWallet();
+    addCoins(w, 10000);
+    buySaucer(w, "slow");
+    buySaucer(w, "points");
+    expect(w.saucerSlots).toEqual(["slow", "points", null, null]);
+    // (the third place: no slow or points saucer is spare, so nothing to change to)
+    expect(cycleSaucer(w, 2)).toBe(false);
+    buySaucer(w, "points");
+    w.saucerSlots = ["slow", "points", null, null];
+    expect(cycleSaucer(w, 2)).toBe(true);
+    expect(w.saucerSlots[2]).toBe("points");
+    expect(cycleSaucer(w, 2)).toBe(true);
+    expect(w.saucerSlots[2]).toBeNull();
+    expect(cycleSaucer(w, 9)).toBe(false);
+  });
+
+  it("are kept in the browser, and only as many on the desk as there are copies", () => {
+    const store = new Map<string, string>();
+    (globalThis as unknown as {localStorage: unknown}).localStorage = {getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v)};
+    const w = createWallet();
+    addCoins(w, 10000);
+    buySaucer(w, "special");
+    buySaucer(w, "sparse");
+    saveWallet(w);
+    expect(loadWallet().saucerSlots).toEqual(["special", "sparse", null, null]);
+    store.set("p10-wallet", JSON.stringify({coins: 5, saucers: {slow: 1, bogus: 3}, saucerSlots: ["slow", "slow", "bogus", "points"]}));
+    const l = loadWallet();
+    expect(l.saucers.slow).toBe(1);
+    expect(l.saucerSlots).toEqual(["slow", null, null, null]);
+  });
+});
+
+describe("the match modes of the shop", () => {
+  it("are bought once for coins, and not again", () => {
+    const w = createWallet();
+    expect(buyMode(w, "save")).toBe(false); // (no coins)
+    addCoins(w, VARIANT_PRICE + 50);
+    expect(buyMode(w, "save")).toBe(true);
+    expect(w.coins).toBe(50);
+    expect(ownsMode(w, "save")).toBe(true);
+    expect(ownsMode(w, "sixeight")).toBe(false);
+    expect(buyMode(w, "save")).toBe(false);
+    expect(w.coins).toBe(50);
+  });
+
+  it("include Online, which costs 150 coins", () => {
+    expect(ONLINE_PRICE).toBe(150);
+    expect(VARIANT_PRICE).toBe(500);
+    expect(priceOfMode("online")).toBe(150);
+    expect(priceOfMode("save")).toBe(500);
+    const w = createWallet();
+    addCoins(w, 160);
+    expect(buyMode(w, "save")).toBe(false);
+    expect(buyMode(w, "online")).toBe(true);
+    expect(w.coins).toBe(10);
+    expect(ownsMode(w, "online")).toBe(true);
+  });
+
+  it("are kept in the browser, and only the ones that exist", () => {
+    const store = new Map<string, string>();
+    (globalThis as unknown as {localStorage: unknown}).localStorage = {getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v)};
+    const w = createWallet();
+    addCoins(w, 5000);
+    buyMode(w, "sixeight");
+    saveWallet(w);
+    expect(loadWallet().modes).toEqual(["sixeight"]);
+    store.set("p10-wallet", JSON.stringify({coins: 1, modes: ["save", "bogus", "save"]}));
+    expect(loadWallet().modes).toEqual(["save"]);
   });
 });

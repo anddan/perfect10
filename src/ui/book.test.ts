@@ -1,7 +1,9 @@
 import {describe, expect, it} from "vitest";
 import {STAGES} from "../game/constants";
 import type {Mode} from "../game/types";
-import {DAILY_PAGE, PAGES, SHOP_PAGE} from "./book";
+import {DAILY_PAGE, MATCH_PAGES, PAGES, SHOP_PAGE, STARS_FOR_VARIANT, TAB_GROUPS, type Page, groupOfPage, tabTarget, variantOpen} from "./book";
+import {ui} from "./draw";
+import {DESIGNS, designOfDay, halfWidth} from "./stepsArt";
 import {CHAPTER_MODES, CHAPTER_STARS, STARS_FOR_ENDLESS, type Book, chapterCleared, chapterOf, chapterStars, createBook, currentPage, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, nextGame, openNextGame, pageOfMode, totalStars, updateBook} from "./book";
 
 /** Clears every level of a chapter with three stars (a lot of points). */
@@ -32,14 +34,27 @@ describe("which levels are open", () => {
     expect(isUnlocked(b, "plus", 3)).toBe(true);
   });
 
-  it("opens the plus and minus levels when every level of the plus chapter has been cleared, however few stars there are", () => {
+  it("opens the minus levels when every level of the plus chapter has been cleared, however few stars there are", () => {
     const b = createBook();
     for (let s = 1; s <= STAGES - 1; s++) markCleared(b, "plus", s);
     expect(chapterCleared(b, "plus")).toBe(false);
-    expect(isUnlocked(b, "mixed", 1)).toBe(false); // (one level to go)
+    expect(isUnlocked(b, "minus", 1)).toBe(false); // (one level to go)
     markCleared(b, "plus", STAGES); // (every level cleared, but only one star in each: 12 stars)
     expect(chapterStars(b, "plus")).toBe(12);
     expect(chapterCleared(b, "plus")).toBe(true);
+    expect(isUnlocked(b, "minus", 1)).toBe(true);
+    expect(isUnlocked(b, "minus", 2)).toBe(false);
+    expect(isUnlocked(b, "mixed", 1)).toBe(false); // (plus and minus comes after the minus chapter)
+    markCleared(b, "minus", 1);
+    expect(isUnlocked(b, "minus", 2)).toBe(true);
+  });
+
+  it("opens the plus and minus levels when every level of the minus chapter has been cleared", () => {
+    const b = createBook();
+    clearWithThreeStars(b, "plus");
+    for (let s = 1; s <= STAGES - 1; s++) markCleared(b, "minus", s);
+    expect(isUnlocked(b, "mixed", 1)).toBe(false);
+    markCleared(b, "minus", STAGES);
     expect(isUnlocked(b, "mixed", 1)).toBe(true);
     expect(isUnlocked(b, "mixed", 2)).toBe(false);
     markCleared(b, "mixed", 1);
@@ -108,12 +123,12 @@ describe("which levels are open", () => {
   it("only gives the next game when it is open", () => {
     const b = createBook();
     markCleared(b, "plus", STAGES); // (only the last level, the ones before it are not cleared)
-    expect(nextGame("plus", STAGES)).toEqual({mode: "mixed", stage: 1});
+    expect(nextGame("plus", STAGES)).toEqual({mode: "minus", stage: 1});
     expect(openNextGame(b, "plus", STAGES)).toBeUndefined();
     for (let s = 1; s <= 3; s++) markCleared(b, "plus", s);
     expect(openNextGame(b, "plus", 3)).toEqual({mode: "plus", stage: 4});
     for (let s = 1; s <= STAGES; s++) markCleared(b, "plus", s);
-    expect(openNextGame(b, "plus", STAGES)).toEqual({mode: "mixed", stage: 1}); // (no stars are needed)
+    expect(openNextGame(b, "plus", STAGES)).toEqual({mode: "minus", stage: 1}); // (no stars are needed)
   });
 
   it("opens the endless game when 120 stars have been got in all the chapters together", () => {
@@ -121,7 +136,7 @@ describe("which levels are open", () => {
     const b = createBook();
     expect(totalStars(b)).toBe(0);
     // Three chapters with three stars everywhere: 108 stars.
-    for (const mode of ["plus", "mixed", "times"] as const) clearWithThreeStars(b, mode);
+    for (const mode of ["plus", "minus", "mixed"] as const) clearWithThreeStars(b, mode);
     expect(totalStars(b)).toBe(108);
     expect(isUnlocked(b, "endless", 0)).toBe(false);
     // Three levels with three stars and two with one star in the next chapter: 108 + 9 + 2 = 119, one short.
@@ -136,14 +151,16 @@ describe("which levels are open", () => {
     markCleared(b, "divide", 6);
     expect(totalStars(b)).toBe(STARS_FOR_ENDLESS);
     expect(isUnlocked(b, "endless", 0)).toBe(true);
-    // Every level cleared is not enough without the stars (12 levels in each of 5 chapters, one star each: 60).
+    // Every level cleared is not enough without the stars (12 levels in each of 6 chapters, one star each: 72).
     const c = createBook();
     for (const mode of CHAPTER_MODES) for (let s = 1; s <= STAGES; s++) markCleared(c, mode, s);
-    expect(totalStars(c)).toBe(60);
+    expect(totalStars(c)).toBe(72);
     expect(isUnlocked(c, "endless", 0)).toBe(false);
   });
 
   it("goes chapter after chapter, and comes to the endless game after the last space level", () => {
+    expect(nextGame("plus", STAGES)).toEqual({mode: "minus", stage: 1});
+    expect(nextGame("minus", STAGES)).toEqual({mode: "mixed", stage: 1});
     expect(nextGame("mixed", STAGES)).toEqual({mode: "times", stage: 1});
     expect(nextGame("times", 3)).toEqual({mode: "times", stage: 4});
     expect(nextGame("times", STAGES)).toEqual({mode: "divide", stage: 1});
@@ -153,18 +170,86 @@ describe("which levels are open", () => {
     expect(nextGame("endless", 0)).toBeUndefined();
   });
 
-  it("has the ladder of the daily challenge right after the tutorial, and the shop and the page for buying last", () => {
-    expect(PAGES[0]).toBe("tutorial");
-    expect(DAILY_PAGE).toBe(1);
-    expect(pageOfMode("plus")).toBe(2);
-    expect(SHOP_PAGE).toBe(PAGES.length - 3);
-    expect(PAGES[PAGES.length - 2]).toBe("looks");
+  it("has the contents first, then the tutorial and the ladder of the daily challenge, and the shop and the page for buying last", () => {
+    expect(PAGES[0]).toBe("contents");
+    expect(PAGES[1]).toBe("tutorial");
+    expect(DAILY_PAGE).toBe(2);
+    expect(pageOfMode("plus")).toBe(3);
+    expect(pageOfMode("minus")).toBe(4);
+    expect(SHOP_PAGE).toBe(PAGES.length - 4);
+    expect(PAGES[PAGES.length - 3]).toBe("looks");
     expect(PAGES).not.toContain("supplies"); // (the energy is in the shop)
-    expect(PAGES[PAGES.length - 1]).toBe("buy");
+    expect(PAGES[PAGES.length - 2]).toBe("buy");
+    expect(PAGES[PAGES.length - 1]).toBe("back"); // (the green back cover comes after the last page)
   });
 
-  it("numbers the chapters 1 to 5, with the space chapter last", () => {
-    expect(CHAPTER_MODES.map((m) => chapterOf(m))).toEqual([1, 2, 3, 4, 5]);
+  it("has the match modes together after the chapters: the endless game, Save the cup, 6 or 8 and Online, before the shop", () => {
+    const from = PAGES.indexOf("endless");
+    expect(PAGES.slice(from, from + 4)).toEqual(["endless", "save", "sixeight", "online"]);
+    expect(PAGES.slice(from, from + 4)).toEqual([...MATCH_PAGES]);
+    expect(PAGES[from + 4]).toBe("shop");
+  });
+
+  it("opens a match mode when it has been bought, or with Premium (or the admin switch)", () => {
+    const b = createBook();
+    ui.modes = [];
+    expect(variantOpen(b, "save")).toBe(false);
+    ui.modes = ["save"];
+    expect(variantOpen(b, "save")).toBe(true);
+    expect(variantOpen(b, "sixeight")).toBe(false);
+    b.premium = true;
+    expect(variantOpen(b, "sixeight")).toBe(true);
+    ui.modes = [];
+  });
+
+  it("opens the match modes with enough stars too: 130 for Save the cup and 140 for 6 or 8 (and Online never with stars: coins or Premium)", () => {
+    expect(STARS_FOR_VARIANT).toEqual({save: 130, sixeight: 140});
+    const b = createBook();
+    ui.modes = [];
+    for (const mode of ["plus", "minus", "mixed", "times"] as const) clearWithThreeStars(b, mode); // (4 chapters of 36 stars: 144)
+    expect(totalStars(b)).toBe(144);
+    expect(variantOpen(b, "save")).toBe(true);
+    expect(variantOpen(b, "sixeight")).toBe(true);
+    expect(variantOpen(b, "online")).toBe(false);
+    const c = createBook();
+    clearWithThreeStars(c, "plus");
+    clearWithThreeStars(c, "minus");
+    clearWithThreeStars(c, "mixed");
+    markCleared(c, "times", 1);
+    markScore(c, "times", 1, 1e6); // (111 stars)
+    for (let s = 2; s <= 5; s++) {
+      markCleared(c, "times", s);
+      markScore(c, "times", s, 1e6);
+    }
+    expect(totalStars(c)).toBe(123);
+    expect(variantOpen(c, "save")).toBe(false);
+    ui.modes = ["online"];
+    expect(variantOpen(c, "online")).toBe(true);
+    ui.modes = [];
+  });
+
+  it("groups the pages for the tabs on the edge: the contents, today, the chapters, the match modes and the shop", () => {
+    const g = (page: string) => groupOfPage(PAGES.indexOf(page as Page));
+    expect([g("contents"), g("tutorial"), g("daily"), g("plus"), g("space"), g("endless"), g("online"), g("shop"), g("looks"), g("buy")]).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4, 4]);
+    expect(TAB_GROUPS).toHaveLength(5);
+  });
+
+  it("sends the tabs to the contents, the daily steps, the chapter the player is on, the match mode visited last, and the shop", () => {
+    const b = createBook();
+    ui.lastMatch = "sixeight";
+    expect(tabTarget(b, 0)).toBe(0);
+    expect(tabTarget(b, 1)).toBe(DAILY_PAGE);
+    expect(PAGES[tabTarget(b, 2)]).toBe("plus");
+    expect(tabTarget(b, 3)).toBe(PAGES.indexOf("sixeight"));
+    expect(tabTarget(b, 4)).toBe(SHOP_PAGE);
+    ui.lastMatch = "endless";
+  });
+
+  it("numbers the chapters 1 to 6, with minus after plus and the space chapter last", () => {
+    expect(CHAPTER_MODES.map((m) => chapterOf(m))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(CHAPTER_MODES[1]).toBe("minus");
+    expect(pageOfMode("minus")).toBe(pageOfMode("plus") + 1);
+    expect(pageOfMode("mixed")).toBe(pageOfMode("minus") + 1);
     expect(pageOfMode("space")).toBe(pageOfMode("divide") + 1);
     expect(pageOfMode("endless")).toBe(pageOfMode("space") + 1);
   });
@@ -206,15 +291,17 @@ describe("which levels are open", () => {
 
   it("opens on the tutorial until it is cleared, then on the page you have got to", () => {
     const b = createBook();
-    expect(currentPage(b)).toBe(0);
+    expect(currentPage(b)).toBe(pageOfMode("tutorial"));
     markCleared(b, "tutorial", 0);
     expect(currentPage(b)).toBe(pageOfMode("plus"));
     for (let s = 1; s <= 3; s++) markCleared(b, "plus", s);
     expect(currentPage(b)).toBe(pageOfMode("plus")); // still in the first chapter
     for (let s = 4; s <= STAGES; s++) markCleared(b, "plus", s);
     // Every level cleared: the next chapter is open, however few the stars.
-    expect(currentPage(b)).toBe(pageOfMode("mixed"));
+    expect(currentPage(b)).toBe(pageOfMode("minus"));
     clearWithThreeStars(b, "plus");
+    expect(currentPage(b)).toBe(pageOfMode("minus"));
+    clearWithThreeStars(b, "minus");
     expect(currentPage(b)).toBe(pageOfMode("mixed"));
     clearWithThreeStars(b, "mixed");
     clearWithThreeStars(b, "times");
@@ -268,6 +355,31 @@ describe("turning the pages with the buttons, quickly", () => {
     expect(b.pos).toBe(5);
   });
 
+  it("jumps over several pages with one page turning, not every page in between", () => {
+    const b = createBook(2);
+    goToPage(b, 7, true);
+    expect(b.target).toBe(7);
+    expect(b.pos).toBe(7); // (it is on the new page at once: the pages in between are never shown)
+    expect(b.jump).toEqual({from: 2, to: 7, f: 0});
+    for (let i = 0; i < 600; i++) updateBook(b, 1 / 60);
+    expect(b.jump).toBeNull();
+    expect(b.pos).toBe(7);
+    // one page back or forward is turned as before, without a jump
+    goToPage(b, 8, true);
+    expect(b.jump).toBeNull();
+  });
+
+  it("jumps backwards too, and a new press during a jump goes on from the page that has been reached", () => {
+    const b = createBook(9);
+    goToPage(b, 3, true);
+    expect(b.jump).toEqual({from: 9, to: 3, f: 0});
+    goToPage(b, 0, true);
+    expect(b.jump).toEqual({from: 9, to: 0, f: 0});
+    for (let i = 0; i < 600; i++) updateBook(b, 1 / 60);
+    expect(b.pos).toBe(0);
+    expect(b.jump).toBeNull();
+  });
+
   it("only drags and lets go of a drag that has begun (a press on a page button does not begin one)", () => {
     const b = createBook();
     goToPage(b, 1, true);
@@ -277,5 +389,19 @@ describe("turning the pages with the buttons, quickly", () => {
     expect(b.pos).toBe(pos);
     endDrag(b); // not dragging: the target is not changed
     expect(b.target).toBe(1);
+  });
+});
+
+describe("the shapes of the way up", () => {
+  it("has one of its own for every day of the week, and the spaceship on the last one", () => {
+    const week = [1, 2, 3, 4, 5, 6, 7].map((d) => designOfDay(d));
+    expect(new Set(week).size).toBe(7);
+    expect(week[0]).toBe("ladder");
+    expect(week[6]).toBe("ship");
+    expect(DESIGNS).toHaveLength(7);
+  });
+
+  it("gives every shape room for the labels on both sides", () => {
+    for (const d of DESIGNS) expect(halfWidth(d), d).toBeGreaterThan(20);
   });
 });

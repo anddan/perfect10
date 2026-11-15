@@ -1,25 +1,27 @@
 // The game's canvas: runs the loop, scales the 360 x 640 game to the screen, and takes the finger.
 import {type FormEvent, useCallback, useEffect, useRef, useState} from "react";
 import {DAILY_BONUS, DAILY_REWARD, DAILY_RUNGS, EXTRA_MAX, H, SCREEN_MAX, TAP_RADIUS, W, WIN_DELAY} from "../game/constants";
-import {dayKey, rungEnds, rungsDone} from "../game/daily";
-import {isShopCup} from "../game/cups";
-import {LOOK_KINDS, type LookKind} from "../game/looks";
-import {FEATURES, choosePerk, continueGame, createGame, cupAt, dropCup, endIntro, fireLaser, moveCup, recordBest, showMenu, startDaily, startGame, tapAt, untangleCups, update, useScreen} from "../game/engine";
-import type {Cup, Feature, Mode} from "../game/types";
-import {getVolumeStep, isMusicOn, isMuted, playBuy, playClick, playEnergySpend, playEvent, playPageTurn, setMusicScene, stepVolume, toggleMusic, toggleMute, unlockAudio} from "./audio";
+import {STREAK_RUNGS, type Package, type Streak, dayKey, recordDay, rollPackage, rungEnds, rungsDone, streakCoins, streakCount, streakDayFor} from "../game/daily";
+import {CUP_PRICE, isShopCup} from "../game/cups";
+import {SAUCER_PRICE, isSaucer} from "../game/saucers";
+import {LOOK_KINDS, type LookKind, findLook} from "../game/looks";
+import {FEATURES, choosePerk, continueGame, createGame, cupAt, dropCup, endIntro, fireLaser, moveCup, recordBest, showMenu, startDaily, startGame, startVariant, tapAt, untangleCups, update, useScreen} from "../game/engine";
+import type {Cup, Feature, Mode, Variant} from "../game/types";
+import {getVolumeStep, isMusicOn, isMuted, playBuy, playFadeGone, playGain, playClick, playEvent, playPageTurn, setMusicScene, stepVolume, toggleMusic, toggleMute, unlockAudio} from "./audio";
 import {AD_SECONDS} from "./ad";
 import {makeBackgrounds} from "./background";
-import {DAILY_PAGE, PAGER, PAGES, SHOP_PAGE, beginDrag, createBook, currentPage, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, openNextGame, pageOfMode, showPage, updateBook} from "./book";
+import {BUY_PAGE, DAILY_PAGE, PAGER, PAGES, SHOP_PAGE, beginDrag, createBook, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, openNextGame, pageOfMode, showPage, tabTarget, updateBook, variantOpen, MATCH_PAGES} from "./book";
 import {hitTest, ui} from "./draw";
 import {type Lang, lang, setLang, t} from "./i18n";
 import {Fx} from "./fx";
 import {BUTTON_DELAY, drawGame} from "./render";
 import {NAME_MAX, cleanName, playerName, setPlayerName} from "./profile";
-import {loadBoard, submitScore} from "./scores";
+import {FEEDBACK_KINDS, FEEDBACK_MAX, type FeedbackKind, type SendResult, cleanFeedback, submitFeedback} from "./feedback";
+import {SCORE_MODES, type ScoreMode, loadBoard, submitScore} from "./scores";
 import {useUpdates} from "./updates";
-import {COIN_PER_STAR, COIN_PER_TEN, COIN_PER_WIN, addCoins, buyCloth, buyCup, allOnCup, buyLook, equipLook, buyEnergyPoint, buyEnergyRefill, clearCup, loadWallet, loadout, saveWallet, toggleOnCup} from "./wallet";
+import {CLOTH_PRICE, ENDLESS_COST, ENERGY_PRICE, MAX_COPIES, VIDEO_COINS, addCoins, ownsLook, refillPrice, grantCup, buyCloth, buyCup, allOnCup, buyLook, equipLook, buyEnergyPoint, buyEnergyRefill, clearCup, buyMode, isUnlockMode, isVariant, priceOfMode, loadWallet, loadout, saucerLoadout, buySaucer, cycleSaucer, saveWallet, toggleOnCup} from "./wallet";
 import {PAYMENTS_CONNECTED, grantPurchase, loadPremium, savePremium} from "./purchase";
-import {type DailyRecord, loadDaily, saveDaily, todaysTry} from "./dailyStore";
+import {type DailyRecord, loadDaily, loadStreak, loadVideoDay, saveDaily, saveStreak, saveVideoDay, todaysTry} from "./dailyStore";
 import {ENERGY_MAX, ENERGY_PER_AD, addEnergy, loadEnergy, refreshEnergy, saveEnergy, secondsToNext, spendEnergy} from "./energy";
 
 const BEST_KEY = "p10-best";
@@ -30,17 +32,50 @@ const HIDE_INTROS_KEY = "p10-hide-intros";
 const ADMIN_KEY = "p10-admin";
 const SCREENS_KEY = "p10-screens";
 
-function loadBest(): number {
+const LAST_MATCH_KEY = "p10-last-match";
+
+/** The match mode page that was visited last (the contents shows it). */
+function loadLastMatch(): string {
   try {
-    return Number(localStorage.getItem(BEST_KEY)) || 0;
+    const v = localStorage.getItem(LAST_MATCH_KEY);
+    return v && (MATCH_PAGES as readonly string[]).includes(v) ? v : "endless";
+  } catch {
+    return "endless";
+  }
+}
+
+function hasLastMatch(): boolean {
+  try {
+    return localStorage.getItem(LAST_MATCH_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+function saveLastMatch(page: string): void {
+  try {
+    localStorage.setItem(LAST_MATCH_KEY, page);
+  } catch {
+    /* private mode */
+  }
+}
+
+/** Where the record of a game is kept: the endless game has its own, and every match mode too. */
+function bestKey(game: ScoreMode): string {
+  return game === "endless" ? BEST_KEY : `${BEST_KEY}-${game}`;
+}
+
+function loadBest(game: ScoreMode = "endless"): number {
+  try {
+    return Number(localStorage.getItem(bestKey(game))) || 0;
   } catch {
     return 0;
   }
 }
 
-function saveBest(best: number): void {
+function saveBest(best: number, game: ScoreMode = "endless"): void {
   try {
-    localStorage.setItem(BEST_KEY, String(best));
+    localStorage.setItem(bestKey(game), String(best));
   } catch {
     /* private mode */
   }
@@ -125,6 +160,23 @@ function saveScreens(n: number): void {
   }
 }
 
+/** Whether the first-start page (language and new game) has been through. */
+function hasStarted(): boolean {
+  try {
+    return localStorage.getItem("p10-started") === "1";
+  } catch {
+    return true;
+  }
+}
+
+function saveStarted(): void {
+  try {
+    localStorage.setItem("p10-started", "1");
+  } catch {
+    /* private mode */
+  }
+}
+
 /** Whether the admin button on the tutorial page has opened every level. */
 function loadAdmin(): boolean {
   try {
@@ -174,6 +226,8 @@ export function GameCanvas() {
   });
   // The box that asks for a name: what is written so far, and what to do with the answer (null: not now).
   const [nameAsk, setNameAsk] = useState<{draft: string; done: (name: string | null) => void} | null>(null);
+  // The box for writing to us (from the back cover of the book): what kind of message, what is written, and how the sending went.
+  const [feedback, setFeedback] = useState<{kind: FeedbackKind; text: string; state: "typing" | "sending" | "sent" | Exclude<SendResult, "sent" | "empty">} | null>(null);
   // A new version is only fetched between rounds, never in the middle of one.
   const canReload = useCallback(() => g.phase !== "play", [g]);
   useUpdates(canReload);
@@ -189,6 +243,10 @@ export function GameCanvas() {
     /** The coins, and the cups bought with them in the shop (see wallet.ts); and the try of the daily challenge (one a day). */
     const wallet = loadWallet();
     let dailyRec: DailyRecord | null = loadDaily();
+    /** The days in a row of the daily challenge (see daily.ts). */
+    let streak: Streak | null = loadStreak();
+    /** The last day the video for coins was watched: it can be watched once a day. */
+    let videoDay = loadVideoDay();
     /** How many pull-down screens there are in the book (also kept in the browser: see loadScreens). */
     let screensHeld = loadScreens();
     /** Premium (see purchase.ts): everything is open, new tries cost no energy, and there are no ads. */
@@ -201,9 +259,19 @@ export function GameCanvas() {
       saveWallet(wallet);
     };
     const book = createBook(0, loadCleared(), unlockAll, loadProgress(), loadScores());
+    for (const m of SCORE_MODES) ui.bests[m] = loadBest(m);
+    ui.lastMatch = loadLastMatch();
+    ui.hasLastMatch = hasLastMatch();
+    // The very first start: a page to choose the language (English is on) and start a new game. Someone who has played before never sees it.
+    if (!hasStarted()) {
+      if (book.cleared.size === 0 && wallet.coins === 0) {
+        ui.startOpen = true;
+        setLang("en");
+      } else saveStarted();
+    }
     book.premium = premium;
-    // Open on the page you are on: after the tutorial, the chapter you have got to.
-    showPage(book, currentPage(book));
+    // The app starts on the contents (the first page), like a menu: from there every page is a tap away, and it says which chapter you are on.
+    showPage(book, 0);
     let rooms = makeBackgrounds(1);
     let pxPerUnit = 1;
     /** The tone of the light the rooms were drawn with (see buildRooms). */
@@ -223,11 +291,11 @@ export function GameCanvas() {
     /** A finger that is sliding over the numbers: where it was last, and the numbers this stroke has already touched. */
     let swipe: {pointer: number; x: number; y: number; skip: Set<number>} | null = null;
     // A finger on a button, or on the book (where it can turn into a drag that turns the page).
-    let press: {id: string | null; x: number; y: number; moved: boolean; pointer: number; settings?: boolean} | null = null;
+    let press: {id: string | null; x: number; y: number; moved: boolean; pointer: number; settings?: boolean; axis?: "x" | "y"; scroll0?: number} | null = null;
     // Between two screens the picture fades to black and back: `fade` is how dark it is.
     let fade = 0;
     // Every page that is turned in the book makes a sound.
-    let turns = book.turns;
+    let turns = Math.round(book.pos);
     let fading: {phase: "out" | "in"; then: () => void} | null = null;
 
     const transition = (then: () => void) => {
@@ -248,31 +316,44 @@ export function GameCanvas() {
     };
     /** A try has been paid for and is about to start (the effect of the energy being used is playing). */
     let starting = false;
-    const startRound = (mode: Mode, stage: number) => {
+    const startRound = (mode: Mode, stage: number, variant?: Variant) => {
       if (fading || starting) return;
-      // A try costs one energy (the tutorial is free); with none left the energy page opens instead.
+      // A try costs one energy (the tutorial is free), and a try of the endless game costs ENDLESS_COST coins as well; nothing costs anything with
+      // Premium. With no energy left the energy page opens instead, and with too few coins a message says so (nothing is paid in either case).
       let spent = false;
+      let paid = false;
       if (mode !== "tutorial" && !premium) {
+        if (mode === "endless" && !variant && wallet.coins < ENDLESS_COST) {
+          toBuy(t("endNoCoins", {n: ENDLESS_COST}));
+          return;
+        }
         if (!spendEnergy(energy, Date.now())) {
           ui.energyOpen = true;
           return;
         }
         saveEnergy(energy);
         spent = true;
+        if (mode === "endless" && !variant) {
+          wallet.coins -= ENDLESS_COST;
+          saveWallet(wallet);
+          paid = true;
+        }
       }
       const begin = () =>
         transition(() => {
           // The levels of the book use the screens that have been collected; the endless game starts with its own.
           if (mode !== "endless") g.screens = loadScreens();
           g.loadout = loadout(wallet);
+          g.saucerLoadout = saucerLoadout(wallet);
           ui.lastCoins = 0;
-          startGame(g, mode, stage);
+          g.best = loadBest(variant ?? "endless"); // (the record of what is played: the endless game, or a match mode)
+          if (variant) startVariant(g, variant);
+          else startGame(g, mode, stage);
           fx.clear();
         });
-      if (spent) {
-        // The energy is seen being used (the pill shakes and the bolt flies off it) before the round starts.
-        ui.energyFx = 0;
-        playEnergySpend();
+      if (spent || paid) {
+        // The energy is seen being used (the pill shakes and the key flies off it), or the coins are seen being paid, before the round starts.
+        if (spent) ui.energyFx = 0;
         starting = true;
         window.setTimeout(() => {
           starting = false;
@@ -287,17 +368,67 @@ export function GameCanvas() {
       saveDaily(dailyRec);
       transition(() => {
         g.loadout = loadout(wallet);
+        g.saucerLoadout = saucerLoadout(wallet);
         ui.lastCoins = 0;
         startDaily(g);
         fx.clear();
       });
     };
+    /** One more try of today's daily challenge (as many as you like, each for a video): the same numbers, from the start. */
+    const retryDailyRound = () => {
+      if (fading || !ui.dailyRetry) return;
+      transition(() => {
+        g.loadout = loadout(wallet);
+        g.saucerLoadout = saucerLoadout(wallet);
+        ui.lastCoins = 0;
+        startDaily(g);
+        fx.clear();
+      });
+    };
+    /** What is in a package goes to the player: a package that cannot be used (the energy or the cloths are full, or all the copies of the cup are owned) gives coins instead. */
+    const givePackage = (item: Package): Package => {
+      let given = item;
+      if (item.kind === "cloth" && screensHeld >= SCREEN_MAX) given = {kind: "coins", n: 150};
+      else if (item.kind === "energy") {
+        refreshEnergy(energy, Date.now());
+        if (energy.n >= ENERGY_MAX) given = {kind: "coins", n: 150};
+      } else if (item.kind === "cup" && !grantCup(wallet, item.cup)) given = {kind: "coins", n: 200};
+      if (given.kind === "coins") addCoins(wallet, given.n);
+      else if (given.kind === "cloth") {
+        screensHeld = Math.min(SCREEN_MAX, screensHeld + given.n);
+        saveScreens(screensHeld);
+      } else if (given.kind === "energy") {
+        addEnergy(energy, given.n, Date.now());
+        saveEnergy(energy);
+      }
+      saveWallet(wallet);
+      return given;
+    };
+    /** Too few coins for something that was tapped: a message says so, and the page for buying coins opens (from a round, through the fade). */
+    const toBuy = (message = t("needCoins")) => {
+      ui.notice = message;
+      ui.noticeTime = 2.4;
+      if (g.phase === "menu") goToPage(book, BUY_PAGE, true);
+      else toBook(BUY_PAGE);
+    };
+    /** The coins for the video of the day (only once a day). */
+    const giveVideoCoins = () => {
+      if (videoDay === dayKey()) return;
+      videoDay = dayKey();
+      saveVideoDay(videoDay);
+      addCoins(wallet, VIDEO_COINS);
+      saveWallet(wallet);
+      ui.notice = t("pkgCoins", {n: VIDEO_COINS});
+      ui.noticeTime = 2.4;
+    };
     /** The score so far of an endless round that is left before it ends (or when the app is closed) is kept if it is a record. */
     const saveRecord = () => {
       if (!recordBest(g)) return;
-      saveBest(g.best);
+      const game: ScoreMode = g.variant ?? "endless";
+      saveBest(g.best, game);
+      ui.bests[game] = g.best;
       const name = playerName();
-      if (name) void submitScore(name, g.best);
+      if (name) void submitScore(name, g.best, game);
     };
     const toBook = (page: number) =>
       transition(() => {
@@ -339,18 +470,20 @@ export function GameCanvas() {
           playEvent(e);
         }
         if (e.t === "gameOver" && e.newBest) {
-          saveBest(g.best);
+          const game: ScoreMode = g.variant ?? "endless";
+          saveBest(g.best, game);
+          ui.bests[game] = g.best;
           // A new record in the endless game goes to the top list under the player's name (asked for the first time).
           const record = g.best;
           window.setTimeout(() => {
             if (g.phase !== "over") return;
             const name = playerName();
-            if (name) void submitScore(name, record);
+            if (name) void submitScore(name, record, game);
             else
               setNameAsk({
                 draft: "",
                 done: (n) => {
-                  if (n) void submitScore(setPlayerName(n), record);
+                  if (n) void submitScore(setPlayerName(n), record, game);
                 },
               });
           }, 900);
@@ -362,23 +495,31 @@ export function GameCanvas() {
           screensHeld = e.n;
         }
         // A cup that reaches 10 in a level of the book lights a dot on its tile (the most cups so far).
-        if (e.t === "levelUp" && g.stage > 0 && markProgress(book, g.mode, g.stage, e.level - 1)) saveProgress(book.bestCups);
-        // Coins: one for every perfect 10, and more for a level of the book that is cleared (the daily challenge pays for every rung, and the top).
+        if (e.t === "levelUp" && g.stage > 0 && markProgress(book, g.mode, g.stage, Math.floor(e.done + 1e-9))) saveProgress(book.bestCups);
+        // Coins come only from the daily challenge (every rung, and the top): the levels of the book and the endless game pay nothing.
         if (e.t === "levelUp" && g.mode !== "tutorial") {
-          earn(COIN_PER_TEN);
           const rung = rungsDone(e.level - 1);
           if (g.daily && rungEnds(e.level - 1) && rung >= 1 && rung <= DAILY_RUNGS) {
-            earn(DAILY_REWARD[rung - 1]);
-            dailyRec = {day: dayKey(), rungs: rung, cleared: false};
+            // (the coins of the day: a little more for every day in a row; a stage that was cleared in an earlier try of the day does not pay again, and
+            // the day counts for the streak when the goal line has been reached)
+            const today = dayKey();
+            const best = todaysTry(dailyRec)?.rungs ?? 0;
+            if (rung > best) earn(streakCoins(DAILY_REWARD[rung - 1], streakDayFor(streak, today)));
+            if (rung >= STREAK_RUNGS) {
+              streak = recordDay(streak, today);
+              saveStreak(streak);
+            }
+            dailyRec = {day: today, rungs: Math.max(best, rung), cleared: false};
             saveDaily(dailyRec);
           }
         }
         if (e.t === "won" && g.mode !== "tutorial") {
           if (g.daily) {
-            earn(DAILY_BONUS);
+            earn(streakCoins(DAILY_BONUS, streakDayFor(streak, dayKey())));
             dailyRec = {day: dayKey(), rungs: DAILY_RUNGS, cleared: true};
             saveDaily(dailyRec);
-          } else earn(COIN_PER_WIN + COIN_PER_STAR * e.stars);
+          }
+          // (clearing a level of the book pays no coins)
         }
         if (e.t === "won") {
           markCleared(book, g.mode, g.stage);
@@ -406,26 +547,47 @@ export function GameCanvas() {
       // The page number under the finger swells while it is dragged along the page numbers, and settles back afterwards.
       ui.scrubAmt += ((ui.scrubbing ? 1 : 0) - ui.scrubAmt) * Math.min(1, dt * 14);
       if (ui.scrubAmt < 0.005) ui.scrubAmt = 0;
-      if (ui.buyFx >= 0) ui.buyFx = ui.buyFx + dt > 1.2 ? -1 : ui.buyFx + dt;
+      if (ui.buyFx >= 0) ui.buyFx = ui.buyFx + dt > (ui.buyGain ? 1.8 : 1.2) ? -1 : ui.buyFx + dt;
       if (ui.energyFx >= 0) ui.energyFx = ui.energyFx + dt > 1 ? -1 : ui.energyFx + dt;
       ui.premium = premium;
       ui.noticeTime = Math.max(0, ui.noticeTime - dt);
       ui.screens = screensHeld;
       ui.owned = wallet.owned;
+      ui.modes = wallet.modes;
+      // (the match mode page that is settled on is remembered, for the contents)
+      const settled = PAGES[Math.round(book.pos)];
+      if (Math.abs(book.pos - book.target) < 0.01 && settled && (MATCH_PAGES as readonly string[]).includes(settled) && ui.lastMatch !== settled) {
+        ui.lastMatch = settled;
+        ui.hasLastMatch = true;
+        saveLastMatch(settled);
+      }
+      ui.saucers = wallet.saucers;
+      ui.saucerSlots = wallet.saucerSlots;
       ui.slots = wallet.slots;
       const today = todaysTry(dailyRec);
       ui.dailyUsed = today !== null;
       ui.dailyRungs = today?.rungs ?? 0;
       ui.dailyCleared = today?.cleared ?? false;
+      const dk = dayKey();
+      ui.streakDay = streakDayFor(streak, dk);
+      ui.streakCount = streakCount(streak, dk);
+      ui.streakToday = streak?.last === dk;
+      ui.streakGift = streak?.gift ?? false;
+      ui.videoReady = videoDay !== dk;
+      ui.dailyRetry = ui.dailyUsed && !ui.dailyCleared; // (as many tries as you like, each for an ad, until the whole ladder has been climbed)
+      if (ui.packageOpen) ui.packageAge += dt;
       // The game waits while the settings or the pause page are open.
       const gameDt = (ui.settingsOpen || ui.pauseOpen) && g.phase === "play" ? 0 : dt;
       update(g, gameDt);
       updateBook(book, dt);
-      if (book.turns !== turns) {
-        turns = book.turns;
-        playPageTurn();
+      // (every page that is passed, not every press: a jump over five pages makes five sounds)
+      const here = Math.round(book.pos);
+      if (here !== turns) {
+        turns = here;
+        playPageTurn(1 + Math.random() * 0.12);
       }
       fx.update(g, gameDt);
+      if (fx.takeGone()) playFadeGone();
       handleEvents();
       // The cup that is held is marked; and when no cup is held every cup stands in a column of its own (a safety net).
       ui.heldCup = drag ? drag.cup.id : null;
@@ -462,9 +624,14 @@ export function GameCanvas() {
         ui.settingsOpen = true;
       } else if (id === "settingsClose") {
         ui.settingsOpen = false;
-      } else if (id === "scores") {
-        ui.scoresOpen = true;
-        void loadBoard();
+      } else if (id.startsWith("scores:")) {
+        // The top list of a game (the endless game or a match mode).
+        const game = id.slice(7) as ScoreMode;
+        if (SCORE_MODES.includes(game)) {
+          ui.scoresMode = game;
+          ui.scoresOpen = true;
+          void loadBoard(game);
+        }
       } else if (id === "scoresClose") {
         ui.scoresOpen = false;
       } else if (id === "set:name") {
@@ -474,9 +641,12 @@ export function GameCanvas() {
           done: (n) => {
             if (!n) return;
             const name = setPlayerName(n);
-            if (g.best > 0) void submitScore(name, g.best);
+            for (const m of SCORE_MODES) if (ui.bests[m] > 0) void submitScore(name, ui.bests[m], m);
           },
         });
+      } else if (id === "start:new") {
+        ui.startOpen = false;
+        saveStarted();
       } else if (id === "set:sound") {
         toggleMute();
       } else if (id === "set:music") {
@@ -506,8 +676,49 @@ export function GameCanvas() {
         toBook(g.daily ? DAILY_PAGE : pageOfMode(g.mode));
       } else if (id === "daily:play") {
         startDailyRound();
-      } else if (id.startsWith("page:")) {
-        goToPage(book, Number(id.slice(5)), true);
+      } else if (id === "daily:retry") {
+        // A new try after a video (with Premium there is no video).
+        if (ui.dailyRetry) {
+          if (premium) retryDailyRound();
+          else {
+            ui.adFor = "retry";
+            ui.adOpen = true;
+            ui.adTime = 0;
+          }
+        }
+      } else if (id === "daily:gift") {
+        // The package of the seventh day is opened: what is in it is picked now, and goes straight to the player.
+        if (streak?.gift) {
+          ui.packageOpen = givePackage(rollPackage(Math.random));
+          ui.packageAge = 0;
+          streak = {...streak, gift: false};
+          saveStreak(streak);
+        }
+      } else if (id === "package:close") {
+        ui.packageOpen = null;
+      } else if (id === "toc:toggle") {
+        ui.tocOpen = !ui.tocOpen;
+      } else if (id === "toc:modes") {
+        ui.modesOpen = !ui.modesOpen;
+      } else if (id === "support") {
+        // The back cover: a box for writing a question, an idea or a problem.
+        setFeedback({kind: "idea", text: "", state: "typing"});
+      } else if (id.startsWith("tab:")) {
+        // A coloured tab on the edge of the book: to the page of its group.
+        goToPage(book, tabTarget(book, Number(id.slice(4))), true);
+      } else if (id.startsWith("variant:")) {
+        // A match mode is played (it has to be open: bought with coins, or Premium).
+        const v = id.slice(8);
+        if (isVariant(v) && variantOpen(book, v)) startRound("endless", 0, v);
+      } else if (id.startsWith("unlock:")) {
+        // A match mode is bought with coins (with too few coins the page for buying coins opens).
+        const v = id.slice(7);
+        if (isUnlockMode(v) && !variantOpen(book, v)) {
+          if (buyMode(wallet, v)) saveWallet(wallet);
+          else if (wallet.coins < priceOfMode(v)) toBuy();
+        }
+      } else if (id.startsWith("page:") || id.startsWith("toc:")) {
+        goToPage(book, Number(id.slice(id.indexOf(":") + 1)), true);
       } else if (id.startsWith("buy:")) {
         // There is no payment connected yet (see purchase.ts): with the admin switch on in the settings a purchase is made for testing, otherwise a message says so.
         const what = id.slice(4);
@@ -527,13 +738,14 @@ export function GameCanvas() {
       } else if (id === "coins") {
         goToPage(book, SHOP_PAGE, true);
       } else if (id.startsWith("shop:tab:")) {
-        ui.shopTab = Number(id.slice(9)) === 1 ? 1 : 0;
+        ui.shopTab = Math.min(2, Math.max(0, Number(id.slice(9)) || 0));
       } else if (id.startsWith("looks:tab:")) {
         ui.lookTab = Math.min(4, Math.max(0, Number(id.slice(10)) || 0));
       } else if (id.startsWith("looks:buy:") || id.startsWith("looks:use:")) {
         const [, action, kind, look] = id.split(":");
         if (isLookKind(kind)) {
           if (action === "buy" ? buyLook(wallet, kind, look) : equipLook(wallet, kind, look)) saveWallet(wallet);
+          else if (action === "buy" && !ownsLook(wallet, kind, look) && wallet.coins < (findLook(kind, look)?.price ?? 0)) toBuy();
         }
       } else if (id === "shop:energy1") {
         refreshEnergy(energy, Date.now());
@@ -541,7 +753,7 @@ export function GameCanvas() {
           addEnergy(energy, 1, Date.now());
           saveEnergy(energy);
           saveWallet(wallet);
-        }
+        } else if (energy.n < ENERGY_MAX && wallet.coins < ENERGY_PRICE) toBuy();
       } else if (id === "shop:energyFull") {
         refreshEnergy(energy, Date.now());
         const points = buyEnergyRefill(wallet, energy.n, ENERGY_MAX);
@@ -549,11 +761,11 @@ export function GameCanvas() {
           addEnergy(energy, points, Date.now());
           saveEnergy(energy);
           saveWallet(wallet);
-        }
+        } else if (energy.n < ENERGY_MAX && wallet.coins < refillPrice(ENERGY_MAX - energy.n)) toBuy();
       } else if (id === "energyShop") {
         // (to the energy of the shop in the book)
         ui.energyOpen = false;
-        ui.shopTab = 1;
+        ui.shopTab = 2;
         toBook(SHOP_PAGE);
       } else if (id === "shop:cloth") {
         const n = buyCloth(wallet, screensHeld, SCREEN_MAX);
@@ -561,7 +773,15 @@ export function GameCanvas() {
           screensHeld = n;
           saveScreens(n);
           saveWallet(wallet);
-        }
+        } else if (screensHeld < SCREEN_MAX && wallet.coins < CLOTH_PRICE) toBuy();
+      } else if (id.startsWith("saucer:buy:")) {
+        // A saucer is bought and put under the first cup that has none.
+        const kind = id.slice(11);
+        if (isSaucer(kind) && buySaucer(wallet, kind)) saveWallet(wallet);
+        else if (isSaucer(kind) && wallet.saucers[kind] < MAX_COPIES && wallet.coins < SAUCER_PRICE[kind]) toBuy();
+      } else if (id.startsWith("saucer:slot:")) {
+        // The saucer under a cup is changed to the next one there is a copy to spare of.
+        if (cycleSaucer(wallet, Number(id.slice(12)))) saveWallet(wallet);
       } else if (id.startsWith("shop:buy:")) {
         const kind = id.slice(9);
         if (isShopCup(kind) && buyCup(wallet, kind)) {
@@ -570,7 +790,7 @@ export function GameCanvas() {
           ui.cupsOpen = true;
           ui.cupFocus = kind;
           ui.cupSlot = 0;
-        }
+        } else if (isShopCup(kind) && wallet.owned[kind] < MAX_COPIES && wallet.coins < CUP_PRICE[kind]) toBuy();
       } else if (id.startsWith("shop:own:")) {
         ui.cupsOpen = true;
         ui.cupFocus = id.slice(9);
@@ -597,12 +817,16 @@ export function GameCanvas() {
         goToPage(book, book.target + 1, true);
       } else if (id === "prev") {
         goToPage(book, book.target - 1, true);
+      } else if (id === "first") {
+        goToPage(book, 0, true);
+      } else if (id === "last") {
+        goToPage(book, BUY_PAGE, true); // (the last page is the Purchase page: the back cover after it is only turned to)
       } else if (id.startsWith("play:")) {
         const [, mode, stage] = id.split(":");
         if (isUnlocked(book, mode as Mode, Number(stage))) startRound(mode as Mode, Number(stage));
       } else if (id === "again") {
         const next = g.phase === "won" ? openNextGame(book, g.mode, g.stage) : undefined;
-        startRound(next?.mode ?? g.mode, next?.stage ?? g.stage);
+        startRound(next?.mode ?? g.mode, next?.stage ?? g.stage, next ? undefined : g.variant ?? undefined);
       } else if (id === "continueAd") {
         // One more try: the (make-believe) ad plays first, and the round carries on when it has been closed.
         if (g.phase === "over" && g.continuesLeft > 0) {
@@ -626,10 +850,22 @@ export function GameCanvas() {
           ui.adOpen = true;
           ui.adTime = 0;
         }
+      } else if (id === "video:coins") {
+        // The video of the day: coins for watching it (once a day; with Premium there is no video, the coins just come).
+        if (videoDay !== dayKey()) {
+          if (premium) giveVideoCoins();
+          else {
+            ui.adFor = "coins";
+            ui.adOpen = true;
+            ui.adTime = 0;
+          }
+        }
       } else if (id === "adClose") {
         if (ui.adOpen && ui.adTime >= AD_SECONDS) {
           ui.adOpen = false;
-          if (ui.adFor === "energy") {
+          if (ui.adFor === "coins") giveVideoCoins();
+          else if (ui.adFor === "retry") retryDailyRound();
+          else if (ui.adFor === "energy") {
             addEnergy(energy, ENERGY_PER_AD, Date.now());
             saveEnergy(energy);
           } else if (continueGame(g)) fx.clear();
@@ -649,15 +885,19 @@ export function GameCanvas() {
     const act = (id: string, at?: {x: number; y: number}) => {
       const coinsBefore = wallet.coins;
       perform(id);
-      // Something was bought with coins: coins and sparkles burst out where the button was.
-      if (at && coinsBefore - wallet.coins > 0) {
+      // Something was bought with coins (they burst out where the button was), or coins came in (a pack bought with money, Premium, a video: a shower
+      // of coins, a flash of light and "+N").
+      const delta = wallet.coins - coinsBefore;
+      if (at && delta !== 0) {
         ui.buyFx = 0;
         ui.buyAt = {x: at.x, y: at.y};
-        ui.buyN = coinsBefore - wallet.coins;
-        playBuy();
+        ui.buyN = Math.abs(delta);
+        ui.buyGain = delta > 0;
+        if (delta > 0) playGain();
+        else playBuy();
       }
       // Turning a page of the book has its own sound (the page turning), so the buttons for it do not click as well.
-      if (id !== "next" && id !== "prev" && !id.startsWith("page:")) playClick();
+      if (id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id.startsWith("page:") && (!id.startsWith("toc:") || id === "toc:toggle")) playClick();
     };
 
     const onDown = (e: PointerEvent) => {
@@ -666,9 +906,9 @@ export function GameCanvas() {
       if (fading) return;
       const p = point(e);
       const id = hitTest(p.x, p.y);
-      if (ui.settingsOpen || ui.pauseOpen || ui.scoresOpen || ui.energyOpen || ui.cupsOpen || ui.adOpen) {
-        // The settings, the pause page, the energy page and the ad are over everything: only their own buttons can be pressed (and the game waits behind them).
-        if (id && (id.startsWith("set:") || id === "settingsClose" || id === "scoresClose" || id === "energyAd" || id === "energyShop" || id === "energyClose" || id.startsWith("cups:") || id === "pauseResume" || id === "pauseQuit" || id === "adClose")) {
+      if (ui.packageOpen || ui.startOpen || ui.settingsOpen || ui.pauseOpen || ui.scoresOpen || ui.energyOpen || ui.cupsOpen || ui.adOpen) {
+        // The start page, the settings, the pause page, the energy page and the ad are over everything: only their own buttons can be pressed (and the game waits behind them).
+        if (id && (id.startsWith("set:") || id === "start:new" || id === "package:close" || id === "settingsClose" || id === "scoresClose" || id === "energyAd" || id === "energyShop" || id === "energyClose" || id.startsWith("cups:") || id === "pauseResume" || id === "pauseQuit" || id === "adClose")) {
           ui.pressed = id;
           press = {id, x: p.x, y: p.y, moved: false, pointer: e.pointerId, settings: true};
           canvas.setPointerCapture(e.pointerId);
@@ -691,7 +931,7 @@ export function GameCanvas() {
       if (g.phase === "menu" || id) {
         press = {id, x: p.x, y: p.y, moved: false, pointer: e.pointerId};
         // (the buttons for the next and the previous page do not start a drag: they would take hold of a page that is on its way)
-        if (g.phase === "menu" && id !== "next" && id !== "prev" && !id?.startsWith("page:")) beginDrag(book);
+        if (g.phase === "menu" && id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id?.startsWith("page:") && !id?.startsWith("tab:")) beginDrag(book);
         canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -736,11 +976,16 @@ export function GameCanvas() {
         const p = point(e);
         if (g.phase === "menu") {
           const dx = p.x - press.x;
-          if (Math.abs(dx) > 8) {
+          const dy = p.y - press.y;
+          // The first move says which way the finger is going: up or down scrolls the contents list (if it does not all fit), sideways turns the page.
+          if (!press.axis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+            press.axis = ui.tocMax > 0 && Math.round(book.pos) === 0 && Math.abs(dy) > Math.abs(dx) ? "y" : "x";
+            press.scroll0 = ui.tocScroll;
             press.moved = true;
             ui.pressed = null;
           }
-          if (press.moved && !ui.settingsOpen && !ui.scoresOpen) dragBy(book, dx);
+          if (press.axis === "y") ui.tocScroll = Math.min(ui.tocMax, Math.max(0, (press.scroll0 ?? 0) - dy));
+          else if (press.moved && !ui.settingsOpen && !ui.scoresOpen) dragBy(book, dx);
         } else {
           // A button: it only counts while the finger is still on it.
           ui.pressed = hitTest(p.x, p.y) === press.id ? press.id : null;
@@ -816,6 +1061,13 @@ export function GameCanvas() {
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
+    // The wheel scrolls the contents list (when it does not all fit).
+    const onWheel = (e: WheelEvent) => {
+      if (g.phase !== "menu" || Math.round(book.pos) !== 0 || ui.tocMax <= 0 || ui.settingsOpen || ui.scoresOpen) return;
+      e.preventDefault();
+      ui.tocScroll = Math.min(ui.tocMax, Math.max(0, ui.tocScroll + e.deltaY));
+    };
+    canvas.addEventListener("wheel", onWheel, {passive: false});
     canvas.addEventListener("pointercancel", onUp);
     canvas.addEventListener("contextmenu", noMenu);
     raf = requestAnimationFrame(frame);
@@ -829,6 +1081,7 @@ export function GameCanvas() {
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("pointercancel", onUp);
       canvas.removeEventListener("contextmenu", noMenu);
     };
@@ -844,10 +1097,62 @@ export function GameCanvas() {
     e.preventDefault();
     answer(nameAsk?.draft ?? null);
   };
+  /** The message is sent to the database. */
+  const sendFeedback = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!feedback || feedback.state === "sending" || !cleanFeedback(feedback.text)) return;
+    const {kind, text} = feedback;
+    setFeedback({...feedback, state: "sending"});
+    const result = await submitFeedback(kind, text, lang());
+    setFeedback((f) => (f ? {...f, state: result === "sent" ? "sent" : result === "empty" ? "typing" : result} : f));
+  };
 
   return (
     <>
       <canvas ref={canvasRef} className="game" />
+      {feedback && (
+        <div className="name-veil">
+          <form className="name-card feedback-card" onSubmit={sendFeedback}>
+            <h2>{t("backSend")}</h2>
+            {feedback.state === "sent" ? (
+              <>
+                <p>{t("fbThanks")}</p>
+                <button type="button" className="save" onClick={() => setFeedback(null)}>
+                  {t("done")}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="kinds">
+                  {FEEDBACK_KINDS.map((k) => (
+                    <button type="button" key={k} className={k === feedback.kind ? "on" : ""} onClick={() => setFeedback({...feedback, kind: k})}>
+                      {t(k === "support" ? "fbSupport" : k === "idea" ? "fbIdea" : "fbProblem")}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  autoFocus
+                  rows={6}
+                  value={feedback.text}
+                  maxLength={FEEDBACK_MAX}
+                  placeholder={t("fbPlaceholder")}
+                  aria-label={t("backSend")}
+                  onChange={(e) => setFeedback({...feedback, text: e.target.value, state: "typing"})}
+                />
+                {(feedback.state === "off" || feedback.state === "error" || feedback.state === "wait") && (
+                  <p className="problem">{t(feedback.state === "off" ? "fbOff" : feedback.state === "wait" ? "fbWait" : "fbError")}</p>
+                )}
+                <button type="submit" className="save" disabled={!cleanFeedback(feedback.text) || feedback.state === "sending"}>
+                  {t("fbSend")}
+                </button>
+                <button type="button" className="skip" onClick={() => setFeedback(null)}>
+                  {t("nameSkip")}
+                </button>
+              </>
+            )}
+          </form>
+        </div>
+      )}
       {nameAsk && (
         <div className="name-veil">
           <form className="name-card" onSubmit={submit}>

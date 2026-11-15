@@ -7,9 +7,9 @@ import type {Mode} from "../game/types";
 import {FONT, TAU} from "./draw";
 import {t} from "./i18n";
 
-export type Room = "classroom" | "cafe" | "library" | "bakery" | "spaceship" | "terrace";
+export type Room = "classroom" | "cafe" | "library" | "bakery" | "spaceship" | "terrace" | "greenhouse" | "beach";
 
-export const ROOMS: Room[] = ["classroom", "cafe", "library", "bakery", "spaceship", "terrace"];
+export const ROOMS: Room[] = ["classroom", "cafe", "library", "bakery", "spaceship", "terrace", "greenhouse", "beach"];
 
 export function roomOfMode(mode: Mode): Room {
   if (mode === "mixed") return "cafe";
@@ -927,6 +927,295 @@ function terrace(ctx: CanvasRenderingContext2D): void {
   edge(ctx, "rgba(255,230,190,0.28)");
 }
 
+// ---- The greenhouse -------------------------------------------------------------------
+
+/** A leaf: a pointed oval that starts at (x, y) and reaches `len` in the direction `a` (radians), with its vein. */
+function leaf(ctx: CanvasRenderingContext2D, x: number, y: number, a: number, len: number, wid: number, color: string): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(a);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(len * 0.5, -wid, len, 0);
+  ctx.quadraticCurveTo(len * 0.5, wid, 0, 0);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.2)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(len * 0.92, 0);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** A terracotta pot, standing with its top edge at `y` and its middle at `x`. */
+function pot(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  ctx.fillStyle = "#b8643c";
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2, y);
+  ctx.lineTo(x + w / 2, y);
+  ctx.lineTo(x + w / 2 - 4, y + h);
+  ctx.lineTo(x - w / 2 + 4, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,0.16)";
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.1, y);
+  ctx.lineTo(x + w / 2, y);
+  ctx.lineTo(x + w / 2 - 4, y + h);
+  ctx.lineTo(x + w * 0.1, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#cf7a4c";
+  ctx.fillRect(x - w / 2 - 2, y, w + 4, 6);
+}
+
+/** A glasshouse in the morning: a white iron frame with the sky behind it, plants on a shelf and hanging from the roof, and a potting bench. */
+function greenhouse(ctx: CanvasRenderingContext2D): void {
+  const rnd = seeded(61);
+  // The glass, with the sky behind it and a few soft clouds.
+  const sky = ctx.createLinearGradient(0, 0, 0, DESK_Y);
+  sky.addColorStop(0, "#7fbfc0");
+  sky.addColorStop(1, "#cfe8d2");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, DESK_Y);
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(rnd() * W, 30 + rnd() * 160, 38 + rnd() * 34, 9 + rnd() * 6, 0, 0, TAU);
+    ctx.fill();
+  }
+  // Sunlight falling in through the glass from the upper right.
+  for (const [x0, w0] of [[210, 40], [270, 26], [330, 50]] as const) {
+    ctx.fillStyle = "rgba(255,252,225,0.12)";
+    ctx.beginPath();
+    ctx.moveTo(x0, 0);
+    ctx.lineTo(x0 + w0, 0);
+    ctx.lineTo(x0 - 230 + w0, DESK_Y - 70);
+    ctx.lineTo(x0 - 230, DESK_Y - 70);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // The frame: white iron bars, each with a shadow side.
+  for (let x = 0; x <= W; x += 60) {
+    ctx.fillStyle = "#e6ece3";
+    ctx.fillRect(x - 2, 0, 4, DESK_Y);
+    ctx.fillStyle = "rgba(0,0,0,0.14)";
+    ctx.fillRect(x + 2, 0, 1.5, DESK_Y);
+  }
+  for (const y of [112, 232, 336]) {
+    ctx.fillStyle = "#e6ece3";
+    ctx.fillRect(0, y - 2, W, 4);
+    ctx.fillStyle = "rgba(0,0,0,0.14)";
+    ctx.fillRect(0, y + 2, W, 1.5);
+  }
+  // Pots that hang from the roof, with leaves trailing down.
+  for (const [hx, hy] of [[40, 52], [150, 78], [262, 44], [336, 92]] as const) {
+    ctx.strokeStyle = "#3c4a3a";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(hx, 0);
+    ctx.lineTo(hx, hy);
+    ctx.stroke();
+    pot(ctx, hx, hy, 26, 18);
+    for (let k = 0; k < 6; k++) leaf(ctx, hx + (k - 2.5) * 4, hy + 4, Math.PI / 2 + (k - 2.5) * 0.3, 26 + rnd() * 22, 5, k % 2 ? "#3f9a55" : "#2f7f46");
+  }
+  // The shelf of pots, each with its plant.
+  ctx.fillStyle = "#d8d2bf";
+  ctx.fillRect(0, 380, W, 7);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(0, 387, W, 5);
+  for (let x = 24; x < W; x += 54) {
+    const h = 18 + rnd() * 12;
+    pot(ctx, x, 380 - h, 30, h);
+    for (let k = 0; k < 5; k++) leaf(ctx, x, 380 - h + 2, -Math.PI / 2 + (k - 2) * 0.5, 24 + rnd() * 18, 6, k % 2 ? "#3a9650" : "#2c7a43");
+  }
+  // Big leaves in the corners.
+  for (let k = 0; k < 7; k++) {
+    leaf(ctx, -4, DESK_Y - 30, -0.2 - k * 0.2, 96 + rnd() * 30, 18, k % 2 ? "#2f7f46" : "#25693a");
+    leaf(ctx, W + 4, DESK_Y - 30, Math.PI + 0.2 + k * 0.2, 96 + rnd() * 30, 18, k % 2 ? "#2f7f46" : "#25693a");
+  }
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.fillRect(0, DESK_Y - 70, W, 70);
+
+  // A potting bench of whitewashed boards, with a few crumbs of soil.
+  const bench = ctx.createLinearGradient(0, DESK_Y, 0, H);
+  bench.addColorStop(0, "#c2ab86");
+  bench.addColorStop(1, "#8f7753");
+  ctx.fillStyle = bench;
+  ctx.fillRect(0, DESK_Y, W, H - DESK_Y);
+  for (let y = DESK_Y + 40; y < H; y += 46) {
+    ctx.fillStyle = "rgba(40,28,14,0.4)";
+    ctx.fillRect(0, y, W, 2);
+    ctx.fillStyle = "rgba(255,246,225,0.14)";
+    ctx.fillRect(0, y + 2, W, 1);
+  }
+  for (let i = 0; i < 46; i++) {
+    const gx = rnd() * W;
+    const gy = DESK_Y + 4 + rnd() * (H - DESK_Y - 4);
+    ctx.strokeStyle = rnd() < 0.5 ? "rgba(0,0,0,0.1)" : "rgba(255,246,225,0.1)";
+    ctx.lineWidth = 0.6 + rnd();
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx + 40 + rnd() * 110, gy + (rnd() - 0.5) * 2);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 40; i++) {
+    ctx.fillStyle = "rgba(58,36,20,0.55)";
+    ctx.beginPath();
+    ctx.arc(rnd() * W, DESK_Y + 10 + rnd() * (H - DESK_Y - 14), 0.8 + rnd() * 1.6, 0, TAU);
+    ctx.fill();
+  }
+  edge(ctx, "rgba(255,246,225,0.3)");
+}
+
+// ---- The beach ------------------------------------------------------------------------
+
+/** A beach in the afternoon: sea and sky, a sailing boat far out, a palm tree, and a boardwalk of bleached planks that the cups stand on. */
+function beach(ctx: CanvasRenderingContext2D): void {
+  const rnd = seeded(77);
+  // The sky and the sun.
+  const sky = ctx.createLinearGradient(0, 0, 0, 270);
+  sky.addColorStop(0, "#52b9e6");
+  sky.addColorStop(1, "#dff5fb");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, 280);
+  const sun = ctx.createRadialGradient(268, 150, 0, 268, 150, 170);
+  sun.addColorStop(0, "rgba(255,246,200,0.95)");
+  sun.addColorStop(1, "rgba(255,240,180,0)");
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, W, 330);
+  ctx.fillStyle = "#fff8d6";
+  ctx.beginPath();
+  ctx.arc(268, 150, 21, 0, TAU);
+  ctx.fill();
+  for (let i = 0; i < 5; i++) {
+    const cx = rnd() * W;
+    const cy = 40 + rnd() * 150;
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    for (let k = 0; k < 3; k++) {
+      ctx.beginPath();
+      ctx.ellipse(cx + k * 22 - 22, cy - (k === 1 ? 6 : 0), 26 - Math.abs(k - 1) * 6, 9, 0, 0, TAU);
+      ctx.fill();
+    }
+  }
+  // The sea, with rows of waves, the glitter of the sun, and a boat on the horizon.
+  const sea = ctx.createLinearGradient(0, 270, 0, 392);
+  sea.addColorStop(0, "#3dbcd2");
+  sea.addColorStop(1, "#1b7da6");
+  ctx.fillStyle = sea;
+  ctx.fillRect(0, 270, W, 122);
+  ctx.strokeStyle = "rgba(255,255,255,0.32)";
+  ctx.lineWidth = 1.6;
+  for (let row = 0; row < 8; row++) {
+    const y = 284 + row * 14;
+    ctx.beginPath();
+    for (let x = -10; x <= W + 10; x += 3) {
+      const yy = y + Math.sin(x * 0.07 + row * 1.7) * 2.2;
+      if (x === -10) ctx.moveTo(x, yy);
+      else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
+  for (let i = 0; i < 22; i++) {
+    ctx.fillStyle = "rgba(255,248,210,0.7)";
+    ctx.fillRect(236 + rnd() * 68, 276 + rnd() * 100, 6 + rnd() * 9, 1.6);
+  }
+  ctx.fillStyle = "#f7f3ea";
+  ctx.beginPath();
+  ctx.moveTo(86, 272);
+  ctx.lineTo(86, 250);
+  ctx.lineTo(100, 270);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#e0553c";
+  ctx.beginPath();
+  ctx.moveTo(78, 273);
+  ctx.lineTo(102, 273);
+  ctx.lineTo(97, 279);
+  ctx.lineTo(83, 279);
+  ctx.closePath();
+  ctx.fill();
+  // The sand, with a line of foam at the edge of the water.
+  const sand = ctx.createLinearGradient(0, 392, 0, DESK_Y);
+  sand.addColorStop(0, "#efdcae");
+  sand.addColorStop(1, "#d6bb82");
+  ctx.fillStyle = sand;
+  ctx.fillRect(0, 392, W, DESK_Y - 392);
+  ctx.strokeStyle = "rgba(255,255,255,0.65)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  for (let x = -10; x <= W + 10; x += 3) {
+    const yy = 392 + Math.sin(x * 0.09) * 2.4;
+    if (x === -10) ctx.moveTo(x, yy);
+    else ctx.lineTo(x, yy);
+  }
+  ctx.stroke();
+  for (let i = 0; i < 60; i++) {
+    ctx.fillStyle = rnd() < 0.5 ? "rgba(120,90,40,0.25)" : "rgba(255,250,230,0.35)";
+    ctx.fillRect(rnd() * W, 400 + rnd() * (DESK_Y - 408), 1.6, 1.6);
+  }
+  // A palm tree on the left: a leaning trunk, a crown of leaves and two coconuts.
+  ctx.strokeStyle = "#7a5a36";
+  ctx.lineWidth = 9;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(34, DESK_Y + 4);
+  ctx.quadraticCurveTo(26, 340, 62, 232);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(0,0,0,0.2)";
+  ctx.lineWidth = 2;
+  for (let k = 0; k < 9; k++) {
+    const u = 0.1 + k * 0.1;
+    const px = (1 - u) * (1 - u) * 34 + 2 * u * (1 - u) * 26 + u * u * 62;
+    const py = (1 - u) * (1 - u) * (DESK_Y + 4) + 2 * u * (1 - u) * 340 + u * u * 232;
+    ctx.beginPath();
+    ctx.moveTo(px - 4, py);
+    ctx.lineTo(px + 4, py + 2);
+    ctx.stroke();
+  }
+  for (let k = 0; k < 7; k++) leaf(ctx, 62, 232, -Math.PI + 0.35 + k * 0.42, 62 + (k % 2) * 14, 10, k % 2 ? "#2f8a4a" : "#3aa05a");
+  ctx.fillStyle = "#5a3a1c";
+  ctx.beginPath();
+  ctx.arc(58, 240, 5, 0, TAU);
+  ctx.arc(68, 242, 5, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,0.14)";
+  ctx.fillRect(0, DESK_Y - 60, W, 60);
+
+  // The boardwalk: bleached planks with dark seams, and a little sand blown across them.
+  const deck = ctx.createLinearGradient(0, DESK_Y, 0, H);
+  deck.addColorStop(0, "#c9a87c");
+  deck.addColorStop(1, "#8f6e47");
+  ctx.fillStyle = deck;
+  ctx.fillRect(0, DESK_Y, W, H - DESK_Y);
+  for (let y = DESK_Y + 44; y < H; y += 46) {
+    ctx.fillStyle = "rgba(40,24,10,0.42)";
+    ctx.fillRect(0, y, W, 2);
+    ctx.fillStyle = "rgba(255,236,200,0.14)";
+    ctx.fillRect(0, y + 2, W, 1);
+    const sx = 30 + rnd() * (W - 60);
+    ctx.fillStyle = "rgba(40,24,10,0.36)";
+    ctx.fillRect(sx, y - 44, 2, 44);
+  }
+  for (let i = 0; i < 60; i++) {
+    const gx = rnd() * W;
+    const gy = DESK_Y + 4 + rnd() * (H - DESK_Y - 4);
+    ctx.strokeStyle = rnd() < 0.5 ? "rgba(0,0,0,0.1)" : "rgba(255,236,200,0.1)";
+    ctx.lineWidth = 0.6 + rnd();
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx + 40 + rnd() * 120, gy + (rnd() - 0.5) * 2);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 70; i++) {
+    ctx.fillStyle = "rgba(240,222,170,0.55)";
+    ctx.fillRect(rnd() * W, DESK_Y + 8 + rnd() * (H - DESK_Y - 12), 1.6, 1.6);
+  }
+  edge(ctx, "rgba(255,236,200,0.3)");
+}
+
 // ---- Putting it together --------------------------------------------------------------
 
 function dim(ctx: CanvasRenderingContext2D, extra: number): void {
@@ -946,6 +1235,10 @@ const TINTS: Record<string, [GlobalCompositeOperation, string][]> = {
   night: [["multiply", "rgba(80,100,200,0.7)"], ["overlay", "rgba(40,60,170,0.4)"]],
   forest: [["overlay", "rgba(70,170,90,0.55)"], ["multiply", "rgba(160,225,170,0.3)"]],
   sepia: [["saturation", "rgba(128,128,128,1)"], ["multiply", "rgba(214,172,120,0.9)"]],
+  ocean: [["overlay", "rgba(40,150,210,0.55)"], ["multiply", "rgba(150,205,240,0.35)"]],
+  rose: [["overlay", "rgba(235,110,160,0.55)"], ["multiply", "rgba(250,200,220,0.3)"]],
+  dawn: [["overlay", "rgba(255,170,130,0.4)"], ["screen", "rgba(150,120,210,0.2)"]],
+  mono: [["saturation", "rgba(128,128,128,1)"]],
 };
 
 /**
@@ -965,6 +1258,8 @@ function makeRoom(room: Room, pxPerUnit: number, extra: number, tint: string): H
   else if (room === "library") library(ctx);
   else if (room === "bakery") bakery(ctx);
   else if (room === "spaceship") spaceship(ctx);
+  else if (room === "greenhouse") greenhouse(ctx);
+  else if (room === "beach") beach(ctx);
   else terrace(ctx);
   ctx.translate(0, -extra);
   if (extra > 0) {
@@ -993,5 +1288,7 @@ export function makeBackgrounds(pxPerUnit: number, extra = 0, tint = "none"): Re
     bakery: makeRoom("bakery", pxPerUnit, extra, tint),
     spaceship: makeRoom("spaceship", pxPerUnit, extra, tint),
     terrace: makeRoom("terrace", pxPerUnit, extra, tint),
+    greenhouse: makeRoom("greenhouse", pxPerUnit, extra, tint),
+    beach: makeRoom("beach", pxPerUnit, extra, tint),
   };
 }

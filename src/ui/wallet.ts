@@ -2,20 +2,50 @@
 // copies are on which cup on the desk. It is kept in the browser (like the energy), so it is still there the next time.
 import {CUP_PRICE, SHOP_CUPS, isShopCup} from "../game/cups";
 import {DEFAULT_LOOK, LOOK_KINDS, type LookKind, findLook, lookKey} from "../game/looks";
+import {SAUCERS, SAUCER_PRICE, SAUCER_SLOTS, isSaucer, type SaucerKind} from "../game/saucers";
+import type {Variant} from "../game/types";
 import type {CupKind} from "../game/types";
 
 export type ShopCup = (typeof SHOP_CUPS)[number];
 
-/** Coins for a perfect 10, for clearing a level of the book (and for every star it was cleared with), and how many cups there are on the desk. */
-export const COIN_PER_TEN = 1;
-export const COIN_PER_WIN = 5;
-export const COIN_PER_STAR = 2;
+/** What a try of the endless game costs in coins (it is free with Premium). */
+export const ENDLESS_COST = 25;
+
+/** What a match mode costs in coins, once (it is open with Premium, and with enough stars). */
+export const VARIANT_PRICE = 500;
+/** What Online costs in coins, once (it is open with Premium). */
+export const ONLINE_PRICE = 150;
+
+/** The match modes. */
+export const VARIANTS: readonly Variant[] = ["save", "sixeight"];
+
+export function isVariant(v: unknown): v is Variant {
+  return v === "save" || v === "sixeight";
+}
+
+/** Everything that can be bought once for coins: the two match modes, and Online. */
+export type UnlockMode = Variant | "online";
+export const UNLOCK_MODES: readonly UnlockMode[] = ["save", "sixeight", "online"];
+
+export function isUnlockMode(v: unknown): v is UnlockMode {
+  return v === "save" || v === "sixeight" || v === "online";
+}
+
+/** What it costs in coins. */
+export function priceOfMode(mode: UnlockMode): number {
+  return mode === "online" ? ONLINE_PRICE : VARIANT_PRICE;
+}
+
+/** The coins for watching the video of the day (once a day). */
+export const VIDEO_COINS = 25;
+
+/** How many cups there are on the desk. */
 export const SLOT_COUNT = 4;
 /** What a pull-down screen (a cloth) costs in the shop. */
-export const CLOTH_PRICE = 40;
+export const CLOTH_PRICE = 48;
 /** Energy for coins: one point costs this, and a full refill costs this much for every point that is missing (so it is cheaper than buying them one by one). */
-export const ENERGY_PRICE = 30;
-export const REFILL_PER_POINT = 20;
+export const ENERGY_PRICE = 36;
+export const REFILL_PER_POINT = 24;
 /** The most copies of a property there can be: one for every cup of the desk. */
 export const MAX_COPIES = SLOT_COUNT;
 
@@ -25,6 +55,11 @@ export interface Wallet {
   owned: Record<ShopCup, number>;
   /** The properties on each cup of the desk (from the left): any number on a cup, but a property is only on as many cups as there are copies of it. */
   slots: ShopCup[][];
+  /** The match modes (and Online) that have been bought with coins (Premium opens them all without). */
+  modes: UnlockMode[];
+  /** How many saucers of each kind have been bought (0 to MAX_COPIES), and the kind under each cup of the desk (from the left): only four fit, so they are chosen. */
+  saucers: Record<SaucerKind, number>;
+  saucerSlots: (SaucerKind | null)[];
   /** The looks that have been bought (see looks.ts), as "kind:id"; the ones that are there from the start are not in the list. */
   looks: string[];
   /** The look that is on, of every kind. */
@@ -35,8 +70,71 @@ function noCopies(): Record<ShopCup, number> {
   return {gold: 0, thermos: 0, magnet: 0, big: 0, laser: 0};
 }
 
+function noSaucers(): Record<SaucerKind, number> {
+  return {slow: 0, sparse: 0, special: 0, points: 0};
+}
+
 export function createWallet(): Wallet {
-  return {coins: 0, owned: noCopies(), slots: Array.from({length: SLOT_COUNT}, () => []), looks: [], look: {...DEFAULT_LOOK}};
+  return {
+    coins: 0,
+    owned: noCopies(),
+    slots: Array.from({length: SLOT_COUNT}, () => []),
+    modes: [],
+    saucers: noSaucers(),
+    saucerSlots: Array.from({length: SAUCER_SLOTS}, () => null),
+    looks: [],
+    look: {...DEFAULT_LOOK},
+  };
+}
+
+/** Whether a match mode (or Online) has been bought. */
+export function ownsMode(w: Wallet, mode: UnlockMode): boolean {
+  return w.modes.includes(mode);
+}
+
+/** Buys a match mode: false if it is bought already, or there are not enough coins (nothing is paid then). */
+export function buyMode(w: Wallet, mode: UnlockMode): boolean {
+  if (ownsMode(w, mode) || w.coins < priceOfMode(mode)) return false;
+  w.coins -= priceOfMode(mode);
+  w.modes.push(mode);
+  return true;
+}
+
+/** How many saucers of a kind are on the desk right now. */
+export function saucersOn(w: Wallet, kind: SaucerKind): number {
+  return w.saucerSlots.filter((k) => k === kind).length;
+}
+
+/** Buys a saucer (it is put under the first cup that has none, if there is one): false if there are as many as there are cups already, or not enough coins. */
+export function buySaucer(w: Wallet, kind: SaucerKind): boolean {
+  if (w.saucers[kind] >= MAX_COPIES || w.coins < SAUCER_PRICE[kind]) return false;
+  w.coins -= SAUCER_PRICE[kind];
+  w.saucers[kind] += 1;
+  const free = w.saucerSlots.indexOf(null);
+  if (free >= 0) w.saucerSlots[free] = kind;
+  return true;
+}
+
+/** Changes the saucer under a cup to the next kind that there is a copy to spare of (and after the last, to none). False if there is nothing to change to. */
+export function cycleSaucer(w: Wallet, slot: number): boolean {
+  if (slot < 0 || slot >= SAUCER_SLOTS) return false;
+  const order: (SaucerKind | null)[] = [...SAUCERS, null];
+  const now = w.saucerSlots[slot] ?? null;
+  const at = order.indexOf(now);
+  for (let n = 1; n <= order.length; n++) {
+    const next = order[(at + n) % order.length];
+    if (next === now) continue;
+    if (next === null || w.saucers[next] - saucersOn(w, next) > 0) {
+      w.saucerSlots[slot] = next;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The saucers for the cups at the start of a round: cup by cup from the left. */
+export function saucerLoadout(w: Wallet): (SaucerKind | null)[] {
+  return [...w.saucerSlots];
 }
 
 export function addCoins(w: Wallet, n: number): void {
@@ -57,6 +155,13 @@ export function spare(w: Wallet, kind: ShopCup): number {
 export function buyCup(w: Wallet, kind: ShopCup): boolean {
   if (w.owned[kind] >= MAX_COPIES || w.coins < CUP_PRICE[kind]) return false;
   w.coins -= CUP_PRICE[kind];
+  w.owned[kind] += 1;
+  return true;
+}
+
+/** Gives one more copy of a property (a present): false if there are as many as there are cups already. */
+export function grantCup(w: Wallet, kind: ShopCup): boolean {
+  if (w.owned[kind] >= MAX_COPIES) return false;
   w.owned[kind] += 1;
   return true;
 }
@@ -159,6 +264,25 @@ function cleanLooks(owned: unknown, on: unknown): {looks: string[]; look: Record
   return {looks, look};
 }
 
+/** The saucers that were kept in the browser: only the ones that exist, and a saucer is only on as many cups as there are copies of it. */
+function cleanSaucers(owned: unknown, slots: unknown): {saucers: Record<SaucerKind, number>; saucerSlots: (SaucerKind | null)[]} {
+  const saucers = noSaucers();
+  if (typeof owned === "object" && owned !== null) {
+    for (const k of SAUCERS) {
+      const n = (owned as Record<string, unknown>)[k];
+      saucers[k] = typeof n === "number" && Number.isFinite(n) ? Math.min(MAX_COPIES, Math.max(0, Math.floor(n))) : 0;
+    }
+  }
+  const used = noSaucers();
+  const saucerSlots = Array.from({length: SAUCER_SLOTS}, (_, i): SaucerKind | null => {
+    const k = Array.isArray(slots) ? slots[i] : null;
+    if (!isSaucer(k) || used[k] >= saucers[k]) return null;
+    used[k] += 1;
+    return k;
+  });
+  return {saucers, saucerSlots};
+}
+
 /** What is kept in the browser, cleaned up (it is not to be trusted). The first versions kept a plain list of what had been bought (one of each) and of the chosen cups. */
 export function loadWallet(): Wallet {
   try {
@@ -193,6 +317,8 @@ export function loadWallet(): Wallet {
         coins: typeof coins === "number" && Number.isFinite(coins) ? Math.max(0, Math.floor(coins)) : 0,
         owned: own,
         slots: cups,
+        modes: Array.isArray((data as Record<string, unknown>).modes) ? UNLOCK_MODES.filter((v) => ((data as Record<string, unknown>).modes as unknown[]).includes(v)) : [],
+        ...cleanSaucers((data as Record<string, unknown>).saucers, (data as Record<string, unknown>).saucerSlots),
         ...cleanLooks((data as Record<string, unknown>).looks, (data as Record<string, unknown>).look),
       };
     }

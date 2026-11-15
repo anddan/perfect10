@@ -8,6 +8,10 @@ export const EXTRA_MAX = 140;
 export const COLS = [45, 135, 225, 315] as const;
 /** The first chapter has only three columns (and three cups), in the middle of the screen. */
 export const PLUS_COLS = [90, 180, 270] as const;
+/** The first two levels have only two columns (and two cups), in the middle. */
+export const TWO_COLS = [135, 225] as const;
+/** The menu (the book and the buttons under it) is lifted this far on a tall phone, away from the bottom edge, where a finger dragged along the page numbers would pull the phone's own swipe-up gesture instead. */
+export const MENU_LIFT = 30;
 
 /** Where the desk begins (the cups stand on it). */
 export const DESK_Y = 458;
@@ -15,7 +19,7 @@ export const DESK_Y = 458;
 export const CUP_W = 64;
 export const CUP_H = 56;
 /** Where the cups stand on the desk (their centre). They only move sideways, between the columns. */
-export const CUP_START_Y = 566;
+export const CUP_START_Y = 556;
 
 /** A number that gets this far down without landing in a cup hits the desk and is gone. */
 export const MISS_Y = 618;
@@ -77,5 +81,6 @@ export const TAP_RADIUS = 34;
  * one of three perks to take along; each rung you get to pays coins, and the last one pays a bonus on top.
  */
 export const DAILY_RUNGS = 6;
-export const DAILY_REWARD = [10, 15, 20, 25, 30, 50] as const;
-export const DAILY_BONUS = 100;
+/** (half of what they were: with as many tries as you like the coins were too easy to collect) */
+export const DAILY_REWARD = [3, 4, 5, 6, 8, 12] as const;
+export const DAILY_BONUS = 25;

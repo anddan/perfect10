@@ -1,10 +1,11 @@
 // Things that only look good: steam above the cups, coffee splashes, confetti and "+3" texts.
 // The rules never look at these; they only react to what the engine says happened.
 import {CUP_H, H, TARGET, W} from "../game/constants";
+import {FADE_TICKS, fadeCap, fadeOn} from "../game/engine";
 import type {GameEvent, GameState} from "../game/types";
 import {drawStar, ui} from "./draw";
 import {t} from "./i18n";
-import {segmentCenter, segmentFilledBy} from "./progress";
+import {segmentCenter, segmentCount, segmentFilledBy, segmentLayout} from "./progress";
 
 interface Steam {
   x: number;
@@ -120,6 +121,11 @@ export class Fx {
   private flyers: Flyer[] = [];
   /** The segment of the progress bar that has just been filled, and how much of its pop is left (1 down to 0). */
   pop = {seg: -1, t: 0};
+  /** How much of the progress has faded as it is shown (twentieths of a cup): it follows the real amount smoothly, so the bar drains softly. */
+  drainShown = 0;
+  /** The segments that have faded away completely, and how long ago (they fade out in the bar), and how many of them the sound has not been played for. */
+  gone: {seg: number; age: number}[] = [];
+  private goneNew = 0;
   private steam: Steam[] = [];
   private drops: Drop[] = [];
   private confetti: Confetti[] = [];
@@ -246,7 +252,7 @@ export class Fx {
         // The words PERFECT 10: they pop up over the cup in gold, in front of a burst of light, with a ring spreading from the cup.
         this.perfects.push({x: c.x, y: c.y - 74, age: 0, life: 1.7});
         if (g.mode !== "tutorial") {
-          const seg = segmentFilledBy(g, e.level);
+          const seg = segmentFilledBy(g, e.level, e.done);
           const end = segmentCenter(g, seg, e.level - 1);
           this.flyers.push({x0: c.x, y0: c.y - CUP_H / 2, x1: end.x, y1: end.y, seg, age: 0, life: 0.7});
         }
@@ -496,9 +502,69 @@ export class Fx {
     return this.flyers.length;
   }
 
+  /** True (once) when a segment of the bar has faded away for good since last time: the sound plays then. */
+  takeGone(): boolean {
+    const any = this.goneNew > 0;
+    this.goneNew = 0;
+    return any;
+  }
+
+  /**
+   * The progress that fades: the amount shown glides down to the real one (a little at a time, softly), and when a segment of the bar is
+   * emptied for good, it breaks up: a flash, a ring and a few bits that fall.
+   */
+  private updateFade(g: GameState, dt: number): void {
+    for (const e of this.gone) e.age += dt;
+    this.gone = this.gone.filter((e) => e.age < 0.75);
+    if (!fadeOn(g)) {
+      this.drainShown = 0;
+      return;
+    }
+    const cap = fadeCap(g);
+    const target = Math.min(g.drain, cap);
+    const before = Math.min(this.drainShown, cap);
+    const gap = target - before;
+    // (down to what it is: a soft start and then a steady pace; up is when a cup was filled and it is cut back)
+    const step = gap > 0 ? Math.min(gap, Math.max(gap * dt * 6, 1.6 * dt)) : gap;
+    this.drainShown = before + step;
+    const was = g.level - 1 - before / FADE_TICKS;
+    const now = g.level - 1 - this.drainShown / FADE_TICKS;
+    if (now >= was) return;
+    for (let s = Math.max(0, Math.floor(now - 1e-6)); s < Math.ceil(was); s++) {
+      if (was > s + 1e-6 && now <= s + 1e-6) this.vanish(g, s % segmentCount(g));
+    }
+  }
+
+  /** A segment of the progress bar is gone: it flashes and breaks up, and a ring spreads from it. */
+  private vanish(g: GameState, seg: number): void {
+    const rnd = Math.random;
+    const c = segmentCenter(g, seg);
+    const lay = segmentLayout(g);
+    this.gone.push({seg, age: 0});
+    this.goneNew += 1;
+    this.rings.push({x: c.x, y: c.y, age: 0, life: 0.5, max: 34, color: "#ff9a7a"});
+    for (let i = 0; i < 16; i++) {
+      this.party.push({
+        x: c.x + (rnd() - 0.5) * lay.segW * 0.9,
+        y: c.y + (rnd() - 0.5) * 6,
+        vx: (rnd() - 0.5) * 150,
+        vy: -(30 + rnd() * 150),
+        rot: rnd() * 6,
+        vr: (rnd() - 0.5) * 14,
+        age: 0,
+        life: 0.7 + rnd() * 0.5,
+        size: 2 + rnd() * 2.5,
+        color: i % 3 === 0 ? "#ffffff" : i % 3 === 1 ? "#ffd54a" : "#ff8a5c",
+        kind: "paper",
+        gravity: 620,
+      });
+    }
+  }
+
   update(g: GameState, dt: number): void {
     const rnd = Math.random;
     this.pop.t = Math.max(0, this.pop.t - dt * 1.8);
+    this.updateFade(g, dt);
     for (const z of this.zaps) z.age += dt;
     this.zaps = this.zaps.filter((z) => z.age < (z.hits.length > 0 ? z.hits[z.hits.length - 1].at : 0) + 0.5);
     for (const b of this.beams) b.age += dt;
@@ -679,6 +745,9 @@ export class Fx {
     this.emit.clear();
     this.flyers = [];
     this.pop = {seg: -1, t: 0};
+    this.drainShown = 0;
+    this.gone = [];
+    this.goneNew = 0;
     this.celebration = null;
     this.party = [];
     this.rings = [];
@@ -868,15 +937,22 @@ export class Fx {
     const x = Math.min(W - half, Math.max(half, p.x));
     const y = p.y - p.age * 20;
 
-    // The ring from the cup.
+    // The ring from the cup: a soft band of light that fades out on both sides (not a line with a hard edge).
     if (p.age < 0.6) {
       const r = p.age / 0.6;
-      ctx.globalAlpha = (1 - r) * 0.9;
-      ctx.lineWidth = 4 * (1 - r) + 1;
-      ctx.strokeStyle = "#ffe27a";
+      const ringX = p.x;
+      const ringY = p.y + 74 - CUP_H / 2;
+      const radius = 14 + 70 * (1 - Math.pow(1 - r, 3));
+      const band = 9 * (1 - r) + 5;
+      const soft = ctx.createRadialGradient(ringX, ringY, Math.max(0, radius - band), ringX, ringY, radius + band);
+      soft.addColorStop(0, "rgba(255,226,122,0)");
+      soft.addColorStop(0.5, `rgba(255,226,122,${0.85 * (1 - r)})`);
+      soft.addColorStop(1, "rgba(255,226,122,0)");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = soft;
       ctx.beginPath();
-      ctx.arc(p.x, p.y + 74 - CUP_H / 2, 14 + 70 * (1 - Math.pow(1 - r, 3)), 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.arc(ringX, ringY, radius + band, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.translate(x, y);

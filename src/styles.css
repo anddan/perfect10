@@ -98,3 +98,54 @@ canvas.game {
   font-size: 16px;
   box-shadow: 0 4px 0 #2b2543;
 }
+
+/* The box for writing to us (the back cover of the book): the kind of message, and the message. */
+.feedback-card {
+  width: min(340px, 92vw);
+}
+
+.feedback-card .kinds {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.name-card .kinds button {
+  flex: 1;
+  width: auto;
+  margin: 0;
+  padding: 8px 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e8dcc2;
+  font-size: 15px;
+  box-shadow: none;
+}
+
+.name-card .kinds button.on {
+  background: linear-gradient(#ffe98f, #f2b320);
+  color: #43270a;
+}
+
+.feedback-card textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 2px solid rgba(255, 213, 74, 0.6);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font: 500 16px "Fredoka", system-ui, sans-serif;
+  text-align: left;
+  resize: none;
+  outline: none;
+}
+
+.feedback-card textarea:focus {
+  border-color: #ffd54a;
+}
+
+.name-card .problem {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: #ff9a8a;
+}

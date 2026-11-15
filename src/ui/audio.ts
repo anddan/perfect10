@@ -352,15 +352,21 @@ export function playBuy(): void {
   noise(0.18, {type: "highpass", freq: 6500, vol: 0.04, delay: 0.05, attack: 0.01});
 }
 
-/** A point of energy is spent: a short electric zap that falls away. */
-export function playEnergySpend(): void {
-  tone(1100, 0.22, {type: "sawtooth", to: 220, glide: 0.2, vol: 0.12, attack: 0.003, lowpass: 3500});
-  noise(0.14, {type: "highpass", freq: 4500, vol: 0.06, attack: 0.002});
+/** Coins come in (something was bought with money, or a video was watched): a quick rising run of bells, like coins pouring into a bowl. */
+export function playGain(): void {
+  [1046.5, 1318.5, 1568, 2093, 2637].forEach((f, i) => bell(f, 0.09, i * 0.06, 0.45));
+  noise(0.3, {type: "highpass", freq: 6000, vol: 0.05, delay: 0.05, attack: 0.01});
+}
+
+/** A segment of the progress bar has faded away for good: three soft notes falling, and a dull crumble. */
+export function playFadeGone(): void {
+  [659.3, 523.3, 392].forEach((f, i) => tone(f, 0.32, {type: "triangle", vol: 0.13, delay: i * 0.1, to: f * 0.86, lowpass: 2400}));
+  noise(0.35, {type: "bandpass", freq: 1800, to: 500, q: 0.9, vol: 0.07, delay: 0.02});
 }
 
 /** A page of the book being turned. */
-export function playPageTurn(): void {
-  if (pageTurnBuf) sample(pageTurnBuf, 0.7, 1, {from: 0.012, to: 0.8, fade: 0.25});
+export function playPageTurn(rate = 1): void {
+  if (pageTurnBuf) sample(pageTurnBuf, 0.7, rate, {from: 0.012, to: 0.8, fade: 0.25});
 }
 
 /** Plays the sound that goes with something that happened in the game. */

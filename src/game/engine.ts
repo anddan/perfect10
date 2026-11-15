@@ -1,8 +1,9 @@
-import {PERKS, PERK_LIMIT, PERK_SLOWER, dayKey, rungEnds, rungsDone, seedOfDay, seededRandom} from "./daily";
+import {PERKS, PERK_LIMIT, PERK_SLOWER, SPECIAL_PERKS, SPECIAL_PERK_CHANCE, dayKey, rungEnds, rungsDone, seedOfDay, seededRandom} from "./daily";
 import {BIG_LIMIT, GOLD_FACTOR, LASER_COOLDOWN, LASER_HALF_WIDTH, MAGNET_REACH} from "./cups";
+import {SAUCER_EFFECT, type SaucerKind, saucerPower} from "./saucers";
 import {DAILY_RUNGS, DIAMOND_TEN_CHANCE} from "./constants";
-import {BONUS_POINTS, BOMB_RADIUS, PAUSE_SECONDS, CHAIN_LENGTH, GHOST_PERIOD, ICE_HITS, COLS, PLUS_COLS, WIN_DELAY, COMBO_SECONDS, COMBO_BONUS, SCREEN_MAX, SWEEP_DOWN, SWEEP_HOLD, SWEEP_UP, SWEEP_EDGE, CUP_H, CUP_START_Y, SLOW_FACTOR, SLOW_SECONDS, DIVE_GRAVITY, DIVE_HOP, CUP_W, MISS_Y, STAGES, TAP_RADIUS, TARGET, TUTORIAL_STEPS, W} from "./constants";
-import type {Bonus, Cup, Feature, GameOverReason, GameState, Mode, NumberTile, Op, PerkId} from "./types";
+import {BONUS_POINTS, BOMB_RADIUS, PAUSE_SECONDS, CHAIN_LENGTH, GHOST_PERIOD, ICE_HITS, COLS, PLUS_COLS, TWO_COLS, WIN_DELAY, COMBO_SECONDS, COMBO_BONUS, SCREEN_MAX, SWEEP_DOWN, SWEEP_HOLD, SWEEP_UP, SWEEP_EDGE, CUP_H, CUP_START_Y, SLOW_FACTOR, SLOW_SECONDS, DIVE_GRAVITY, DIVE_HOP, CUP_W, MISS_Y, STAGES, TAP_RADIUS, TARGET, TUTORIAL_STEPS, W} from "./constants";
+import type {Bonus, Cup, Feature, GameOverReason, GameState, Mode, NumberTile, Op, PerkId, Variant} from "./types";
 
 // ---- Difficulty -----------------------------------------------------------------------
 
@@ -29,8 +30,45 @@ const LEVELS_7_UP_SLOWER = 0.9;
 
 /** The same for the round that is being played: the book follows its level, and the endless game its own level (from level 4). */
 export function speedFactorOf(g: GameState): number {
-  if (g.mode === "endless") return (endlessLevel(g) >= 4 ? LATER_LEVELS_SLOWER : 1) * g.speedMul;
-  return stageSpeedFactor(g.stage);
+  const saucers = 1 - SAUCER_EFFECT.slow * saucerStrength(g, "slow"); // (each slow saucer: 5% slower, and more for two, three or four of them)
+  if (g.mode === "endless") return saucers * variantRamp(g) * (endlessLevel(g) >= 4 ? LATER_LEVELS_SLOWER : 1) * g.speedMul;
+  return saucers * stageSpeedFactor(g.stage);
+}
+
+/** In Save the cup the numbers fall faster and faster: from a bit faster than the endless game at the start, and more with the seconds of the round (up to five and a half times as fast). */
+export function variantRamp(g: GameState): number {
+  return g.variant === "save" ? Math.min(5.5, 1.15 + g.variantTime / 36) : 1;
+}
+
+/** And more and more of them come (up to seven times as often): the time between the numbers is divided by this. */
+export function variantRate(g: GameState): number {
+  return g.variant === "save" ? Math.min(7, 1.3 + g.variantTime / 30) : 1;
+}
+
+/** How many saucers of a kind are under the cups in play (the ones from the shop; not in the tutorial). They add up. */
+export function saucerCount(g: GameState, kind: SaucerKind): number {
+  if (g.mode === "tutorial") return 0;
+  return g.saucerLoadout.slice(0, g.cols.length).filter((k) => k === kind).length;
+}
+
+/** How many times a perk has been taken in the daily challenge. */
+function perkCount(g: GameState, perk: PerkId): number {
+  return g.perks.filter((p) => p === perk).length;
+}
+
+/** How many saucers of a kind they work like: the bonus for two, three or four of a kind is counted in. */
+export function saucerStrength(g: GameState, kind: SaucerKind): number {
+  return saucerPower(saucerCount(g, kind));
+}
+
+/** How many times as many special numbers come (the orange 0 and 10, and the bonus balls): 10% more for every special saucer and special perk. */
+function luck(g: GameState): number {
+  return 1 + SAUCER_EFFECT.special * (saucerStrength(g, "special") + perkCount(g, "special"));
+}
+
+/** The points of something, with the points saucers counted in: 50% more for every one. */
+function scaled(g: GameState, points: number): number {
+  return Math.round(points * (1 + SAUCER_EFFECT.points * (saucerStrength(g, "points") + perkCount(g, "points"))));
 }
 
 /** Levels 10 to 12 get 20% fewer numbers: the time between new numbers is 1 / 0.8 = 1.25 times as long. */
@@ -66,7 +104,7 @@ export function paceOf(g: GameState): number {
 
 /** The modes that are levels of the book (twelve of them on each page). */
 function isLevelMode(mode: Mode): boolean {
-  return mode === "plus" || mode === "mixed" || mode === "times" || mode === "divide" || mode === "space";
+  return mode === "plus" || mode === "minus" || mode === "mixed" || mode === "times" || mode === "divide" || mode === "space";
 }
 
 /** How much harder a level of the book starts than the one before it. */
@@ -111,7 +149,8 @@ export const ENDLESS_CUPS_PER_LEVEL = 5;
 export function endlessLevel(g: GameState): number {
   // (in the daily challenge the levels are the rungs of the ladder, which need one more cup each: 5, 6, 7 ...)
   if (g.daily) return rungsDone(g.level - 1) + 1;
-  return Math.floor((g.level - 1) / ENDLESS_CUPS_PER_LEVEL) + 1;
+  // (what has faded of the progress is not counted: the bar has to be filled again, five cups for a level)
+  return Math.floor(Math.max(0, progressOf(g) + 1e-9) / ENDLESS_CUPS_PER_LEVEL) + 1;
 }
 
 /** How far along minus numbers a round is, counted like the levels of a chapter (1 to 12 and on). */
@@ -129,11 +168,12 @@ function divStage(g: GameState): number {
   return g.mode === "endless" ? Math.max(1, endlessLevel(g) - 3) : g.stage;
 }
 
-/** Which kinds of numbers fall now: minus numbers, blue multiplication numbers, and yellow division numbers. */
-function kinds(g: GameState): {minus: boolean; times: boolean; div: boolean} {
-  if (g.mode === "endless") return {minus: endlessLevel(g) >= 2, times: endlessLevel(g) >= 3, div: endlessLevel(g) >= 4};
+/** Which kinds of numbers fall now: minus numbers (and whether they are the only ones: the minus chapter), blue multiplication numbers, and yellow division numbers. */
+function kinds(g: GameState): {minus: boolean; onlyMinus: boolean; times: boolean; div: boolean} {
+  if (g.mode === "endless") return {minus: endlessLevel(g) >= 2, onlyMinus: false, times: endlessLevel(g) >= 3, div: endlessLevel(g) >= 4};
   return {
-    minus: g.mode === "mixed" || g.mode === "times" || g.mode === "divide" || g.mode === "space",
+    onlyMinus: g.mode === "minus",
+    minus: g.mode === "minus" || g.mode === "mixed" || g.mode === "times" || g.mode === "divide" || g.mode === "space",
     times: g.mode === "times" || g.mode === "divide" || g.mode === "space",
     div: g.mode === "divide" || g.mode === "space",
   };
@@ -148,24 +188,27 @@ const ZERO_CHANCE = 0.12;
 const TEN_CHANCE = 0.06;
 
 /** All of the new kinds of number, in the order the book brings them in. */
-export const FEATURES: Feature[] = ["screen", "cups", "zero", "ten", "life", "slow", "pause", "chain", "points", "bomb", "cloth", "ice", "shield", "ghost", "diamond", "fog", "star", "steel", "chain3", "reverse"];
+export const FEATURES: Feature[] = ["screen", "cup3", "cups", "fade", "zero", "ten", "life", "slow", "pause", "chain", "vchain", "points", "bomb", "cloth", "ice", "shield", "ghost", "diamond", "fog", "star", "steel", "chain3"];
 
 /**
  * Where the book presents each new kind of number, and where it starts to come: the chapter and the level of it. The first chapter
  * has three cups, brings the pull-down screen (level 2) and the orange 0 (level 4), a life ball (level 7) and a slow motion ball (level 10), plus and minus brings chains (level 4)
  * and the points ball (level 7) and, at level 10 of plus and minus, the pause ball that stops the numbers for a few seconds, times brings ice
  * (level 4), the bomb that blows away the numbers round it (level 7) and the cloth ball that gives one more pull-down screen (level 10),
- * divide brings the shield ball that protects a cup (level 7) and ghosts and space brings the black number that hides the number of a cup (level 4) the star that clears all the cups (level 1), the steel number that cannot be tapped (level 7) and the chain of three (level 10). A new kind stays in the chapters after the one that brought it.
+ * divide brings the shield ball that protects a cup (level 7) and ghosts and space brings the star that clears all the cups (level 1), the steel number that cannot be tapped (level 7), the chain of three (level 10) and, on the very last level, the black number that hides the number of a cup (level 12). A new kind stays in the chapters after the one that brought it.
  */
 export const FEATURE_AT: Record<Feature, {mode: Mode; stage: number}> = {
   screen: {mode: "plus", stage: 2},
+  cup3: {mode: "plus", stage: 3},
   cups: {mode: "mixed", stage: 1},
+  fade: {mode: "mixed", stage: 3},
   zero: {mode: "plus", stage: 4},
   ten: {mode: "plus", stage: 12},
   life: {mode: "plus", stage: 7},
   slow: {mode: "plus", stage: 10},
   pause: {mode: "mixed", stage: 10},
   chain: {mode: "mixed", stage: 4},
+  vchain: {mode: "times", stage: 1},
   points: {mode: "mixed", stage: 7},
   bomb: {mode: "times", stage: 7},
   cloth: {mode: "times", stage: 10},
@@ -173,17 +216,16 @@ export const FEATURE_AT: Record<Feature, {mode: Mode; stage: number}> = {
   ice: {mode: "times", stage: 4},
   ghost: {mode: "divide", stage: 4},
   diamond: {mode: "divide", stage: 10},
-  reverse: {mode: "space", stage: 12},
-  fog: {mode: "space", stage: 4},
+  fog: {mode: "space", stage: 12},
   star: {mode: "space", stage: 1},
   steel: {mode: "space", stage: 7},
   chain3: {mode: "space", stage: 10},
 };
 
 /** In the endless game (which comes after the whole book): the level each one comes from. */
-const ENDLESS_FEATURE_FROM: Record<Feature, number> = {screen: 1, cups: 1, zero: 2, ten: 3, points: 1, life: 1, slow: 1, pause: 5, bomb: 9, shield: 6, cloth: 11, chain: 4, ghost: 7, ice: 10, fog: 12, star: 8, steel: 11, chain3: 14, diamond: 13, reverse: 15};
+const ENDLESS_FEATURE_FROM: Record<Feature, number> = {fade: 3, screen: 1, cup3: 1, cups: 1, zero: 2, ten: 3, points: 1, life: 1, slow: 1, pause: 5, bomb: 9, shield: 6, cloth: 11, chain: 4, vchain: 6, ghost: 7, ice: 10, fog: 12, star: 8, steel: 11, chain3: 14, diamond: 13};
 
-const CHAPTERS: Mode[] = ["plus", "mixed", "times", "divide", "space"];
+const CHAPTERS: Mode[] = ["plus", "minus", "mixed", "times", "divide", "space"];
 
 /** How far along the book a level is (the first level of the first chapter is 1). */
 function bookPlace(mode: Mode, stage: number): number {
@@ -192,13 +234,48 @@ function bookPlace(mode: Mode, stage: number): number {
 
 /** How many levels ago a new kind of number came in: 0 on the level that presents it, and -1 if it has not come yet. */
 export function featureAge(g: GameState, f: Feature): number {
-  if (g.mode === "tutorial") return -1;
+  if (g.mode === "tutorial" || g.variant) return -1; // (the match modes have none of the new kinds of number)
   if (g.mode === "endless") {
     const level = endlessLevel(g);
     return level >= ENDLESS_FEATURE_FROM[f] ? level - ENDLESS_FEATURE_FROM[f] : -1;
   }
   const at = FEATURE_AT[f];
   return Math.max(-1, bookPlace(g.mode, g.stage) - bookPlace(at.mode, at.stage));
+}
+
+/** How many steps one perfect 10 is worth in the progress (one step is 5%). */
+export const FADE_TICKS = 20;
+
+/** In the endless game a whole perfect 10 of the progress takes 24 seconds to fade at first, and never fewer than 10, however far it has gone. */
+const ENDLESS_FADE_START = 24;
+const ENDLESS_FADE_MIN = 10;
+
+/**
+ * The progress fades with time: from level 3 of plus & minus on (and in the chapters after, and in the endless game from its third level), the
+ * perfect 10s that have been made slowly fade away, until a new perfect 10 comes. Not in the daily challenge.
+ */
+export function fadeOn(g: GameState): boolean {
+  return (isLevelMode(g.mode) || (g.mode === "endless" && !g.daily)) && featureAge(g, "fade") >= 0;
+}
+
+/**
+ * How many seconds it takes for a whole perfect 10 of the progress to fade away: in the book 22 on levels 1-3 of a chapter, 20 on 4-6, 18 on 7-9
+ * and 16 on 10-12. The endless game goes on: it starts at 24 and keeps getting faster, two seconds every third level, down to 10.
+ */
+export function fadeSeconds(g: GameState): number {
+  if (g.mode === "endless") return Math.max(ENDLESS_FADE_MIN, ENDLESS_FADE_START - 2 * Math.floor((endlessLevel(g) - 1) / 3));
+  return 22 - 2 * Math.floor((Math.max(1, g.stage) - 1) / 3);
+}
+
+/** How much can have faded at most (in steps): not more than there is, and in the endless game not more than the cups of the level the bar is on. */
+export function fadeCap(g: GameState): number {
+  const start = g.mode === "endless" ? ENDLESS_CUPS_PER_LEVEL * (endlessLevel(g) - 1) : 0;
+  return Math.max(0, (g.level - 1 - start) * FADE_TICKS);
+}
+
+/** How many cups of a level count now, with what has faded taken off (a whole number as long as nothing has faded). */
+export function progressOf(g: GameState): number {
+  return ((g.level - 1) * FADE_TICKS - g.drain) / FADE_TICKS;
 }
 
 /** The new kinds of number a level presents (the ones whose own level this is). */
@@ -210,6 +287,12 @@ function presentedAt(mode: Mode, stage: number): Feature[] {
 function chainChance(g: GameState): number {
   const age = featureAge(g, "chain");
   return age < 0 ? 0 : Math.min(0.4, 0.14 + 0.04 * Math.min(age, 8));
+}
+
+/** Two small numbers sometimes hang on a chain one above the other: the chance that a new number brings such a pair. */
+function vchainChance(g: GameState): number {
+  const age = featureAge(g, "vchain");
+  return age < 0 ? 0 : Math.min(0.3, 0.12 + 0.03 * Math.min(age, 8));
 }
 
 /** Some numbers are ghosts: the chance that a new number is one. */
@@ -228,12 +311,6 @@ function fogChance(g: GameState): number {
 function steelChance(g: GameState): number {
   const age = featureAge(g, "steel");
   return age < 0 ? 0 : Math.min(0.2, 0.1 + 0.02 * Math.min(age, 8));
-}
-
-/** The very last kind: some numbers have reversed colours (a plus number is red, a minus number green). The chance that a new number is one. */
-function reverseChance(g: GameState): number {
-  const age = featureAge(g, "reverse");
-  return age < 0 ? 0 : Math.min(0.35, 0.18 + 0.04 * Math.min(age, 8));
 }
 
 /** Some numbers are frozen in ice: the chance that a new (ordinary) number is one. */
@@ -265,9 +342,12 @@ function helpChance(g: GameState): number {
 
 // ---- Creating and restarting ----------------------------------------------------------
 
-/** The columns of a mode: three in the first chapter (so only three cups), four everywhere else. */
-export function columnsFor(mode: Mode): readonly number[] {
-  return mode === "plus" ? PLUS_COLS : COLS;
+/** The columns of a mode: three in the first two chapters (so only three cups), four everywhere else. */
+export function columnsFor(mode: Mode, stage = 3): readonly number[] {
+  // (the first chapter starts with two cups, on the first two levels, and has three from the third level; the other chapters have four)
+  if (mode === "plus") return stage <= 2 ? TWO_COLS : PLUS_COLS;
+  if (mode === "minus") return PLUS_COLS;
+  return COLS;
 }
 
 export function createGame(rng: () => number = Math.random, best = 0): GameState {
@@ -279,9 +359,11 @@ export function createGame(rng: () => number = Math.random, best = 0): GameState
     extra: 0,
     zap: null,
     loadout: [],
+    saucerLoadout: [],
     daily: false,
     perks: [],
     perkChoices: [],
+    perkTimes: [],
     speedMul: 1,
     tutorialStep: 0,
     tutorialDelay: 0,
@@ -309,6 +391,10 @@ export function createGame(rng: () => number = Math.random, best = 0): GameState
     rng,
     combo: 0,
     comboTimer: 0,
+    drain: 0,
+    drainClock: 0,
+    variant: null,
+    variantTime: 0,
     continuesLeft: 0,
     screens: 0,
     screenWon: false,
@@ -322,12 +408,12 @@ export function createGame(rng: () => number = Math.random, best = 0): GameState
   return g;
 }
 
-function resetCups(g: GameState, values?: number[]): void {
-  g.cups = g.cols.map((x, i): Cup => ({
+function makeCup(g: GameState, x: number, value = 0): Cup {
+  return {
     id: g.nextId++,
     x,
     y: CUP_START_Y,
-    value: values?.[i] ?? 0,
+    value,
     dead: false,
     bump: 0,
     ripple: 0,
@@ -340,7 +426,24 @@ function resetCups(g: GameState, values?: number[]): void {
     charge: 0,
     shield: false,
     seed: g.rng() * 10,
-  }));
+  };
+}
+
+function resetCups(g: GameState, values?: number[]): void {
+  g.cups = g.cols.map((x, i): Cup => makeCup(g, x, values?.[i] ?? 0));
+}
+
+/** The cups from the shop (not in the tutorial) go on the cups: the first one chosen stands furthest to the left. A thermos starts with its shield on. The saucers go under them. */
+function dressCups(g: GameState): void {
+  if (g.mode === "tutorial") return;
+  g.cups.forEach((c, i) => dressCup(g, c, i));
+}
+
+function dressCup(g: GameState, c: Cup, index: number): void {
+  c.kinds = [...(g.loadout[index] ?? [])];
+  c.saucer = g.saucerLoadout[index] ?? undefined;
+  c.charge = 0;
+  if (c.kinds.includes("thermos")) c.shield = true;
 }
 
 /** Back to the book: no round going, the cups steaming on the desk behind it. */
@@ -350,6 +453,8 @@ export function showMenu(g: GameState): void {
   g.lifeDue = false;
   g.combo = 0;
   g.comboTimer = 0;
+  g.drain = 0;
+  g.drainClock = 0;
   g.sweep = -1;
   g.zap = null;
   g.cols = COLS;
@@ -368,6 +473,9 @@ export function startGame(g: GameState, mode: Mode = g.mode, stage: number = g.s
   g.daily = false;
   g.perks = [];
   g.perkChoices = [];
+  g.perkTimes = [];
+  g.variant = null;
+  g.variantTime = 0;
   g.speedMul = 1;
   g.stage = isLevelMode(mode) ? Math.min(STAGES, Math.max(1, stage)) : 0;
   g.base = baseFor(mode, g.stage);
@@ -381,6 +489,8 @@ export function startGame(g: GameState, mode: Mode = g.mode, stage: number = g.s
   g.lifeDue = false;
   g.combo = 0;
   g.comboTimer = 0;
+  g.drain = 0;
+  g.drainClock = 0;
   g.sweep = -1;
   if (mode === "endless") g.screens = 1; // (the endless game starts with one; the levels of the book keep what has been collected)
   g.numbers = [];
@@ -394,17 +504,10 @@ export function startGame(g: GameState, mode: Mode = g.mode, stage: number = g.s
   g.shake = 0;
   g.slow = 0;
   g.pause = 0;
+  g.cols = columnsFor(mode, g.stage);
   g.bonusTimer = nextBonusIn(g);
-  g.cols = columnsFor(mode);
   resetCups(g);
-  // The cups from the shop (not in the tutorial): the first one chosen stands furthest to the left. A thermos starts with its shield on.
-  if (mode !== "tutorial") {
-    g.cups.forEach((c, i) => {
-      c.kinds = [...(g.loadout[i] ?? [])];
-      c.charge = 0;
-      if (c.kinds.includes("thermos")) c.shield = true;
-    });
-  }
+  dressCups(g);
   if (mode === "tutorial") tutorialSetup(g);
   // A level that brings in a new kind of number starts by presenting it (unless the player has asked not to see it again).
   g.showcase = [];
@@ -421,6 +524,70 @@ export function startDaily(g: GameState, day: string = dayKey()): void {
   g.rng = seededRandom(seedOfDay(day));
   startGame(g, "endless");
   g.daily = true;
+  // The ladder starts with two cups: a third comes after the first rung, and a fourth after the third.
+  g.cols = dailyColumns(1);
+  resetCups(g);
+  dressCups(g);
+  g.bonusTimer = nextBonusIn(g);
+}
+
+/**
+ * Starts a match mode: the endless game, with rules of its own. No new kinds of number and no bonus balls (so no hearts and no pull-down screens) come in either.
+ * In "save" every cup is a regular one (nothing from the shop), and one of the four is dead from the start; there is no carrying on after an ad.
+ * In "sixeight" the cups and saucers from the shop are on.
+ */
+export function startVariant(g: GameState, variant: Variant): void {
+  startGame(g, "endless");
+  g.variant = variant;
+  g.screens = 0;
+  g.bonusTimer = nextBonusIn(g);
+  if (variant === "save") {
+    g.continuesLeft = 0;
+    for (const c of g.cups) {
+      c.kinds = [];
+      c.saucer = undefined;
+      c.shield = false;
+      c.charge = 0;
+    }
+    const dead = g.cups[Math.floor(g.rng() * g.cups.length)];
+    dead.dead = true;
+    dead.value = TARGET + 1;
+  }
+}
+
+/** The columns (and so the cups) of the daily challenge on a rung of the ladder: two on the first, three on the next two, and four after that. */
+export function dailyColumns(rung: number): readonly number[] {
+  return rung <= 1 ? TWO_COLS : rung <= 3 ? PLUS_COLS : COLS;
+}
+
+/**
+ * The ladder has been climbed one rung, and there is room for one more cup: the cups that are there move over, and a new one comes in on the
+ * right (with what it is to have from the shop, and the saucer). The numbers in the air go to the columns that are there now.
+ */
+function growCups(g: GameState): void {
+  const cols = dailyColumns(endlessLevel(g));
+  if (cols.length <= g.cols.length) return;
+  const added = cols.length - g.cols.length;
+  g.cols = cols;
+  const sorted = [...g.cups].sort((a, b) => a.x - b.x);
+  sorted.forEach((c, i) => {
+    c.x = cols[i];
+  });
+  for (let k = 0; k < added; k++) {
+    const at = sorted.length + k;
+    const cup = makeCup(g, cols[at]);
+    dressCup(g, cup, g.cups.length);
+    cup.flash = 1;
+    cup.bump = 1;
+    cup.ripple = 1;
+    g.cups.push(cup);
+  }
+  for (const n of g.numbers) {
+    if (n.state !== "fall") continue;
+    n.col = Math.min(n.col, cols.length - 1);
+    n.x = cols[n.col];
+    n.aim = n.x;
+  }
 }
 
 /** The perks that can be offered now: the ones that would do something, and have not been taken as many times as they can be. */
@@ -431,6 +598,7 @@ function perkOptions(g: GameState): PerkId[] {
     if (p === "shield") return living.some((c) => !c.shield);
     if (p === "cloth") return g.screens < SCREEN_MAX;
     if (p === "life") return g.cups.some((c) => c.dead);
+    if (p === "remove") return g.cups.some((c) => c.dead) && living.length > 0;
     if (p === "gold" || p === "thermos" || p === "magnet" || p === "big" || p === "laser") return living.some((c) => !c.kinds.includes(p));
     return true;
   });
@@ -440,9 +608,19 @@ function perkOptions(g: GameState): PerkId[] {
 export function choosePerk(g: GameState, index: number): boolean {
   const perk = g.perkChoices[index];
   if (g.phase !== "perk" || perk === undefined) return false;
-  g.perks.push(perk);
+  // (sometimes a perk is offered as x2 or x3: it is taken that many times, so that x2 of the shield puts a shield on two cups)
+  const times = Math.max(1, g.perkTimes[index] ?? 1);
+  for (let i = 0; i < times; i++) g.perks.push(perk);
   g.perkChoices = [];
+  g.perkTimes = [];
   g.phase = "play";
+  for (let i = 0; i < times; i++) applyPerk(g, perk);
+  if (g.daily) growCups(g);
+  return true;
+}
+
+/** What a perk does, once. */
+function applyPerk(g: GameState, perk: PerkId): void {
   if (perk === "slow") g.speedMul *= PERK_SLOWER;
   else if (perk === "cloth") giveScreens(g, 1);
   else if (perk === "shield") {
@@ -452,6 +630,10 @@ export function choosePerk(g: GameState, index: number): boolean {
       cup.flash = 0.6;
       g.events.push({t: "shield", cupId: cup.id, x: cup.x, y: cup.y - CUP_H / 2, on: true});
     }
+  } else if (perk === "remove") {
+    // A dead cup is taken away: nothing can fall into it any more (the numbers of its column go to the cups that are left).
+    const at = g.cups.findIndex((c) => c.dead);
+    if (at >= 0 && g.cups.some((c) => !c.dead)) g.cups.splice(at, 1);
   } else if (perk === "life") {
     const dead = g.cups.find((c) => c.dead);
     if (dead) {
@@ -472,7 +654,24 @@ export function choosePerk(g: GameState, index: number): boolean {
       if (perk === "thermos") cup.shield = true;
     }
   }
-  return true;
+}
+
+/** How many times a perk can be taken at most right now (x2 of the shield needs two cups that have none). */
+function perkMax(g: GameState, perk: PerkId): number {
+  const living = g.cups.filter((c) => !c.dead);
+  const dead = g.cups.filter((c) => c.dead).length;
+  if (perk === "shield") return living.filter((c) => !c.shield).length;
+  if (perk === "cloth") return SCREEN_MAX - g.screens;
+  if (perk === "life" || perk === "remove") return dead;
+  if (perk === "gold" || perk === "thermos" || perk === "magnet" || perk === "big" || perk === "laser") return living.filter((c) => !c.kinds.includes(perk)).length;
+  return PERK_LIMIT[perk] - g.perks.filter((q) => q === perk).length;
+}
+
+/** Now and then a perk is offered as x2 (about one in four) or x3 (about one in twelve), as far as it can be used that many times. */
+function rollTimes(g: GameState, perk: PerkId): number {
+  const r = g.rng();
+  const want = r < 0.08 ? 3 : r < 0.3 ? 2 : 1;
+  return Math.max(1, Math.min(want, perkMax(g, perk)));
 }
 
 /** Three perks to choose between (as many as there are, if there are fewer). */
@@ -481,14 +680,20 @@ function offerPerks(g: GameState): void {
   const choices: PerkId[] = [];
   while (choices.length < 3 && options.length > 0) choices.push(options.splice(Math.floor(g.rng() * options.length), 1)[0]);
   if (choices.length === 0) return;
+  // With a bit of luck one of them is a special perk (the ones the saucers have): it takes the place of one of the others.
+  if (g.rng() < SPECIAL_PERK_CHANCE) {
+    const special = SPECIAL_PERKS.filter((p) => perkMax(g, p) > 0);
+    if (special.length > 0) choices[Math.floor(g.rng() * choices.length)] = special[Math.floor(g.rng() * special.length)];
+  }
   g.perkChoices = choices;
+  g.perkTimes = choices.map((p) => rollTimes(g, p));
   g.phase = "perk";
   g.overTimer = 0;
 }
 
 /** Adds new kinds of number to the ones that are to be made to fall a few seconds from now (the screen and the fourth cup do not fall, so they are left out). */
 function planShowcase(g: GameState, features: Feature[]): void {
-  const list = features.filter((f) => f !== "screen" && f !== "cups");
+  const list = features.filter((f) => f !== "screen" && f !== "cups" && f !== "cup3" && f !== "fade");
   if (list.length === 0) return;
   if (g.showcase.length === 0) g.showTimer = 3 + g.rng() * 2;
   g.showcase = [...g.showcase, ...list];
@@ -502,6 +707,10 @@ function spawnShowcase(g: GameState, f: Feature): boolean {
   if (BONUS_FEATURES.includes(f)) return spawnBonus(g, f as Bonus);
   const free = g.cols.map((_, i) => i).filter((i) => !g.numbers.some((n) => n.col === i && n.state === "fall" && n.y < spawnY(g) + 96));
   if (free.length === 0) return false;
+  if (f === "vchain") {
+    spawnHangingPair(g, free[Math.floor(g.rng() * free.length)]);
+    return true;
+  }
   if (f === "chain" || f === "chain3") {
     const size = f === "chain" ? 2 : 3;
     const starts = free.filter((i) => Array.from({length: size}, (_, k) => i + k).every((j) => free.includes(j)));
@@ -531,7 +740,6 @@ function spawnShowcase(g: GameState, f: Feature): boolean {
             ? newNumber(g, col, x, 1 + Math.floor(g.rng() * 3), "steel")
             : newNumber(g, col, x, v, "add");
   if (f === "ice") n.ice = ICE_HITS;
-  if (f === "reverse") n.flip = true;
   if (f === "ghost") {
     n.ghost = g.rng() < 0.5 ? "flip" : "fade";
     n.phase = -g.time; // it starts out seen
@@ -759,7 +967,9 @@ interface Pick {
 
 function pickNumber(g: GameState, allowSteel = true): Pick {
   const max = maxNumber(hardness(g));
-  const {minus, times: timesOn, div: divOn} = kinds(g);
+  const {minus, onlyMinus, times: timesOn, div: divOn} = kinds(g);
+  // (the sign of a new number: always minus in the minus chapter, otherwise sometimes, where minus numbers are in)
+  const signed = (v: number) => (onlyMinus || (minus && g.rng() < minusChance(g)) ? -v : v);
   // Blue numbers only fall when there is something to multiply: a cup on 0 stays on 0.
   const times = timesOn && g.cups.some((c) => !c.dead && c.value !== 0);
   // Yellow numbers only fall when a cup has enough in it for the division to change it.
@@ -771,7 +981,7 @@ function pickNumber(g: GameState, allowSteel = true): Pick {
     for (const c of g.cups) {
       if (c.dead) continue;
       const up = TARGET - c.value;
-      if (up >= 1 && up <= max) finishing.push({v: up, op: "add"});
+      if (!onlyMinus && up >= 1 && up <= max) finishing.push({v: up, op: "add"});
       const down = -TARGET - c.value;
       if (minus && down <= -1 && down >= -max) finishing.push({v: down, op: "add"});
       if (times) for (let f = 2; f <= maxFactor(g); f++) if (Math.abs(c.value * f) === TARGET) finishing.push({v: f, op: "mul"});
@@ -780,23 +990,20 @@ function pickNumber(g: GameState, allowSteel = true): Pick {
     if (finishing.length > 0) return finishing[Math.floor(g.rng() * finishing.length)];
   }
   // From the level that presents it, an orange 0 sometimes falls (when a living cup has something in it that is worth wiping out).
-  if (featureAge(g, "zero") >= 0 && g.cups.some((c) => !c.dead && Math.abs(c.value) >= 4) && g.rng() < ZERO_CHANCE) return {v: 0, op: "zero"};
+  if (featureAge(g, "zero") >= 0 && g.cups.some((c) => !c.dead && Math.abs(c.value) >= 4) && g.rng() < ZERO_CHANCE * luck(g)) return {v: 0, op: "zero"};
   // From the level that presents it, an orange 10 sometimes falls (when a living cup is low enough for it to be worth a lot): it sets the cup to 10.
-  if (featureAge(g, "ten") >= 0 && g.cups.some((c) => !c.dead && Math.abs(c.value) <= 5) && g.rng() < TEN_CHANCE) return {v: TARGET, op: "ten"};
+  if (featureAge(g, "ten") >= 0 && g.cups.some((c) => !c.dead && Math.abs(c.value) <= 5) && g.rng() < TEN_CHANCE * luck(g)) return {v: TARGET, op: "ten"};
   // From the last chapter's level 4, a black number sometimes falls: it adds like any plus or minus number.
   if (featureAge(g, "fog") >= 0 && g.rng() < fogChance(g)) {
-    const v = 1 + Math.floor(g.rng() * max);
-    return {v: minus && g.rng() < minusChance(g) ? -v : v, op: "dim"};
+    return {v: signed(1 + Math.floor(g.rng() * max)), op: "dim"};
   }
   // From the level that presents it, a steel number sometimes falls: a small number (1 to 3) that cannot be tapped, only let go down.
   if (allowSteel && featureAge(g, "steel") >= 0 && g.rng() < steelChance(g)) {
-    const v = 1 + Math.floor(g.rng() * 3);
-    return {v: minus && g.rng() < minusChance(g) ? -v : v, op: "steel"};
+    return {v: signed(1 + Math.floor(g.rng() * 3)), op: "steel"};
   }
   if (times && g.rng() < mulChance(g)) return {v: 2 + Math.floor(g.rng() * (maxFactor(g) - 1)), op: "mul"};
   if (div && g.rng() < divChance(g)) return {v: 2 + Math.floor(g.rng() * (maxDivisor(g) - 1)), op: "div"};
-  const v = 1 + Math.floor(g.rng() * max);
-  return {v: minus && g.rng() < minusChance(g) ? -v : v, op: "add"};
+  return {v: signed(1 + Math.floor(g.rng() * max)), op: "add"};
 }
 
 /** Where a new number starts: just above the top of the playfield (which reaches higher on a tall phone). */
@@ -818,7 +1025,6 @@ function newNumber(g: GameState, col: number, x: number, v: number, op: Op = "ad
     chain: null,
     chain2: null,
     ghost: null,
-    flip: false,
     ice: 0,
     state: "fall",
     target: null,
@@ -839,9 +1045,6 @@ function newNumber(g: GameState, col: number, x: number, v: number, op: Op = "ad
 function makeNumber(g: GameState, col: number, plain = false): NumberTile {
   const pick = pickNumber(g, !plain);
   const n = newNumber(g, col, g.cols[col], pick.v, pick.op);
-  // (a number that adds, multiplies or divides can have reversed colours; the random numbers are only asked for once that kind has come in)
-  const flipChance = pick.op === "add" || pick.op === "mul" || pick.op === "div" ? reverseChance(g) : 0;
-  if (flipChance > 0 && g.rng() < flipChance) n.flip = true;
   if (plain || pick.op === "steel") return n;
   const ghost = ghostChance(g);
   if (ghost > 0 && g.rng() < ghost) {
@@ -854,9 +1057,53 @@ function makeNumber(g: GameState, col: number, plain = false): NumberTile {
   return n;
 }
 
+/** How far apart (game units) the two numbers of a hanging pair start: the one that is lower comes first. */
+const HANG_GAP = 62;
+
+/** Two small numbers (1 to 3, with the sign of the chapter) on a chain, one above the other, in a column. */
+function spawnHangingPair(g: GameState, col: number): void {
+  const {minus, onlyMinus} = kinds(g);
+  const small = () => {
+    const v = 1 + Math.floor(g.rng() * 3);
+    return onlyMinus || (minus && g.rng() < minusChance(g)) ? -v : v;
+  };
+  const low = newNumber(g, col, g.cols[col], small());
+  const high = newNumber(g, col, g.cols[col], small());
+  high.y -= HANG_GAP;
+  high.prevY = high.y;
+  low.chain = high.id;
+  high.chain = low.id;
+  g.numbers.push(low, high);
+}
+
+/**
+ * The numbers of a match mode: Save the cup has only 1s in any column (a 1 over the dead cup cannot be saved by a tap: the dead cup has to be moved away, by dragging
+ * it to swap places with another cup), and 6 or 8 only 6s, 8s and numbers that divide by 2 (7 in ten are 6 or 8, the rest divide).
+ */
+function spawnVariant(g: GameState, free: number[]): void {
+  let col = free[Math.floor(g.rng() * free.length)];
+  if (g.variant === "save") {
+    g.numbers.push(newNumber(g, col, g.cols[col], 1));
+    return;
+  }
+  const r = g.rng();
+  if (r < 0.7) g.numbers.push(newNumber(g, col, g.cols[col], r < 0.35 ? 6 : 8));
+  else g.numbers.push(newNumber(g, col, g.cols[col], 2, "div"));
+}
+
 function spawn(g: GameState): void {
   const free = g.cols.map((_, i) => i).filter((i) => !g.numbers.some((n) => n.col === i && n.state === "fall" && n.y < spawnY(g) + 96));
   if (free.length === 0) return;
+  if (g.variant) {
+    spawnVariant(g, free);
+    return;
+  }
+  // Sometimes two small numbers come on a chain one above the other, in one column (they fall into the same cup).
+  const vchain = vchainChance(g);
+  if (vchain > 0 && g.rng() < vchain) {
+    spawnHangingPair(g, free[Math.floor(g.rng() * free.length)]);
+    return;
+  }
   // Sometimes two numbers come chained together, side by side in two columns that are both free.
   const chain = chainChance(g);
   if (chain > 0 && g.rng() < chain) {
@@ -890,7 +1137,8 @@ function spawn(g: GameState): void {
 
 /** Seconds until the next bonus ball (somewhere between 11 and 20). */
 function nextBonusIn(g: GameState): number {
-  return (11 + g.rng() * 9) * 0.6 ** g.perks.filter((p) => p === "bonus").length;
+  if (g.variant) return 1e9; // (no bonus balls in the match modes)
+  return ((11 + g.rng() * 9) * 0.6 ** g.perks.filter((p) => p === "bonus").length) / luck(g);
 }
 
 /**
@@ -960,7 +1208,7 @@ function collectBonus(g: GameState, n: NumberTile): void {
     }
   }
   if (kind === "points") {
-    amount = BONUS_POINTS * g.level;
+    amount = scaled(g, BONUS_POINTS * g.level);
     g.score += amount;
   }
   if (kind === "slow") g.slow = SLOW_SECONDS;
@@ -969,7 +1217,7 @@ function collectBonus(g: GameState, n: NumberTile): void {
     if (g.screens < SCREEN_MAX) giveScreens(g, 1);
     else {
       kind = "points"; // no room for another one (it was got some other way meanwhile): points instead
-      amount = BONUS_POINTS * g.level;
+      amount = scaled(g, BONUS_POINTS * g.level);
       g.score += amount;
     }
   }
@@ -984,7 +1232,7 @@ function collectBonus(g: GameState, n: NumberTile): void {
       g.events.push({t: "shield", cupId: cup.id, x: cup.x, y: cup.y - CUP_H / 2, on: true});
     } else {
       kind = "points"; // every living cup has one already: points instead
-      amount = BONUS_POINTS * g.level;
+      amount = scaled(g, BONUS_POINTS * g.level);
       g.score += amount;
     }
   }
@@ -1015,6 +1263,7 @@ function collectBonus(g: GameState, n: NumberTile): void {
       c.ripple = 1;
       c.bump = 1;
     }
+    amount = scaled(g, amount);
     g.score += amount;
   }
   g.events.push({t: "bonus", kind, x: n.x, y: n.y, amount});
@@ -1075,6 +1324,8 @@ export function tapAt(g: GameState, x: number, y: number, skip?: Set<number>): b
       const mate = g.numbers.find((m) => m.id === id && m.state === "fall");
       if (mate && sendDown(g, mate, cur.id)) {
         mate.tilt = cur.tilt === 1 ? -1 : 1;
+        // (a number that hangs below the tapped one, on a vertical chain, does not wait for the chain to go taut: it falls ahead of it)
+        if (mate.y > cur.y + 20) mate.hang = null;
         queue.push(mate);
       }
     }
@@ -1203,7 +1454,7 @@ function land(g: GameState, c: Cup, n: NumberTile): void {
   else if (n.op === "dim") c.hidden = true;
   c.bump = 1;
   c.ripple = 1;
-  g.score += (n.op === "mul" ? n.v * 3 : n.op === "div" ? n.v * 2 : n.op === "zero" ? 2 : Math.abs(n.v)) * g.level * (c.kinds.includes("gold") ? GOLD_FACTOR : 1);
+  g.score += scaled(g, (n.op === "mul" ? n.v * 3 : n.op === "div" ? n.v * 2 : n.op === "zero" ? 2 : Math.abs(n.v)) * g.level * (c.kinds.includes("gold") ? GOLD_FACTOR : 1));
   let result: "levelUp" | "bust" | "none" = "none";
   // (a big cup has a margin: 10, 11 and 12 are all a perfect 10, and what is over stays in the cup)
   if (Math.abs(c.value) >= TARGET && Math.abs(c.value) <= cupLimit(c)) {
@@ -1225,11 +1476,15 @@ function land(g: GameState, c: Cup, n: NumberTile): void {
 }
 
 function levelUp(g: GameState, c: Cup): void {
+  const levelBefore = endlessLevel(g);
   g.level += 1;
+  // A new perfect 10 refills what had faded of the progress so far (the part of a cup that was gone, and the time starts over); a whole cup that has faded away stays gone.
+  g.drain -= g.drain % FADE_TICKS;
+  g.drainClock = 0;
   // A perfect 10 soon after the one before it builds a combo: the points of the perfect 10 go times 2, then times 3, and so on (and a combo is worth twice as much per step as an ordinary perfect 10).
   g.combo = g.comboTimer > 0 ? g.combo + 1 : 1;
   g.comboTimer = COMBO_SECONDS;
-  const bonus = (g.combo >= 2 ? COMBO_BONUS : 50) * g.level * g.combo * (c.kinds.includes("gold") ? GOLD_FACTOR : 1);
+  const bonus = scaled(g, (g.combo >= 2 ? COMBO_BONUS : 50) * g.level * g.combo * (c.kinds.includes("gold") ? GOLD_FACTOR : 1));
   g.score += bonus;
   if (g.combo >= 2 && g.mode !== "tutorial") g.events.push({t: "combo", n: g.combo, x: c.x, y: c.y - CUP_H / 2, bonus});
   // The cup starts over at 0 (the golden 10 stays on it for a moment).
@@ -1241,14 +1496,15 @@ function levelUp(g: GameState, c: Cup): void {
   c.flash = 1;
   // The big LEVEL banner is for the endless game, when a new level of it begins (every fifth cup). In the book
   // the progress bar shows how far you have come.
-  const newLevel = g.daily ? rungEnds(g.level - 1) : (g.level - 1) % ENDLESS_CUPS_PER_LEVEL === 0;
+  // (in the endless game: when the bar has been filled, what has faded counted off)
+  const newLevel = g.daily ? rungEnds(g.level - 1) : endlessLevel(g) > levelBefore;
   if (g.mode === "endless" && newLevel) {
     g.banner = 1.6;
-    giveScreens(g, 1); // (the whole bar is full: a new screen)
+    if (!g.variant) giveScreens(g, 1); // (the whole bar is full: a new screen)
     // What this level of the endless game brings in is made to fall a few seconds in.
-    planShowcase(g, FEATURES.filter((f) => ENDLESS_FEATURE_FROM[f] === endlessLevel(g)));
+    if (!g.variant) planShowcase(g, FEATURES.filter((f) => ENDLESS_FEATURE_FROM[f] === endlessLevel(g)));
   }
-  g.events.push({t: "levelUp", cupId: c.id, level: g.level});
+  g.events.push({t: "levelUp", cupId: c.id, level: g.level, done: progressOf(g)});
   // The daily challenge: every rung of the ladder that is climbed (5 cups, then 6, then 7 ...) gives a perk to choose, and the last one wins the day.
   if (g.daily && g.mode === "endless" && newLevel) {
     if (rungsDone(g.level - 1) >= DAILY_RUNGS) {
@@ -1260,9 +1516,10 @@ function levelUp(g: GameState, c: Cup): void {
       return;
     }
     offerPerks(g);
+    if (g.phase !== "perk") growCups(g); // (no perk to choose: the new cup comes at once)
   }
   // A level of the book is cleared when enough cups have reached 10.
-  if (g.level - 1 >= goalFor(g.mode, g.stage)) {
+  if ((g.level - 1) * FADE_TICKS - g.drain >= goalFor(g.mode, g.stage) * FADE_TICKS) {
     // A level cleared with three stars gives a pull-down screen (if there is room for one more).
     g.screenWon = isLevelMode(g.mode) && starsFor(g.mode, g.stage, g.score) === 3 && g.screens < SCREEN_MAX;
     if (g.screenWon) giveScreens(g, 1);
@@ -1297,6 +1554,7 @@ export function update(g: GameState, dt: number): void {
     return;
   }
   if (g.phase !== "play") return;
+  if (g.variant) g.variantTime += dt;
 
   // The time to make the next perfect 10 for the combo runs out (in real time, also while the numbers are slowed down).
   if (g.comboTimer > 0) {
@@ -1310,6 +1568,17 @@ export function update(g: GameState, dt: number): void {
   const sdt = paused ? 0 : g.slow > 0 ? dt * SLOW_FACTOR : dt;
   g.slow = Math.max(0, g.slow - dt);
   g.pause = Math.max(0, g.pause - dt);
+
+  // The progress fades with time (see fadeOn): a step off every so often, so that a whole perfect 10 is gone in 22 to 16 seconds (the slow motion
+  // slows it down, and the pause ball stops it).
+  if (fadeOn(g)) {
+    g.drainClock += sdt;
+    const step = fadeSeconds(g) / FADE_TICKS;
+    while (g.drainClock >= step) {
+      g.drainClock -= step;
+      g.drain = Math.min(fadeCap(g), g.drain + 1);
+    }
+  } else g.drainClock = 0;
 
   // The diamond at work: one number after the other is changed to an orange 10 or an orange 0 (the numbers wait where they are), and when it is
   // done the diamond is gone and everything carries on falling.
@@ -1357,7 +1626,7 @@ export function update(g: GameState, dt: number): void {
     // (nothing new comes while the screen is down)
     g.spawnTimer -= sdt;
     if (g.spawnTimer <= 0 && !paused) {
-      g.spawnTimer = spawnInterval(paceOf(g)) * stageSpawnFactor(g.stage) * (0.85 + g.rng() * 0.3);
+      g.spawnTimer = (spawnInterval(paceOf(g)) * stageSpawnFactor(g.stage) * (0.85 + g.rng() * 0.3)) / Math.max(0.3, 1 - SAUCER_EFFECT.sparse * (saucerStrength(g, "sparse") + perkCount(g, "sparse"))) / variantRate(g);
       spawn(g);
     }
     // Every now and then a bonus ball comes.

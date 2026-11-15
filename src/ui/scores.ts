@@ -1,4 +1,5 @@
-// The top list of the endless game (Firebase Firestore, one document per device in "highscores": its name and its best score).
+// The top lists of the endless game and of the match modes (Firebase Firestore, one document per device in "highscores" (the endless game), "highscores_save" and
+// "highscores_sixeight": its name and its best score).
 // No accounts; the rules (firestore.rules) let a device only add its own score and only raise it. Nothing here is loaded until it
 // is needed, and while the project is not connected (see firebaseConfig.ts) everything stays on the device.
 import {FIREBASE_CONFIG} from "./firebaseConfig";
@@ -16,7 +17,17 @@ export interface Board {
   rows: ScoreRow[];
 }
 
-export const board: Board = {status: FIREBASE_CONFIG ? "loading" : "off", rows: []};
+/** The games that have a top list: the endless game and the two match modes. */
+export type ScoreMode = "endless" | "save" | "sixeight";
+export const SCORE_MODES: readonly ScoreMode[] = ["endless", "save", "sixeight"];
+
+/** The collection of the database that holds the list of each. */
+export const COLLECTION: Record<ScoreMode, string> = {endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight"};
+
+const emptyBoard = (): Board => ({status: FIREBASE_CONFIG ? "loading" : "off", rows: []});
+export const boards: Record<ScoreMode, Board> = {endless: emptyBoard(), save: emptyBoard(), sixeight: emptyBoard()};
+/** The top list of the endless game. */
+export const board: Board = boards.endless;
 
 /** The most rows the top list shows. */
 export const TOP_ROWS = 10;
@@ -53,14 +64,14 @@ async function firestore() {
   return {fs, db: fs.getFirestore(app.getApps()[0] ?? app.initializeApp(FIREBASE_CONFIG))};
 }
 
-/** Sends this device's best score with its name: the score only ever goes up, the name can change. Never throws. */
-export async function submitScore(name: string, score: number): Promise<boolean> {
+/** Sends this device's best score of a game with its name: the score only ever goes up, the name can change. Never throws. */
+export async function submitScore(name: string, score: number, mode: ScoreMode = "endless"): Promise<boolean> {
   const clean = cleanName(name);
   if (!scoresEnabled() || !clean || score <= 0) return false;
   try {
     const {fs, db} = await firestore();
     const id = deviceId();
-    const ref = fs.doc(db, "highscores", id);
+    const ref = fs.doc(db, COLLECTION[mode], id);
     const snap = await fs.getDoc(ref);
     const before = snap.exists() ? Number(snap.data().score) || 0 : 0;
     if (snap.exists() && before >= score && snap.data().name === clean) return true;
@@ -71,20 +82,21 @@ export async function submitScore(name: string, score: number): Promise<boolean>
   }
 }
 
-/** Fetches the top list into `board` (the screen draws it from there). Never throws. */
-export async function loadBoard(): Promise<void> {
+/** Fetches the top list of a game into its board (the screen draws it from there). Never throws. */
+export async function loadBoard(mode: ScoreMode = "endless"): Promise<void> {
+  const bd = boards[mode];
   if (!scoresEnabled()) {
-    board.status = "off";
-    board.rows = [];
+    bd.status = "off";
+    bd.rows = [];
     return;
   }
-  board.status = "loading";
+  bd.status = "loading";
   try {
     const {fs, db} = await firestore();
-    const snap = await fs.getDocs(fs.query(fs.collection(db, "highscores"), fs.orderBy("score", "desc"), fs.limit(TOP_ROWS)));
-    board.rows = toRows(snap.docs.map((d) => d.data()));
-    board.status = "ok";
+    const snap = await fs.getDocs(fs.query(fs.collection(db, COLLECTION[mode]), fs.orderBy("score", "desc"), fs.limit(TOP_ROWS)));
+    bd.rows = toRows(snap.docs.map((d) => d.data()));
+    bd.status = "ok";
   } catch {
-    board.status = "error";
+    bd.status = "error";
   }
 }

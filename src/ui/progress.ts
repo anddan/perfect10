@@ -2,7 +2,7 @@
 // It lies under the cups, where it does not hide any of the numbers falling above them.
 import {W} from "../game/constants";
 import {rungOfCup} from "../game/daily";
-import {ENDLESS_CUPS_PER_LEVEL, goalFor} from "../game/engine";
+import {ENDLESS_CUPS_PER_LEVEL, FADE_TICKS, fadeCap, goalFor} from "../game/engine";
 import type {GameState} from "../game/types";
 
 /** Where the bar is (game units). */
@@ -34,10 +34,31 @@ export function segmentCenter(g: GameState, index: number, cupsDone: number = g.
   return {x: x0 + index * (segW + gap) + segW / 2, y: BAR.y + BAR.h / 2};
 }
 
-/** Which segment a cup that has just reached 10 fills, given the level the game is on now (it has gone up by one). */
-export function segmentFilledBy(g: GameState, levelNow: number): number {
+/**
+ * Which segment a cup that has just reached 10 fills, given the level the game is on now (it has gone up by one). `done` is how many cups count
+ * with what has faded taken off: the segment that is partly filled when the progress fades is the one that gets filled.
+ */
+export function segmentFilledBy(g: GameState, levelNow: number, done = levelNow - 1): number {
+  if (!g.daily) {
+    const seg = Math.max(0, Math.ceil(done - 1e-9) - 1);
+    return g.mode === "endless" ? seg % ENDLESS_CUPS_PER_LEVEL : Math.min(segmentCount(g) - 1, seg);
+  }
   if (g.daily) return rungOfCup(levelNow - 1).into - 1;
   return g.mode === "endless" ? (levelNow - 2) % ENDLESS_SEGMENTS : levelNow - 2;
+}
+
+/**
+ * How many cups the bar shows when the progress fades, with a fraction for the segment that is partly gone: `pending` is how many stars are still on
+ * their way, and `drain` what has faded so far (in twentieths of a cup, and it may be a fraction while it is shown fading away smoothly).
+ */
+export function shownProgress(g: GameState, pending: number, drain: number): number {
+  return Math.max(0, g.level - 1 - pending - Math.min(drain, fadeCap(g)) / FADE_TICKS);
+}
+
+/** In the endless game the bar holds five cups: how much of the bar is filled, with a bar that has just been filled still full. */
+export function barFill(g: GameState, progress: number): number {
+  if (g.mode !== "endless" || progress <= 0) return progress;
+  return progress - ENDLESS_CUPS_PER_LEVEL * (Math.ceil(progress / ENDLESS_CUPS_PER_LEVEL - 1e-9) - 1);
 }
 
 /** How many segments are lit, given how many cups are done (the endless game starts over after five, keeping a full bar until the next cup). */

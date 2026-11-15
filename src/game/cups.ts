@@ -6,7 +6,7 @@ import type {CupKind} from "./types";
 export const SHOP_CUPS: readonly Exclude<CupKind, "plain">[] = ["gold", "thermos", "magnet", "big", "laser"];
 
 /** What a cup costs in coins. */
-export const CUP_PRICE: Record<Exclude<CupKind, "plain">, number> = {gold: 150, thermos: 225, magnet: 375, big: 450, laser: 525};
+export const CUP_PRICE: Record<Exclude<CupKind, "plain">, number> = {gold: 225, thermos: 340, magnet: 565, big: 675, laser: 790};
 
 /** The gold cup counts every point that lands in it, and its perfect 10, this many times. */
 export const GOLD_FACTOR = 2;

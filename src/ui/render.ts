@@ -9,7 +9,7 @@ import {canContinue, endlessLevel, fadeOn, featureAge, ghostShow, goalFor, progr
 import type {Cup, Feature, GameState, NumberTile, PerkId} from "../game/types";
 import {type Room, roomOfMode} from "./background";
 import {drawAd} from "./ad";
-import {type Book, chapterOf, drawBook, openNextGame, roomOfPage} from "./book";
+import {type Book, chapterOf, drawBook, drawMenuBar, openNextGame, roomOfPage} from "./book";
 import {
   type Button,
   CHALK,
@@ -38,7 +38,7 @@ import {
   write,
 } from "./draw";
 import type {Fx} from "./fx";
-import {GEAR_BUTTON, PAUSE_BUTTON, drawKey, drawStart, drawCups, drawEnergy, drawEnergyPill, drawGear, drawPause, drawPauseIcon, drawScores, drawSettings} from "./settings";
+import {GEAR_BUTTON, PAUSE_BUTTON, drawCoinsPill, drawKey, drawStart, drawCups, drawEnergy, drawEnergyPill, drawGear, drawPause, drawPauseIcon, drawScores, drawSettings} from "./settings";
 import {deviceId, playerName} from "./profile";
 import {boards} from "./scores";
 import {type Key, t} from "./i18n";
@@ -1986,6 +1986,7 @@ export function drawGame(
     ctx.translate(0, -ui.lift);
     drawBook(ctx, book, g, g.time);
     ctx.restore();
+    drawMenuBar(ctx, book);
   } else {
     ctx.save();
     if (g.shake > 0) ctx.translate(Math.sin(g.time * 70) * 6 * g.shake, Math.cos(g.time * 55) * 4 * g.shake);
@@ -2034,7 +2035,7 @@ export function drawGame(
     // (the header of the book, the energy and the settings with the title between them, sits right above the book, and moves with it)
     ctx.save();
     ctx.translate(0, -ui.lift + ui.headerDy);
-    drawTopButtons(ctx, g);
+    drawCoinsPill(ctx, ui.coins);
     drawEnergyPill(ctx, ui.energyN, ui.energyNext, ui.premium, ui.headerRows === 2);
     ctx.restore();
   } else {

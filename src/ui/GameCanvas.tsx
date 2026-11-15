@@ -10,7 +10,7 @@ import type {Cup, Feature, Mode, Variant} from "../game/types";
 import {getVolumeStep, isMusicOn, isMuted, playBuy, playFadeGone, playGain, playClick, playEvent, playPageTurn, setMusicScene, stepVolume, toggleMusic, toggleMute, unlockAudio} from "./audio";
 import {AD_SECONDS} from "./ad";
 import {makeBackgrounds} from "./background";
-import {BUY_PAGE, DAILY_PAGE, PAGER, PAGES, SHOP_PAGE, beginDrag, createBook, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, openNextGame, pageOfMode, showPage, tabTarget, updateBook, variantOpen, MATCH_PAGES} from "./book";
+import {BUY_PAGE, DAILY_PAGE, PAGER, PAGES, SHOP_PAGE, beginDrag, createBook, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, currentPage, markScore, openNextGame, pageOfMode, showPage, subPages, tabTarget, updateBook, variantOpen, MATCH_PAGES} from "./book";
 import {hitTest, ui} from "./draw";
 import {type Lang, lang, setLang, t} from "./i18n";
 import {Fx} from "./fx";
@@ -270,8 +270,9 @@ export function GameCanvas() {
       } else saveStarted();
     }
     book.premium = premium;
-    // The app starts on the contents (the first page), like a menu: from there every page is a tap away, and it says which chapter you are on.
-    showPage(book, 0);
+    // The app starts on the page you are at: the tutorial until it has been cleared, then the chapter of the first level that has not been cleared yet,
+    // and the endless game when every level has been.
+    showPage(book, currentPage(book));
     let rooms = makeBackgrounds(1);
     let pxPerUnit = 1;
     /** The tone of the light the rooms were drawn with (see buildRooms). */
@@ -620,6 +621,13 @@ export function GameCanvas() {
 
     /** A button was pressed and let go. */
     const perform = (id: string) => {
+      // The pages of a group of the bar at the bottom are popped out: a tap on one of them goes there, a tap on the group closes the arc again,
+      // and a tap on anything else only closes it.
+      if (ui.barOpen >= 0 && !id.startsWith("tab:")) {
+        ui.barOpen = -1;
+        if (id.startsWith("sub:")) goToPage(book, Number(id.slice(4)), true);
+        return;
+      }
       if (id === "settings") {
         ui.settingsOpen = true;
       } else if (id === "settingsClose") {
@@ -647,6 +655,8 @@ export function GameCanvas() {
       } else if (id === "start:new") {
         ui.startOpen = false;
         saveStarted();
+        // The very first start: the tutorial begins at once (it costs no energy).
+        startRound("tutorial", 0);
       } else if (id === "set:sound") {
         toggleMute();
       } else if (id === "set:music") {
@@ -704,8 +714,15 @@ export function GameCanvas() {
         // The back cover: a box for writing a question, an idea or a problem.
         setFeedback({kind: "idea", text: "", state: "typing"});
       } else if (id.startsWith("tab:")) {
-        // A coloured tab on the edge of the book: to the page of its group.
-        goToPage(book, tabTarget(book, Number(id.slice(4))), true);
+        // A place on the bar at the bottom: the match modes and the shop pop out their pages in an arc (a second tap closes it), the others go to their page.
+        const group = Number(id.slice(4));
+        if (subPages(group).length > 0) {
+          ui.barOpen = ui.barOpen === group ? -1 : group;
+          ui.barOpenAt = performance.now() / 1000;
+        } else {
+          ui.barOpen = -1;
+          goToPage(book, tabTarget(book, group), true);
+        }
       } else if (id.startsWith("variant:")) {
         // A match mode is played (it has to be open: bought with coins, or Premium).
         const v = id.slice(8);
@@ -897,7 +914,9 @@ export function GameCanvas() {
         else playBuy();
       }
       // Turning a page of the book has its own sound (the page turning), so the buttons for it do not click as well.
-      if (id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id.startsWith("page:") && (!id.startsWith("toc:") || id === "toc:toggle")) playClick();
+      // (the bar at the bottom makes no sound of its own, nor do its arcs: a tap that goes to a page has the sound of the page turning, and nothing else)
+      const barQuiet = id === "barBackdrop" || id.startsWith("sub:") || id.startsWith("tab:");
+      if (!barQuiet && id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id.startsWith("page:") && !id.startsWith("toc:")) playClick();
     };
 
     const onDown = (e: PointerEvent) => {
@@ -931,7 +950,7 @@ export function GameCanvas() {
       if (g.phase === "menu" || id) {
         press = {id, x: p.x, y: p.y, moved: false, pointer: e.pointerId};
         // (the buttons for the next and the previous page do not start a drag: they would take hold of a page that is on its way)
-        if (g.phase === "menu" && id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id?.startsWith("page:") && !id?.startsWith("tab:")) beginDrag(book);
+        if (g.phase === "menu" && id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id?.startsWith("page:") && !id?.startsWith("tab:") && ui.barOpen < 0) beginDrag(book);
         canvas.setPointerCapture(e.pointerId);
         return;
       }

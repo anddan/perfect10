@@ -2,7 +2,7 @@
 // Page 1 is the tutorial, page 2 the plus levels (nine, three on every row), page 3 the plus and minus levels,
 // and the last page is the endless game. Every page of the book is in its own room (see background.ts).
 import {STREAK_DAYS, rungGoal, rungPayout, streakFactor} from "../game/daily";
-import {DAILY_RUNGS, SCREEN_MAX, W, STAGES} from "../game/constants";
+import {DAILY_RUNGS, H, SCREEN_MAX, W, STAGES} from "../game/constants";
 import {type StepDesign, designOfDay, drawGift, drawLimitLine, drawSteps, halfWidth, stepY} from "./stepsArt";
 import {CUP_PRICE, SHOP_CUPS} from "../game/cups";
 import {LOOK_KINDS, type LookKind, looksOf, lookKey} from "../game/looks";
@@ -10,7 +10,7 @@ import {CLOTH_PRICE, ENDLESS_COST, ENERGY_PRICE, MAX_COPIES, ONLINE_PRICE, VARIA
 import {SAUCERS, SAUCER_EFFECT, SAUCER_PRICE, SAUCER_SLOTS, type SaucerKind, isSaucer, saucerPower} from "../game/saucers";
 import {drawSaucerPlate} from "./saucerArt";
 import {ENERGY_MAX} from "./energy";
-import {ENERGY_PILL, GEAR_BUTTON} from "./settings";
+import {ENERGY_PILL, coinsPillBox, drawGear} from "./settings";
 import {COIN_PACKS, CURRENCY, PREMIUM} from "./purchase";
 import {goalFor, starsFor} from "../game/engine";
 import type {GameState, Mode, Variant} from "../game/types";
@@ -30,6 +30,7 @@ import {
   drawCoin,
   drawStar,
   drawButton,
+  drawWoodPill,
   logoTitleFit,
   registerHit,
   roundRect,
@@ -1039,7 +1040,7 @@ function drawLevelsPage(ctx: CanvasRenderingContext2D, b: Book, mode: ChapterMod
   }
   // At the bottom: what opens this chapter (if it is shut), or else what opens the next one (nothing is said in the last chapter).
   const hint = !isUnlocked(b, mode, 1) ? t("openChapter", {n: chapter - 1}) : chapter < CHAPTER_MODES.length ? t("openChapterNext", {n: chapter + 1}) : "";
-  if (hint) write(ctx, hint, w / 2, 497, 14, "#5b4a36", "center", 600);
+  if (hint) write(ctx, hint, w / 2, BOOK.h - 17, 14, "#5b4a36", "center", 600);
 }
 
 /** What the way up is called in each shape ("The ladder", "The mountain" and so on): it is the title of the page of the daily challenge. */
@@ -1113,6 +1114,8 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
   const x = 22;
   const rw = w - 44;
   const top = 140;
+  // (the list ends here, over the button for the settings at the bottom of the page)
+  const listEnd = BOOK.h - 54;
   // The rows are always the same distance apart, also when the lists are opened: if they do not all fit, the list scrolls (drag it up and down, or use the wheel).
   const pitch = 34;
   const rowH = Math.min(27, pitch - 3);
@@ -1136,12 +1139,12 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
     return top + k * pitch + extra;
   };
   const contentH = yOfRow(rows.length - 1) + rowH - top;
-  ui.tocMax = Math.max(0, Math.ceil(contentH - (500 - top) + 4));
+  ui.tocMax = Math.max(0, Math.ceil(contentH - (listEnd - top) + 4));
   ui.tocScroll = Math.min(ui.tocMax, Math.max(0, ui.tocScroll));
   ctx.save();
   if (ui.tocMax > 0) {
     ctx.beginPath();
-    ctx.rect(0, top - 3, w, 500 - top + 6);
+    ctx.rect(0, top - 3, w, listEnd - top + 6);
     ctx.clip();
   }
   ctx.translate(0, -ui.tocScroll);
@@ -1158,7 +1161,7 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
   rows.forEach((row, k) => {
     const y0 = yOfRow(k);
     // (a row that is scrolled out of sight is not drawn, and cannot be pressed)
-    if (y0 - ui.tocScroll < top - rowH || y0 - ui.tocScroll > 506) return;
+    if (y0 - ui.tocScroll < top - rowH || y0 - ui.tocScroll > listEnd + 6) return;
     if (row === "toggle" || row === "modes") {
       // A flat little line: "show all chapters" with a chevron that points down, or "only mine" with one that points up (and the same for the match modes).
       const isModes = row === "modes";
@@ -1240,7 +1243,7 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
   ctx.restore();
   // A thin bar at the right edge shows that the list goes on, and where in it the page is.
   if (ui.tocMax > 0) {
-    const track = 500 - top;
+    const track = listEnd - top;
     const thumb = Math.max(28, (track * track) / contentH);
     const ty = top + (ui.tocScroll / ui.tocMax) * (track - thumb);
     ctx.fillStyle = "rgba(90,60,25,0.12)";
@@ -1250,6 +1253,21 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
     roundRect(ctx, w - 15, ty, 4, thumb, 2);
     ctx.fill();
   }
+  // The settings (they used to be a gear at the top of the screen): a button at the bottom of the contents, with a gear in front of its name.
+  const word = t("settings");
+  ctx.font = `700 14px ${FONT}`;
+  const gear = 22;
+  const wordW = ctx.measureText(word).width;
+  const btnW = Math.max(150, Math.ceil(gear + 8 + wordW) + 44);
+  drawWoodPill(ctx, "settings", {x: w / 2 - btnW / 2, y: BOOK.h - 42, w: btnW, h: 30}, (c, cx, cy) => {
+    const left = cx - (gear + 8 + wordW) / 2;
+    c.save();
+    c.translate(left + gear / 2, cy);
+    c.scale(0.9, 0.9);
+    drawGear(c, 0, 0, "#ffffff");
+    c.restore();
+    text(c, word, left + gear + 8, cy + 1, 14, "#ffffff", "left", "rgba(40,25,5,0.85)");
+  });
 }
 
 function drawEndlessPage(ctx: CanvasRenderingContext2D, b: Book, time: number): void {
@@ -1489,14 +1507,23 @@ function flourish(ctx: CanvasRenderingContext2D, cx: number, y: number, half: nu
   ctx.fill();
 }
 
-/** The coins of the wallet, as a pill in the top right corner of a page. */
-function coinPill(ctx: CanvasRenderingContext2D, coins: number): void {
-  cornerPill(ctx, "right", String(coins), (x, y) => drawCoin(ctx, x, y, 8.5), "coins");
+/** The number of the page (for instance 15/16), as a pill in the top left corner of a page. */
+function pagePill(ctx: CanvasRenderingContext2D, index: number): void {
+  const label = `${index + 1}/${BUY_PAGE + 1}`;
+  ctx.font = `700 15px ${FONT}`;
+  const pw = ctx.measureText(label).width + 26;
+  ctx.fillStyle = "rgba(90,60,25,0.13)";
+  roundRect(ctx, 14, 10, pw, 26, 13);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(90,60,25,0.25)";
+  ctx.stroke();
+  write(ctx, label, 14 + pw / 2, 24, 15, "#5b4a36", "center", 700);
 }
 
-/** The stars (for instance 16/32), as a pill in the top left corner of a page: the same pill as the coins, on the other side. */
+/** The stars (for instance 16/32), as a pill in the top right corner of a page. */
 function starPill(ctx: CanvasRenderingContext2D, label: string): void {
-  cornerPill(ctx, "left", label, (x, y) => drawStar(ctx, x, y, 8.5, true, true, true));
+  cornerPill(ctx, "right", label, (x, y) => drawStar(ctx, x, y, 8.5, true, true, true));
 }
 
 /** A pill in a top corner of a page: the number first, and its little picture after it. (`hit`: the button it is, if it is one.) */
@@ -1581,7 +1608,8 @@ function tabBar(ctx: CanvasRenderingContext2D, labels: string[], active: number,
 /** The shop: two tabs, the cups with powers (and the cloth) and the energy (with the continue token). */
 function drawShopPage(ctx: CanvasRenderingContext2D): void {
   pageHead(ctx, t("shopLabel"), t("shop"), "#a86b10", ui.shopTab === 0 ? t("shopSub") : ui.shopTab === 1 ? t("saucerSub") : t("suppliesSub"));
-  if (ui.shopTab === 0) drawButton(ctx, "cups:open", {x: 14, y: 8, w: 104, h: 28}, t("cupsBtn"), "secondary", {size: 14});
+  // (the button for the cups is in the top right corner: the number of the page is in the top left one)
+  if (ui.shopTab === 0) drawButton(ctx, "cups:open", {x: BOOK.w - 14 - 104, y: 8, w: 104, h: 28}, t("cupsBtn"), "secondary", {size: 14});
   tabBar(ctx, [t("shopTab0"), t("shopTab2"), t("shopTab1")], ui.shopTab, "shop:tab", 134);
   if (ui.shopTab === 0) drawShopCups(ctx);
   else if (ui.shopTab === 1) drawShopSaucers(ctx);
@@ -2288,8 +2316,8 @@ function paintPage(ctx: CanvasRenderingContext2D, index: number, b: Book, _g: Ga
   else if (mode === "online") drawOnlinePage(ctx, b, time);
   else if (isChapter(mode)) drawLevelsPage(ctx, b, mode);
   else drawEndlessPage(ctx, b, time);
-  // The coins are always in the top right corner (and, where there are stars to count, they are in the top left one).
-  coinPill(ctx, ui.coins);
+  // The number of the page is always in the top left corner (and, where there are stars to count, they are in the top right one).
+  pagePill(ctx, index);
   drawTopTag(ctx, index);
   ctx.restore();
 }
@@ -2391,7 +2419,7 @@ interface GroupColor {
 export const TAB_GROUPS: {id: string; color: GroupColor; icon: string}[] = [
   {id: "toc", color: {light: "#c79a63", mid: "#9a6a37", deep: "#7d5328", edge: "#4e3216", ink: "#fff6e6"}, icon: "M3 11.5L12 4l9 7.5M5.5 10v9.5h4.5v-5h4v5h4.5V10"},
   {id: "today", color: {light: "#ffc66b", mid: "#f09a27", deep: "#d27d10", edge: "#7a4a08", ink: "#4a2a05"}, icon: "M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"},
-  {id: "chapters", color: {light: "#7fdc9b", mid: "#36ad5b", deep: "#2a8f49", edge: "#14582b", ink: "#06361a"}, icon: "M12 6v12M6 12h12"},
+  {id: "chapters", color: {light: "#7fdc9b", mid: "#36ad5b", deep: "#2a8f49", edge: "#14582b", ink: "#06361a"}, icon: "M7 21V4M7 5h11l-2.5 3.8 2.5 3.7H7"},
   {id: "match", color: {light: "#8fc6ff", mid: "#3f86e0", deep: "#2f6cc0", edge: "#163e7c", ink: "#06233f"}, icon: "M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 20h8"},
   {id: "shop", color: {light: "#c9a4f2", mid: "#8a5cc8", deep: "#6f46aa", edge: "#3e2468", ink: "#ffffff"}, icon: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 8v8M9 12h6"},
 ];
@@ -2422,60 +2450,249 @@ export function tabTarget(b: Book, group: number): number {
   return SHOP_PAGE;
 }
 
-/** The tabs on the right edge of the book: where the first one is, how tall each is, and how far apart. */
-const TAB = {y: BOOK.y + 50, h: 50, pitch: 56, w: 22, wOn: 32};
+/** The bar at the bottom of the screen (like the one in Forza Manager): how tall it is, and the round button in the middle that sticks up over its top edge. */
+export const BAR = {h: 64, round: 26, rise: 14, side: 64};
+
+/**
+ * The groups in the order they have on the bar, left to right. The one in the middle is the big round one: the Levels until every level of the book
+ * has been cleared, and the Match modes after that (then the Levels move over to its place).
+ */
+export function barOrder(b: Book): number[] {
+  const done = CHAPTER_MODES.every((m) => chapterCleared(b, m));
+  return done ? [0, 1, 3, 2, 4] : [0, 1, 2, 3, 4];
+}
 
 /** The short word of each group, written on the tag at the top of its pages: in the order of TAB_GROUPS. */
 const TAB_LABEL: Key[] = ["tabToc", "tabToday", "tabChapters", "tabMatch", "tabShop"];
 
-/** The coloured tabs on the right edge, one for each group of pages: the one the book is open at sticks out further and is brighter. A tap goes to the group. */
-function drawTabs(ctx: CanvasRenderingContext2D, b: Book): void {
+/** The pages a group of the bar pops out when it is tapped (only the match modes and the shop do: the others go straight to their page). */
+export function subPages(group: number): number[] {
+  if (group === 3) return MATCH_PAGES.map((p) => PAGES.indexOf(p));
+  if (group === 4) return [SHOP_PAGE, PAGES.indexOf("looks"), BUY_PAGE];
+  return [];
+}
+
+/** The sign of a page in the arc over the bar (lines in a 24 by 24 square, like the signs of the groups). */
+const SUB_ICON: Partial<Record<Page, string>> = {
+  endless: "M12 12c-1.5-2.5-3-4-5-4a4 4 0 0 0 0 8c2 0 3.5-1.5 5-4zm0 0c1.5 2.5 3 4 5 4a4 4 0 0 0 0-8c-2 0-3.5 1.5-5 4z",
+  save: "M5 5h11v7a5.5 5.5 0 0 1-11 0zM16 7h2.5a2.5 2.5 0 0 1 0 5H16M6 20.5h10",
+  sixeight: "M4 12h16M12 6.2v.1M12 17.8v.1",
+  online: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3.2 3 3.2 15 0 18M12 3c-3.2 3-3.2 15 0 18",
+  shop: "M5 8h14l-1 12H6zM9 8V6.5a3 3 0 0 1 6 0V8",
+  looks: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 16.5v3M17 18h3",
+  buy: "M3 7h18v11H3zM3 11h18M7 15h4",
+};
+
+/** Whether a page of the arc is shut (the match modes that have not been opened yet). */
+function subLocked(b: Book, page: Page): boolean {
+  if (page === "endless") return !isUnlocked(b, "endless", 0);
+  if (page === "save" || page === "sixeight" || page === "online") return !variantOpen(b, page);
+  return false;
+}
+
+/** Draws the sign of a group (the same lines as the tab used to have) with its centre at cx, cy, size px high. */
+function drawBarSign(ctx: CanvasRenderingContext2D, grp: (typeof TAB_GROUPS)[number], cx: number, cy: number, size: number, ink: string): void {
+  const k = size / 24;
+  ctx.save();
+  ctx.translate(cx - 12 * k, cy - 12 * k);
+  ctx.scale(k, k);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 2.2;
+  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  ctx.translate(0, 1);
+  ctx.stroke(new Path2D(grp.icon));
+  ctx.translate(0, -1);
+  ctx.strokeStyle = ink;
+  ctx.stroke(new Path2D(grp.icon));
+  ctx.restore();
+}
+
+/**
+ * The bar along the bottom edge of the screen, one place for each group of pages: the one the book is open at is lit in the colour of its group, and the one
+ * in the middle is a big round button. A tap goes to the group. (It is drawn in the game's own coordinates, with the bottom of the screen at y = 640.)
+ */
+export function drawMenuBar(ctx: CanvasRenderingContext2D, b: Book): void {
   const here = ui.scrubAmt > 0.02 ? b.target : Math.round(b.pos);
-  const active = PAGES[here] === "back" ? -1 : groupOfPage(here); // (no tab is open at the back cover)
-  TAB_GROUPS.forEach((grp, k) => {
-    const on = k === active;
-    const wk = on ? TAB.wOn : TAB.w;
-    const x = W - wk;
-    const y = TAB.y + k * TAB.pitch;
+  const active = PAGES[here] === "back" ? -1 : groupOfPage(here); // (nothing is lit at the back cover)
+  const top = H - BAR.h;
+  const order = barOrder(b);
+  const open = ui.barOpen >= 0 && subPages(ui.barOpen).length > 0 ? ui.barOpen : -1;
+  if (open >= 0) {
+    // (everything over the bar is dimmed, and a tap anywhere on it closes the arc)
+    ctx.fillStyle = "rgba(6,3,1,0.62)";
+    ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+    registerHit(ctx, "barBackdrop", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
+  }
+  // The bar itself: dark wood, rounded at the top, with a light line along its top edge and a shadow up over the table.
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.beginPath();
+  ctx.roundRect(0, top - 5, W, BAR.h + 5, [20, 20, 0, 0]);
+  ctx.fill();
+  const wood = ctx.createLinearGradient(0, top, 0, H);
+  wood.addColorStop(0, "#3a2616");
+  wood.addColorStop(1, "#22150b");
+  ctx.fillStyle = wood;
+  ctx.beginPath();
+  ctx.roundRect(0, top, W, BAR.h + 40, [20, 20, 0, 0]);
+  ctx.fill();
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = "rgba(255,213,74,0.35)";
+  ctx.stroke();
+  registerHit(ctx, "menuBar", {x: 0, y: top - BAR.rise, w: W, h: BAR.h + BAR.rise + 40});
+  ctx.restore();
+
+  // The places: two on each side and the round one in the middle (the sides share what is left of the width).
+  const mid = order.length >> 1;
+  const sideW = (W - 12 - BAR.side) / (order.length - 1);
+  const centreOf = (slot: number): number => (slot === mid ? W / 2 : slot < mid ? 6 + sideW * (slot + 0.5) : W - 6 - sideW * (order.length - slot - 0.5));
+  order.forEach((group, slot) => {
+    const grp = TAB_GROUPS[group];
     const c = grp.color;
-    registerHit(ctx, `tab:${k}`, {x: x - 2, y, w: wk + 2, h: TAB.h});
+    const on = group === active || group === open;
+    const cx = centreOf(slot);
+    const isMid = slot === mid;
+    const w = isMid ? BAR.side : sideW;
+    registerHit(ctx, `tab:${group}`, {x: cx - w / 2, y: top - (isMid ? BAR.rise : 0), w, h: BAR.h + (isMid ? BAR.rise : 0)});
+    const word = t(TAB_LABEL[group]);
+    if (isMid) {
+      // The big round button: in the colour of its group, sticking up over the edge of the bar, with a dark ring round it.
+      const cy = top + 12;
+      const r = BAR.round;
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.beginPath();
+      ctx.arc(cx, cy + 3, r + 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#22150b";
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+      ctx.fill();
+      const fill = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.4, 2, cx, cy, r);
+      fill.addColorStop(0, c.light);
+      fill.addColorStop(0.6, c.mid);
+      fill.addColorStop(1, c.deep);
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = on ? 3 : 1.6;
+      ctx.strokeStyle = on ? "#ffffff" : c.edge;
+      ctx.stroke();
+      ctx.restore();
+      drawBarSign(ctx, grp, cx, cy, 28, "#ffffff");
+      write(ctx, word, cx, top + 49, 10.5, on ? c.light : "#f3ecdd", "center", 700);
+      return;
+    }
+    const cy = top + 22;
+    const ink = on ? c.light : "rgba(243,236,221,0.72)";
+    if (on) {
+      // (the one that is open: a short bar in its colour along the top edge of the bar)
+      ctx.fillStyle = c.mid;
+      ctx.beginPath();
+      ctx.roundRect(cx - 14, top - 1, 28, 3.4, [0, 0, 3, 3]);
+      ctx.fill();
+    }
+    drawBarSign(ctx, grp, cx, cy, 24, ink);
+    write(ctx, word, cx, top + 49, 10.5, ink, "center", on ? 700 : 600);
+    // A marker on Today while the daily challenge has not been started today (green, with a play triangle, like the button for the free coins in the shop).
+    if (group === 1 && !ui.dailyUsed) drawMarker(ctx, cx + 13, cy - 11);
+  });
+  if (open >= 0) drawArc(ctx, b, open, top, here);
+}
+
+/** A little round marker: green, with a white play triangle (something is waiting to be done). */
+function drawMarker(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  ctx.beginPath();
+  ctx.arc(x, y + 1.5, 8.5, 0, Math.PI * 2);
+  ctx.fill();
+  const fill = ctx.createLinearGradient(0, y - 8, 0, y + 8);
+  fill.addColorStop(0, "#8cf0a8");
+  fill.addColorStop(1, "#25b457");
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(x, y, 8.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = "#0f6a30";
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(x - 2.6, y - 4);
+  ctx.lineTo(x - 2.6, y + 4);
+  ctx.lineTo(x + 4, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * The pages of a group, popped out in an arc over the middle of the bar (like in Forza Manager): a round button with a sign for each, and its name under it.
+ * They pop out one after the other. The page the book is open at is lit in the colour of the group. A tap goes to the page.
+ */
+function drawArc(ctx: CanvasRenderingContext2D, b: Book, group: number, top: number, here: number): void {
+  const pages = subPages(group);
+  const c = TAB_GROUPS[group].color;
+  const px = W / 2;
+  const py = top + 4;
+  const radius = 130;
+  const step = 36;
+  const age = performance.now() / 1000 - ui.barOpenAt;
+  pages.forEach((index, k) => {
+    const page = PAGES[index];
+    const a = ((k - (pages.length - 1) / 2) * step * Math.PI) / 180;
+    const p = Math.min(1, Math.max(0, (age - k * 0.035) / 0.22));
+    const back = p - 1;
+    const pop = p >= 1 ? 1 : 1 + 2.70158 * back * back * back + 1.70158 * back * back; // (it overshoots a little, and settles)
+    const spread = Math.min(1, p * 1.4);
+    const x = px + Math.sin(a) * radius * spread;
+    const y = py - Math.cos(a) * radius * spread;
+    const r = 28 * Math.max(0.01, pop);
+    const lit = index === here;
+    const locked = subLocked(b, page);
+    registerHit(ctx, `sub:${index}`, {x: x - 34, y: y - 34, w: 68, h: 82});
     ctx.save();
-    ctx.globalAlpha = on ? 1 : 0.88;
-    // The shadow it throws to the left, the tab itself (rounded on the left), its edge and the light along its top.
-    ctx.fillStyle = "rgba(0,0,0,0.36)";
+    ctx.globalAlpha = p * (locked ? 0.6 : 1);
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
     ctx.beginPath();
-    ctx.roundRect(x - 2.5, y + 3, wk + 6, TAB.h, [11, 0, 0, 11]);
+    ctx.arc(x, y + 3, r, 0, Math.PI * 2);
     ctx.fill();
-    const fill = ctx.createLinearGradient(0, y, 0, y + TAB.h);
-    fill.addColorStop(0, c.light);
-    fill.addColorStop(0.55, c.mid);
-    fill.addColorStop(1, c.deep);
+    const fill = ctx.createLinearGradient(0, y - r, 0, y + r);
+    fill.addColorStop(0, lit ? c.light : "#5a3d27");
+    fill.addColorStop(1, lit ? c.deep : "#2c1c10");
     ctx.fillStyle = fill;
     ctx.beginPath();
-    ctx.roundRect(x, y, wk + 6, TAB.h, [11, 0, 0, 11]);
+    ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.lineWidth = 1.6;
-    ctx.strokeStyle = c.edge;
+    ctx.lineWidth = lit ? 3 : 1.6;
+    ctx.strokeStyle = lit ? "#ffffff" : c.mid;
     ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.55)";
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(x + 11, y + 1.8);
-    ctx.lineTo(W, y + 1.8);
-    ctx.stroke();
-    // The sign, in white.
-    const s = on ? 0.82 : 0.6;
-    ctx.translate(x + (wk - 24 * s) / 2 + 1, y + (TAB.h - 24 * s) / 2);
-    ctx.scale(s, s);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 2.2;
-    ctx.strokeStyle = "rgba(0,0,0,0.4)";
-    ctx.translate(0, 1);
-    ctx.stroke(new Path2D(grp.icon));
-    ctx.translate(0, -1);
-    ctx.strokeStyle = "#ffffff";
-    ctx.stroke(new Path2D(grp.icon));
+    const icon = SUB_ICON[page];
+    if (icon) {
+      ctx.translate(x - 12 * pop, y - 12 * pop);
+      ctx.scale(pop, pop);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = "rgba(0,0,0,0.4)";
+      ctx.translate(0, 1);
+      ctx.stroke(new Path2D(icon));
+      ctx.translate(0, -1);
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke(new Path2D(icon));
+    }
+    ctx.restore();
+    // The name under the button (made smaller if it is long, so that it stays clear of the next one).
+    ctx.save();
+    ctx.globalAlpha = p * (locked ? 0.7 : 1);
+    const name = pageName(page);
+    ctx.font = `700 11px ${FONT}`;
+    const size = Math.min(11, (11 * 66) / Math.max(1, ctx.measureText(name).width));
+    write(ctx, name, x, y + r + 11, size, "rgba(0,0,0,0.6)", "center", 700);
+    write(ctx, name, x, y + r + 10, size, lit ? c.light : "#fff6e6", "center", 700);
     ctx.restore();
   });
 }
@@ -2500,7 +2717,11 @@ function endChevron(ctx: CanvasRenderingContext2D, x: number, y: number, dir: 1 
   ctx.stroke();
 }
 
+/** Whether the grey buttons and the page numbers under the book are shown (they are hidden: the bar at the bottom and the contents go to the pages, and a swipe turns them). */
+const SHOW_PAGER = false;
+
 function drawNav(ctx: CanvasRenderingContext2D, b: Book): void {
+  if (!SHOW_PAGER) return;
   // (the same grey button on both sides: the ones for the first and the previous page, and for the next and the last)
   if (b.target > 0) {
     drawButton(ctx, "first", FIRST_BUTTON, "", "round", {draw: (c, cx, cy, ink) => endChevron(c, cx, cy, -1, ink)});
@@ -2604,7 +2825,7 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
   } else {
     // Tight: the title fills what there is between the energy and the gear, as big as it fits.
     const gapL = ENERGY_PILL.x + ENERGY_PILL.w + 6;
-    const gapR = GEAR_BUTTON.x - 6;
+    const gapR = coinsPillBox(ctx, ui.coins).x - 6;
     logoTitleFit(ctx, "PERFECT 10", (gapL + gapR) / 2, 22 + ui.titleDy, gapR - gapL, 44);
   }
 
@@ -2682,5 +2903,4 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
   if (!turning) drawSpiral(ctx, x, y);
 
   drawNav(ctx, b);
-  drawTabs(ctx, b);
 }

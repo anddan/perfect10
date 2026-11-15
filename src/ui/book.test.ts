@@ -4,7 +4,7 @@ import type {Mode} from "../game/types";
 import {DAILY_PAGE, MATCH_PAGES, PAGES, SHOP_PAGE, STARS_FOR_VARIANT, TAB_GROUPS, type Page, groupOfPage, tabTarget, variantOpen} from "./book";
 import {ui} from "./draw";
 import {DESIGNS, designOfDay, halfWidth} from "./stepsArt";
-import {CHAPTER_MODES, CHAPTER_STARS, STARS_FOR_ENDLESS, type Book, chapterCleared, chapterOf, chapterStars, createBook, currentPage, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, nextGame, openNextGame, pageOfMode, totalStars, updateBook} from "./book";
+import {CHAPTER_MODES, CHAPTER_STARS, STARS_FOR_ENDLESS, type Book, chapterCleared, barOrder, subPages, chapterOf, chapterStars, createBook, currentPage, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, nextGame, openNextGame, pageOfMode, totalStars, updateBook} from "./book";
 
 /** Clears every level of a chapter with three stars (a lot of points). */
 function clearWithThreeStars(b: Book, mode: Mode): void {
@@ -243,6 +243,21 @@ describe("which levels are open", () => {
     expect(tabTarget(b, 3)).toBe(PAGES.indexOf("sixeight"));
     expect(tabTarget(b, 4)).toBe(SHOP_PAGE);
     ui.lastMatch = "endless";
+  });
+
+  it("puts the Levels in the middle of the bar at the bottom until every level is cleared, and the Match modes there after that", () => {
+    const b = createBook();
+    expect(barOrder(b)).toEqual([0, 1, 2, 3, 4]);
+    for (const mode of CHAPTER_MODES.slice(0, -1)) for (let s = 1; s <= 12; s++) markCleared(b, mode, s);
+    expect(barOrder(b)).toEqual([0, 1, 2, 3, 4]); // (the last chapter is not done yet)
+    for (let s = 1; s <= 12; s++) markCleared(b, "space", s);
+    expect(barOrder(b)).toEqual([0, 1, 3, 2, 4]);
+  });
+
+  it("pops out the match modes and the shop pages from the bar, and goes straight to the page for the others", () => {
+    expect(subPages(3).map((i) => PAGES[i])).toEqual(["endless", "save", "sixeight", "online"]);
+    expect(subPages(4).map((i) => PAGES[i])).toEqual(["shop", "looks", "buy"]);
+    expect([0, 1, 2].map((g) => subPages(g).length)).toEqual([0, 0, 0]);
   });
 
   it("numbers the chapters 1 to 6, with minus after plus and the space chapter last", () => {

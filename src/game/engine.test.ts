@@ -3899,6 +3899,26 @@ describe("the match modes: Save the cup and 6 or 8", () => {
     expect(numbers.every((n) => n.bonus === null)).toBe(true);
   });
 
+  it("Save the cup: no steel numbers in its first three levels, and some 1s are steel (cannot be tapped) after that", () => {
+    const early = started("save");
+    expect(seen(early, 80).some((n) => n.op === "steel")).toBe(false);
+    const later = started("save");
+    later.level = 16; // (15 cups done: the fourth level)
+    expect(endlessLevel(later)).toBe(4);
+    const numbers = seen(later, 60);
+    const steel = numbers.filter((n) => n.op === "steel");
+    expect(steel.length).toBeGreaterThan(0);
+    expect(numbers.every((n) => n.v === 1)).toBe(true);
+  });
+
+  it("6 or 8: half of the numbers divide by 2", () => {
+    const numbers = seen(started("sixeight"), 90);
+    expect(numbers.length).toBeGreaterThan(15);
+    const share = numbers.filter((n) => n.op === "div").length / numbers.length;
+    expect(share).toBeGreaterThan(0.3);
+    expect(share).toBeLessThan(0.7);
+  });
+
   it("6 or 8: 8 divided by 2 is 4 and 4 and 6 make 10", () => {
     const g = started("sixeight");
     g.spawnTimer = 1e9;

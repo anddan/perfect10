@@ -1078,16 +1078,20 @@ function spawnHangingPair(g: GameState, col: number): void {
 
 /**
  * The numbers of a match mode: Save the cup has only 1s in any column (a 1 over the dead cup cannot be saved by a tap: the dead cup has to be moved away, by dragging
- * it to swap places with another cup), and 6 or 8 only 6s, 8s and numbers that divide by 2 (7 in ten are 6 or 8, the rest divide).
+ * it to swap places with another cup), and after its third level some of them are steel (which cannot be tapped at all). 6 or 8 has only 6s, 8s and halves
+ * (a "divided by 2": half of the numbers that fall, one in four is a 6 and one in four an 8).
  */
+const SAVE_STEEL_FROM = 4;
 function spawnVariant(g: GameState, free: number[]): void {
   let col = free[Math.floor(g.rng() * free.length)];
   if (g.variant === "save") {
-    g.numbers.push(newNumber(g, col, g.cols[col], 1));
+    const level = endlessLevel(g);
+    const steel = level >= SAVE_STEEL_FROM && g.rng() < Math.min(0.2, 0.1 + 0.02 * (level - SAVE_STEEL_FROM));
+    g.numbers.push(newNumber(g, col, g.cols[col], 1, steel ? "steel" : "add"));
     return;
   }
   const r = g.rng();
-  if (r < 0.7) g.numbers.push(newNumber(g, col, g.cols[col], r < 0.35 ? 6 : 8));
+  if (r < 0.5) g.numbers.push(newNumber(g, col, g.cols[col], r < 0.25 ? 6 : 8));
   else g.numbers.push(newNumber(g, col, g.cols[col], 2, "div"));
 }
 

@@ -326,6 +326,9 @@ export const ui = {
   modes: [] as string[],
   bests: {endless: 0, save: 0, sixeight: 0} as Record<string, number>,
   modesOpen: false,
+  /** The group of the bar at the bottom whose pages are popped out in an arc over it (-1 when none is), and when (performance.now in seconds) it was opened. */
+  barOpen: -1,
+  barOpenAt: 0,
   /** The match mode page that was visited last: the contents shows it, with the line that opens all the match modes under it. */
   lastMatch: "endless" as string,
   /** Whether a match mode page has been visited at all (only then does the contents say "last" on it). */
@@ -380,6 +383,31 @@ export function hitTest(x: number, y: number): string | null {
     if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return id;
   }
   return null;
+}
+
+/**
+ * A pill of dark wood with a thin gold edge, the same as the bar along the bottom of the screen (the keys and the coins in the header of the book).
+ * `id`: the button it is (null if it is only to look at). `content` draws what is on it, round the middle of the pill.
+ */
+export function drawWoodPill(ctx: CanvasRenderingContext2D, id: string | null, b: Button, content: (ctx: CanvasRenderingContext2D, cx: number, cy: number) => void): void {
+  if (id) registerHit(ctx, id, b);
+  ctx.save();
+  if (id && ui.pressed === id) ctx.translate(0, 1.5);
+  const r = b.h / 2;
+  ctx.fillStyle = "rgba(0,0,0,0.38)";
+  roundRect(ctx, b.x, b.y + 2.5, b.w, b.h, r);
+  ctx.fill();
+  const wood = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
+  wood.addColorStop(0, "#3a2616");
+  wood.addColorStop(1, "#22150b");
+  ctx.fillStyle = wood;
+  roundRect(ctx, b.x, b.y, b.w, b.h, r);
+  ctx.fill();
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = "rgba(255,213,74,0.35)";
+  ctx.stroke();
+  content(ctx, b.x + b.w / 2, b.y + b.h / 2);
+  ctx.restore();
 }
 
 export type ButtonKind = "primary" | "secondary" | "round" | "green" | "blue";

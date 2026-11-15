@@ -1,7 +1,7 @@
 // The settings page: a gear in the corner opens it over whatever is on the screen. Sound, language, the presentations of
 // new things, and the button for the one who makes the game that opens every level.
 import {H, W} from "../game/constants";
-import {CHALK, FONT, GOLD, TAU, type Button, drawButton, drawCoin, drawFlag, logoTitle, wrapLines, drawPanel, drawRibbon, registerHit, roundRect, text, ui, write} from "./draw";
+import {CHALK, FONT, GOLD, TAU, type Button, drawButton, drawCoin, drawWoodPill, drawFlag, logoTitle, wrapLines, drawPanel, drawRibbon, registerHit, roundRect, text, ui, write} from "./draw";
 import {LANGS, LANG_NAMES, lang, t} from "./i18n";
 import {type Board} from "./scores";
 import {VOLUME_STEPS} from "./audio";
@@ -14,6 +14,22 @@ export const ENERGY_PILL: Button = {x: 14, y: 6, w: 68, h: 30};
 
 /** The gear that opens the settings. */
 export const GEAR_BUTTON: Button = {x: 308, y: 3, w: 38, h: 38};
+
+/** The coins in the top right corner of the header of the book (where the gear used to be): a pill that is as wide as the number needs. */
+export function coinsPillBox(ctx: CanvasRenderingContext2D, coins: number): Button {
+  ctx.font = `700 17px ${FONT}`;
+  const w = Math.max(68, Math.ceil(ctx.measureText(String(coins)).width) + 50);
+  return {x: 346 - w, y: 6, w, h: 30};
+}
+
+/** The coins, as a wood pill like the one for the keys on the other side (a tap goes to the shop). */
+export function drawCoinsPill(ctx: CanvasRenderingContext2D, coins: number): void {
+  const b = coinsPillBox(ctx, coins);
+  drawWoodPill(ctx, "coins", b, (c, _cx, cy) => {
+    drawCoin(c, b.x + 17, cy, 9);
+    text(c, String(coins), b.x + b.w - 12, cy + 1, 17, "#ffffff", "right", "rgba(40,25,5,0.85)");
+  });
+}
 
 /** The pause button in a round: big and in the corner, where the thumb is. It takes the place of the gear. */
 export const PAUSE_BUTTON: Button = {x: 304, y: 8, w: 48, h: 48};
@@ -355,8 +371,8 @@ export function drawEnergyPill(ctx: CanvasRenderingContext2D, n: number, nextSec
   const spending = f >= 0 && f < 1 && !unlimited;
   const ease = (u: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, u)), 3);
   const ink = n > 0 || unlimited ? "#ffffff" : "#ff9a8f";
-  drawButton(ctx, "energy", ENERGY_PILL, "", "secondary", {
-    draw: (c, cx, cy) => {
+  drawWoodPill(ctx, "energy", ENERGY_PILL, (c, cx, cy) => {
+    {
       // The bolt: it swells a little and settles.
       const pop = spending ? 1 + 0.3 * Math.pow(Math.max(0, 1 - f / 0.32), 2) : 1;
       c.save();
@@ -381,7 +397,7 @@ export function drawEnergyPill(ctx: CanvasRenderingContext2D, n: number, nextSec
       } else {
         text(c, String(n), cx + 12, cy + 1, 20, ink, "center", "rgba(40,25,5,0.85)");
       }
-    },
+    }
   });
   // The countdown to the next point: under the pill, or (with room, when the title has a row of its own) just to the right of it.
   if (n < ENERGY_MAX && !unlimited) {

@@ -10,8 +10,8 @@ export const COLS = [45, 135, 225, 315] as const;
 export const PLUS_COLS = [90, 180, 270] as const;
 /** The first two levels have only two columns (and two cups), in the middle. */
 export const TWO_COLS = [135, 225] as const;
-/** The menu (the book and the buttons under it) is lifted this far on a tall phone, away from the bottom edge, where a finger dragged along the page numbers would pull the phone's own swipe-up gesture instead. */
-export const MENU_LIFT = 30;
+/** The menu (the book and the buttons under it) is lifted this far on a tall phone, to make room for the bar along the bottom edge (which also keeps a finger dragged along the page numbers away from the phone's own swipe-up gesture). */
+export const MENU_LIFT = 38;
 
 /** Where the desk begins (the cups stand on it). */
 export const DESK_Y = 458;

@@ -191,8 +191,8 @@ export function unlockAudio(): void {
         void loadSample(ctx, "complete1.mp3").then((b) => (threeStarsBuf = b));
         void loadSample(ctx, "complete2.mp3").then((b) => (clearedBuf = b));
         void loadSample(ctx, "gameover.mp3").then((b) => (gameOverBuf = b));
-        void loadSample(ctx, "button-click.mp3").then((b) => (clickBuf = b));
-        void loadSample(ctx, "page-turn.mp3").then((b) => (pageTurnBuf = b));
+        void loadSample(ctx, "click.wav").then((b) => (clickBuf = b));
+        void loadSample(ctx, "turn-page.wav").then((b) => (pageTurnBuf = b));
         // The music has its own volume and does not go through the compressor of the sounds.
         musicGain = ctx.createGain();
         musicGain.gain.value = 0;
@@ -339,9 +339,9 @@ function plop(pitch: number, vol: number, delay = 0): void {
   noise(0.1, {type: "bandpass", freq: 1500, to: 600, q: 0.7, vol: vol * 0.4, delay});
 }
 
-/** The click of a button (any button in the app). Without the silence before it and its quiet tail. */
+/** The click of a button (any button in the app). The recording (click.wav) is already cut: it starts on the click, with no silence before it. */
 export function playClick(): void {
-  if (clickBuf) sample(clickBuf, 0.6, 1, {from: 0.036, to: 0.26, fade: 0.08});
+  if (clickBuf) sample(clickBuf, 0.6);
 }
 
 /** Something is bought with coins: a bright double chime and a little shower of coins. */
@@ -364,9 +364,9 @@ export function playFadeGone(): void {
   noise(0.35, {type: "bandpass", freq: 1800, to: 500, q: 0.9, vol: 0.07, delay: 0.02});
 }
 
-/** A page of the book being turned. */
+/** A page of the book being turned. The recording (turn-page.wav) is already cut: it starts at once, and fades out at its end. */
 export function playPageTurn(rate = 1): void {
-  if (pageTurnBuf) sample(pageTurnBuf, 0.7, rate, {from: 0.012, to: 0.8, fade: 0.25});
+  if (pageTurnBuf) sample(pageTurnBuf, 0.7, rate);
 }
 
 /** Plays the sound that goes with something that happened in the game. */

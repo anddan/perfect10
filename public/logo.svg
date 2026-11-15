@@ -26,9 +26,41 @@
       <stop offset="1" stop-color="#c9f1d8"/>
     </linearGradient>
     <clipPath id="ballClip"><circle cx="256" cy="324" r="89"/></clipPath>
+  
+    <radialGradient id="sunBg" cx="50%" cy="50%" r="72%">
+      <stop offset="0" stop-color="#fff7b8"/>
+      <stop offset="0.38" stop-color="#ffd83d"/>
+      <stop offset="0.75" stop-color="#f7a90f"/>
+      <stop offset="1" stop-color="#e68a00"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0.72" stop-color="#fffbe0" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#fffbe0" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="round"><circle cx="256" cy="256" r="256"/></clipPath>
   </defs>
-  <!-- Just a circle with the number 10: the silver ring, the green face with its light, and the 10. The ball fills the icon. -->
-  <g transform="translate(256 256) scale(2.2) translate(-256 -324)">
+  <g clip-path="url(#round)">
+    <rect width="512" height="512" fill="url(#sunBg)"/>
+    <g fill="#ffffff" fill-opacity="0.26">
+    <path d="M256 256L951.6 178.0L951.6 334.0Z"/>
+    <path d="M256 256L916.6 487.5L848.9 628.1Z"/>
+    <path d="M256 256L750.7 751.2L628.7 848.5Z"/>
+    <path d="M256 256L486.9 916.8L334.7 951.6Z"/>
+    <path d="M256 256L177.3 951.6L25.1 916.8Z"/>
+    <path d="M256 256L-116.7 848.5L-238.7 751.2Z"/>
+    <path d="M256 256L-336.9 628.1L-404.6 487.5Z"/>
+    <path d="M256 256L-439.6 334.0L-439.6 178.0Z"/>
+    <path d="M256 256L-404.6 24.5L-336.9 -116.1Z"/>
+    <path d="M256 256L-238.7 -239.2L-116.7 -336.5Z"/>
+    <path d="M256 256L25.1 -404.8L177.3 -439.6Z"/>
+    <path d="M256 256L334.7 -439.6L486.9 -404.8Z"/>
+    <path d="M256 256L628.7 -336.5L750.7 -239.2Z"/>
+    <path d="M256 256L848.9 -116.1L916.6 24.5Z"/>
+    </g>
+    <circle cx="256" cy="256" r="232" fill="url(#halo)"/>
+  </g>
+  <!-- The sun: a yellow sky with rays, and the green ball with the 10 in the middle of it. -->
+  <g transform="translate(256 256) scale(1.72) translate(-256 -324)">
     <circle cx="256" cy="324" r="104" fill="url(#silver)"/>
     <circle cx="256" cy="324" r="102.5" fill="none" stroke="#fff" stroke-opacity="0.55" stroke-width="2"/>
     <circle cx="256" cy="324" r="90.5" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="3"/>

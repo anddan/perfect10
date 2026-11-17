@@ -3,7 +3,7 @@ import {LASER_COOLDOWN} from "./cups";
 import {PERKS, PERK_LIMIT, PERK_SLOWER, SPECIAL_PERKS, STREAK_DAYS, previousDay, recordDay, rollPackage, streakCoins, streakCount, streakDayFor, streakFactor, cupsToClimb, dailyReward, dayKey, rungEnds, rungGoal, rungOfCup, rungsDone, seedOfDay, seededRandom} from "./daily";
 import {DAILY_BONUS, DAILY_REWARD, DAILY_RUNGS} from "./constants";
 import {BOMB_RADIUS, BONUS_POINTS, PAUSE_SECONDS, COLS, CUP_H, CUP_START_Y, CUP_W, SCREEN_MAX, SLOW_SECONDS, STAGES, SWEEP_DOWN, SWEEP_EDGE, SWEEP_HOLD, SWEEP_UP, W} from "./constants";
-import {ENDLESS_PACE, FEATURES, canContinue, continueGame, createGame, cupAt, dropCup, endIntro, fallSpeed, featureAge, ghostShow, goalFor, fadeOn, fadeSeconds, saucerCount, paceOf, startVariant, variantRamp, variantRate, progressOf, starsFor, choosePerk, fireLaser, speedFactorOf, startDaily, sweepBottom, sweepEdge, useScreen, maxNumber, moveCup, nearestAliveCup, endlessLevel, recordBest, showMenu, spawnInterval, stageSpawnFactor, stageSpeedFactor, startGame, tapAt, untangleCups, update} from "./engine";
+import {ENDLESS_PACE, FEATURES, canContinue, continueGame, createGame, cupAt, dropCup, endIntro, fallSpeed, featureAge, ghostShow, goalFor, fadeOn, fadeSeconds, saucerCount, paceOf, startVariant, variantRamp, variantRate, progressOf, starsFor, choosePerk, fireLaser, speedFactorOf, startDaily, sweepBottom, moveShield, SHIELD_AREA, useEraser, fastHover, fastWave, columnValue, findTime, helpGap, sweepEdge, useScreen, maxNumber, moveCup, nearestAliveCup, endlessLevel, recordBest, showMenu, spawnInterval, stageSpawnFactor, stageSpeedFactor, startGame, tapAt, untangleCups, update, endlessCupsBefore, holdCraft, FUEL_SECONDS, FUEL_REFILL, shipFlying, dailyMixOf, SHIELD_W_MAX, SHIELD_POWER_MAX, shieldDamage} from "./engine";
 import {saucerPower, type SaucerKind} from "./saucers";
 import type {GameState, Mode, NumberTile, PerkId} from "./types";
 
@@ -94,7 +94,7 @@ describe("a new game", () => {
         g.spawnTimer = 1e9;
         const n = drop(g, COLS[1], 100, 3);
         update(g, 1 / 60);
-        expect(n.y - 100, `${mode} level ${stage}`).toBeCloseTo((fallSpeed(g.level + g.base) * stageSpeedFactor(stage)) / 60, 6);
+        expect(n.y - 100, `${mode} level ${stage}`).toBeCloseTo((fallSpeed(g.level + g.base) * stageSpeedFactor(stage) * (stage >= 2 ? 0.9 : 1)) / 60, 6);
       }
     }
   });
@@ -104,15 +104,15 @@ describe("a new game", () => {
       const g = testGame(() => 0.5);
       startGame(g, "endless");
       g.spawnTimer = 1e9;
-      g.level = cups + 1; // (every five cups is one level of the endless game)
+      g.level = cups + 1; // (the levels of the endless game need 5, 6, 7 ... cups)
       const n = drop(g, COLS[1], 100, 3);
       update(g, 1 / 60);
       return (n.y - 100) * 60 / fallSpeed(paceOf(g));
     };
     expect(moved(0)).toBeCloseTo(1, 6); // level 1
-    expect(moved(14)).toBeCloseTo(1, 6); // level 3
-    expect(moved(15)).toBeCloseTo(0.85, 6); // level 4
-    expect(moved(60)).toBeCloseTo(0.85, 6); // level 13: still 15% slower (no jump back up)
+    expect(moved(14)).toBeCloseTo(0.9, 6); // level 3 (10% slower from level 2)
+    expect(moved(18)).toBeCloseTo(0.85 * 0.9, 6); // level 4 (5 + 6 + 7 cups)
+    expect(moved(60)).toBeCloseTo(0.85 * 0.9, 6); // level 13: still 15% slower (no jump back up)
   });
 
   it("takes down every number a swipe passes over, each only once, and ice and steel are touched only once per stroke", () => {
@@ -726,10 +726,33 @@ describe("the tutorial", () => {
     const neighbour = g.cups.find((c) => !c.dead && Math.abs(c.x - dead.x) < 100)!;
     moveCup(g, dead, neighbour.x);
     dropCup(g, dead);
-    wait(g, 20);
-    expect(g.phase).toBe("won");
+    for (let i = 0; i < 20 * 60 && g.tutorialStep < 4; i++) update(g, 1 / 60);
+    wait(g, 2.2); // (the good-job pause, then the numbers of the last step are set out)
     expect(g.tutorialStep).toBe(4);
+    // 5. the cloth: a few numbers are in the air, and the cloth wipes them all away
+    expect(g.numbers.length).toBeGreaterThanOrEqual(3);
+    expect(g.cups.every((c) => !c.dead && c.value === 0)).toBe(true);
+    g.screens = 2; // (what the player has is left alone)
+    expect(useScreen(g)).toBe(true);
+    update(g, 0.6);
+    expect(g.numbers.filter((n) => n.state === "fall" && !n.done)).toHaveLength(0);
+    wait(g, 5);
+    expect(g.phase).toBe("won");
+    expect(g.tutorialStep).toBe(5);
+    expect(g.screens).toBe(2);
     expect(g.events.some((e) => e.t === "won")).toBe(true);
+  });
+
+  it("only lets the cloth be pulled on its own step, and the numbers of that step are small", () => {
+    const g = tutorial();
+    g.screens = 1;
+    expect(useScreen(g)).toBe(false); // (the first step)
+    g.tutorialStep = 4;
+    g.numbers = [];
+    wait(g, 0.1);
+    expect(g.numbers.every((n) => n.v >= 1 && n.v <= 3)).toBe(true);
+    expect(useScreen(g)).toBe(true);
+    expect(useScreen(g)).toBe(false); // (it is already down)
   });
 
   it("starts the step over, without game over, when a number lands in the dead cup", () => {
@@ -774,7 +797,7 @@ describe("the endless game walks through the book", () => {
   function numbersOnLevel(level: number): {v: number; mul: boolean}[] {
     const g = testGame(seeded(7));
     startGame(g, "endless");
-    g.level = (level - 1) * 5 + 1; // the game counts every cup: five cups make a level
+    g.level = endlessCupsBefore(level) + 1; // the game counts every cup: the levels need 5, 6, 7 ...
     g.cups[0].value = 3;
     g.cups[1].value = -4;
     const out: {v: number; mul: boolean}[] = [];
@@ -915,7 +938,7 @@ describe("division", () => {
       const rng = () => ((a = (a * 1664525 + 1013904223) % 4294967296) / 4294967296);
       const g = testGame(rng);
       startGame(g, "endless");
-      g.level = (level - 1) * 5 + 1;
+      g.level = endlessCupsBefore(level) + 1;
       g.cups[0].value = 8;
       let divisions = 0;
       for (let i = 0; i < 300; i++) {
@@ -942,7 +965,7 @@ describe("bonus balls", () => {
       g.cups[0].dead = true;
       g.cups[0].value = 13;
     }
-    g.rng = () => (kind === "life" ? 0.1 : kind === "points" ? 0.5 : 0.95);
+    g.rng = () => (kind === "life" ? 0.1 : kind === "points" ? 0.3 : 0.55);
     g.bonusTimer = 0.01;
     update(g, 1 / 60);
     for (let i = 0; i < 200 && g.numbers.every((n) => n.y < 20); i++) update(g, 1 / 60);
@@ -986,17 +1009,20 @@ describe("bonus balls", () => {
     expect([...kindsOn("plus", 7)]).toEqual(["life"]);
     expect([...kindsOn("plus", 9)]).toEqual(["life"]);
     expect([...kindsOn("plus", 10)].sort()).toEqual(["life", "slow"]);
-    expect([...kindsOn("mixed", 1)].sort()).toEqual(["life", "slow"]);
-    expect([...kindsOn("mixed", 6)].sort()).toEqual(["life", "slow"]);
-    expect([...kindsOn("mixed", 7)].sort()).toEqual(["life", "points", "slow"]);
-    expect([...kindsOn("mixed", 9)].sort()).toEqual(["life", "points", "slow"]);
-    expect([...kindsOn("mixed", 10)].sort()).toEqual(["life", "pause", "points", "slow"]); // the pause ball comes at level 10 of plus and minus
-    expect([...kindsOn("times", 6)].sort()).toEqual(["life", "pause", "points", "slow"]);
-    expect([...kindsOn("times", 7)].sort()).toEqual(["bomb", "life", "pause", "points", "slow"]); // and the bomb at level 7 of times
-    expect([...kindsOn("times", 9)].sort()).toEqual(["bomb", "life", "pause", "points", "slow"]);
-    expect([...kindsOn("times", 10)].sort()).toEqual(["bomb", "cloth", "life", "pause", "points", "slow"]); // the extra screen at level 10 of times
-    expect([...kindsOn("divide", 6)].sort()).toEqual(["bomb", "cloth", "life", "pause", "points", "slow"]);
-    expect([...kindsOn("divide", 7)].sort()).toEqual(["bomb", "cloth", "life", "pause", "points", "shield", "slow"]); // and the shield at level 7 of divide
+    expect([...kindsOn("minus", 6)].sort()).toEqual(["life", "slow"]);
+    expect([...kindsOn("minus", 7)].sort()).toEqual(["life", "slow", "wand"]); // the magic wand comes at level 7 of minus
+    expect([...kindsOn("minus", 10)].sort()).toEqual(["life", "reverse", "slow", "wand"]); // and the reverse at level 10
+    expect([...kindsOn("mixed", 1)].sort()).toEqual(["life", "reverse", "slow", "wand"]);
+    expect([...kindsOn("mixed", 6)].sort()).toEqual(["life", "reverse", "slow", "wand"]);
+    expect([...kindsOn("mixed", 7)].sort()).toEqual(["life", "points", "reverse", "slow", "wand"]);
+    expect([...kindsOn("mixed", 9)].sort()).toEqual(["life", "points", "reverse", "slow", "wand"]);
+    expect([...kindsOn("mixed", 10)].sort()).toEqual(["life", "pause", "points", "reverse", "slow", "wand"]); // the pause ball comes at level 10 of plus and minus
+    expect([...kindsOn("times", 6)].sort()).toEqual(["life", "pause", "points", "reverse", "slow", "wand"]);
+    expect([...kindsOn("times", 7)].sort()).toEqual(["bomb", "life", "pause", "points", "reverse", "slow", "wand"]); // and the bomb at level 7 of times
+    expect([...kindsOn("times", 9)].sort()).toEqual(["bomb", "life", "pause", "points", "reverse", "slow", "wand"]);
+    expect([...kindsOn("times", 10)].sort()).toEqual(["bomb", "cloth", "life", "pause", "points", "reverse", "slow", "wand"]); // the extra screen at level 10 of times
+    expect([...kindsOn("divide", 6)].sort()).toEqual(["bomb", "cloth", "life", "pause", "points", "reverse", "slow", "wand"]);
+    expect([...kindsOn("divide", 7)].sort()).toEqual(["bomb", "cloth", "life", "pause", "points", "reverse", "shield", "slow", "wand"]); // and the shield at level 7 of divide
     expect([...kindsOn("endless", 0)].sort()).toEqual(["life", "points", "slow"]); // (in the endless game: the pause ball from level 5 and the bomb from level 9)
   });
 
@@ -1200,6 +1226,78 @@ describe("bonus balls", () => {
     const before = g.score;
     expect(tapBonus(g)).toBe(true);
     expect(g.score).toBe(before + BONUS_POINTS * 3);
+  });
+
+  it("the magic wand makes every number a 0 or a 10 for a while, the new ones too", () => {
+    const g = playing();
+    g.spawnTimer = 1e9;
+    g.hideIntros = new Set(FEATURES);
+    startGame(g, "mixed", 7);
+    g.spawnTimer = 1e9;
+    const a = drop(g, COLS[0], 150, 7);
+    const b = drop(g, COLS[1], 150, -6);
+    const c = drop(g, COLS[2], 150, 3);
+    c.op = "mul";
+    const d = drop(g, COLS[3], 150, 0);
+    d.op = "zero";
+    const ball = drop(g, COLS[1], 60, 0);
+    ball.bonus = "wand";
+    expect(tapAt(g, ball.x, ball.y)).toBe(true);
+    expect(g.wand).toBeCloseTo(SLOW_SECONDS, 5);
+    for (const n of [a, b, c, d]) expect([`zero:0`, `ten:10`]).toContain(`${n.op}:${n.v}`);
+    // A number that comes while the wand is at work is turned as well.
+    const late = drop(g, COLS[0], 100, 5);
+    update(g, 1 / 60);
+    expect([0, 10]).toContain(late.v);
+    for (let i = 0; i < (SLOW_SECONDS + 1) * 60; i++) update(g, 1 / 60);
+    expect(g.wand).toBe(0);
+    const after = drop(g, COLS[0], 100, 5);
+    update(g, 1 / 60);
+    expect(after.v).toBe(5);
+  });
+
+  it("the reverse makes a tapped number fly up and away for a while, instead of into a cup", () => {
+    const g = playing();
+    g.hideIntros = new Set(FEATURES);
+    startGame(g, "mixed", 7);
+    g.spawnTimer = 1e9;
+    const ball = drop(g, COLS[1], 60, 0);
+    ball.bonus = "reverse";
+    expect(tapAt(g, ball.x, ball.y)).toBe(true);
+    expect(g.reverse).toBeCloseTo(SLOW_SECONDS, 5);
+    const n = drop(g, COLS[2], 200, 9);
+    const value = g.cups[2].value;
+    expect(tapAt(g, n.x, n.y)).toBe(true);
+    expect(n.state).toBe("rise");
+    for (let i = 0; i < 180 && g.numbers.includes(n); i++) update(g, 1 / 60);
+    expect(g.numbers.includes(n)).toBe(false);
+    expect(g.cups[2].value).toBe(value); // (it never landed)
+    expect(g.phase).toBe("play");
+    for (let i = 0; i < (SLOW_SECONDS + 1) * 60; i++) update(g, 1 / 60);
+    expect(g.reverse).toBe(0);
+    const later = drop(g, COLS[2], 200, 1);
+    expect(tapAt(g, later.x, later.y)).toBe(true);
+    expect(later.state).toBe("dive");
+  });
+
+  it("an eraser makes every tapped number pop for a while (steel and ice too), and is used up", () => {
+    const g = playing();
+    g.erasers = 2;
+    expect(useEraser(g)).toBe(true);
+    expect(g.erasers).toBe(1);
+    expect(useEraser(g)).toBe(false); // (one is already in use)
+    const n = drop(g, COLS[2], 200, 9);
+    n.op = "steel";
+    const value = g.cups[2].value;
+    expect(tapAt(g, n.x, n.y)).toBe(true);
+    expect(g.numbers.includes(n)).toBe(false);
+    expect(g.events.some((e) => e.t === "pop")).toBe(true);
+    expect(g.cups[2].value).toBe(value);
+    for (let i = 0; i < (SLOW_SECONDS + 1) * 60; i++) update(g, 1 / 60);
+    expect(g.erase).toBe(0);
+    const later = drop(g, COLS[2], 200, 1);
+    expect(tapAt(g, later.x, later.y)).toBe(true);
+    expect(later.state).toBe("dive");
   });
 
   it("a slow motion ball makes the numbers fall slower for a while", () => {
@@ -1604,7 +1702,7 @@ describe("presenting a new kind of number", () => {
   });
 
   it("does not come on any other level, in the tutorial or in the endless game", () => {
-    const presenting = new Set(["plus:2", "mixed:1", "plus:4", "plus:7", "plus:10", "mixed:4", "mixed:7", "plus:12", "mixed:10", "times:7", "times:10", "divide:7", "times:4", "divide:4", "space:1", "space:7", "space:10", "space:12", "divide:10", "plus:3", "times:1", "mixed:3"]);
+    const presenting = new Set(["plus:2", "mixed:1", "plus:4", "plus:7", "plus:10", "mixed:4", "mixed:7", "plus:12", "mixed:10", "times:7", "times:10", "divide:7", "times:4", "divide:4", "space:1", "space:7", "space:10", "space:12", "divide:10", "plus:3", "times:1", "mixed:3", "minus:7", "minus:10", "mixed:5", "divide:1"]);
     for (const mode of ["plus", "minus", "mixed", "times", "divide", "space"] as const) {
       for (let stage = 1; stage <= STAGES; stage++) {
         expect(start(mode, stage).phase === "intro", `${mode} ${stage}`).toBe(presenting.has(`${mode}:${stage}`));
@@ -2877,13 +2975,20 @@ describe("the daily challenge", () => {
   function perfect(g: GameState): void {
     g.numbers = []; // (nothing else is in the air, and no new kind is to be shown)
     g.showcase = [];
+    g.countdown = 0; // (no count down of a match mode on the rung)
     const cup = g.cups.find((c) => !c.dead)!;
     cup.value = 9;
-    tapAndSettle(g, drop(g, cup.x, 400, 1));
+    // (under where the shield of a Shield up rung can be; what the match mode of a rung brings in by itself is cleared away)
+    const n = drop(g, cup.x, 480, 1);
+    const before = g.level;
+    expect(tapAt(g, n.x, n.y)).toBe(true);
+    for (let i = 0; i < 200 && g.level === before; i++) update(g, 1 / 60);
+    expect(g.level).toBe(before + 1);
+    g.numbers = [];
   }
   function daily(): GameState {
     const g = testGame(() => 0.5);
-    startDaily(g, "2026-11-14");
+    startDaily(g, "2026-11-24");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     return g;
@@ -2959,23 +3064,23 @@ describe("the daily challenge", () => {
     expect(g.cups[1].kinds).toEqual(["laser", "thermos"]); // (it went on the cup that was fullest, on top of what it had)
   });
 
-  it("needs one more cup on every rung: 5, then 6, then 7 and so on", () => {
-    expect([1, 2, 3, 4, 5, 6].map(rungGoal)).toEqual([5, 6, 7, 8, 9, 10]);
-    expect([1, 2, 3].map(cupsToClimb)).toEqual([5, 11, 18]);
-    expect([0, 4, 5, 10, 11, 17, 18].map(rungsDone)).toEqual([0, 0, 1, 1, 2, 2, 3]);
-    expect([4, 5, 10, 11, 17, 18].map(rungEnds)).toEqual([false, true, false, true, false, true]);
+  it("needs two more cups on every rung: 5, then 7, then 9 and so on", () => {
+    expect([1, 2, 3, 4, 5, 6].map(rungGoal)).toEqual([5, 7, 9, 11, 13, 15]);
+    expect([1, 2, 3].map(cupsToClimb)).toEqual([5, 12, 21]);
+    expect([0, 4, 5, 11, 12, 20, 21].map(rungsDone)).toEqual([0, 0, 1, 1, 2, 2, 3]);
+    expect([4, 5, 11, 12, 20, 21].map(rungEnds)).toEqual([false, true, false, true, false, true]);
     expect(rungOfCup(0)).toEqual({rung: 1, goal: 5, into: 0});
     expect(rungOfCup(5)).toEqual({rung: 1, goal: 5, into: 5}); // (the cup that finishes a rung shows a full bar)
-    expect(rungOfCup(6)).toEqual({rung: 2, goal: 6, into: 1});
-    expect(rungOfCup(11)).toEqual({rung: 2, goal: 6, into: 6});
+    expect(rungOfCup(6)).toEqual({rung: 2, goal: 7, into: 1});
+    expect(rungOfCup(12)).toEqual({rung: 2, goal: 7, into: 7});
     const g = daily();
     for (let i = 0; i < 5; i++) perfect(g);
     expect(g.phase).toBe("perk");
     choosePerk(g, 0);
-    for (let i = 0; i < 5; i++) perfect(g);
-    expect(g.phase).toBe("play"); // (five more cups are not enough for the second rung)
+    for (let i = 0; i < 6; i++) perfect(g);
+    expect(g.phase).toBe("play"); // (six more cups are not enough for the second rung)
     perfect(g);
-    expect(g.phase).toBe("perk"); // (the sixth is)
+    expect(g.phase).toBe("perk"); // (the seventh is)
     expect(endlessLevel(g)).toBe(3); // (and the third rung is the level now)
   });
 
@@ -3421,10 +3526,10 @@ describe("progress that fades with time (plus & minus, level 3 and on, and the e
     it("starts on its third level, with 24 seconds, and goes faster the further it gets (two seconds every third level, at least 10)", () => {
       const g = fading("endless", 0);
       expect(fadeOn(g)).toBe(false);
-      g.level = 11; // (level 3 of the endless game)
+      g.level = 12; // (level 3 of the endless game)
       expect(fadeOn(g)).toBe(true);
       const at = (level: number) => {
-        g.level = (level - 1) * 5 + 1;
+        g.level = endlessCupsBefore(level) + 1;
         return fadeSeconds(g);
       };
       expect([at(3), at(4), at(7), at(10), at(13), at(40)]).toEqual([24, 22, 20, 18, 16, 10]);
@@ -3432,30 +3537,30 @@ describe("progress that fades with time (plus & minus, level 3 and on, and the e
 
     it("fades the cups of the bar it is on, never one that was filled before", () => {
       const g = fading("endless", 0);
-      g.level = 11; // (ten cups, the bar of level 3 is empty: nothing to lose)
+      g.level = 12; // (eleven cups, the bar of level 3 is empty: nothing to lose)
       run(g, 30);
       expect(g.drain).toBe(0);
-      g.level = 13; // (two cups on the bar)
+      g.level = 14; // (two cups on the bar)
       run(g, 24.5);
       expect(g.drain).toBe(20);
       run(g, 100);
       expect(g.drain).toBe(40);
-      expect(progressOf(g)).toBe(10);
+      expect(progressOf(g)).toBe(11);
       expect(endlessLevel(g)).toBe(3);
     });
 
     it("needs the bar filled, what has faded counted off, for the next level", () => {
       const g = fading("endless", 0);
-      g.level = 15; // (four cups on the bar of level 3)
+      g.level = 18; // (six of the seven cups on the bar of level 3)
       g.drain = 20; // (one of them has faded away)
       g.cups[1].value = 6;
       tapAndSettle(g, drop(g, 135, 200, 4));
-      expect(g.level).toBe(16);
+      expect(g.level).toBe(19);
       expect(endlessLevel(g)).toBe(3);
       expect(g.banner).toBe(0);
-      // (a cup with no fading: five cups fill the bar)
+      // (a cup with no fading: seven cups fill the bar)
       const h = fading("endless", 0);
-      h.level = 15;
+      h.level = 18;
       h.drain = 0;
       h.cups[1].value = 6;
       tapAndSettle(h, drop(h, 135, 200, 4));
@@ -3465,7 +3570,7 @@ describe("progress that fades with time (plus & minus, level 3 and on, and the e
 
     it("is not in the daily challenge", () => {
       const g = testGame(() => 0.5);
-      startDaily(g, "2026-11-14");
+      startDaily(g, "2026-11-24");
       g.spawnTimer = 1e9;
       g.bonusTimer = 1e9;
       g.level = 20;
@@ -3498,18 +3603,18 @@ describe("the saucers of the shop", () => {
     expect(saucerCount(tut, "slow")).toBe(0);
   });
 
-  it("two, three or four of a kind give a bonus: they work like two and a half, four and six", () => {
-    expect([0, 1, 2, 3, 4].map(saucerPower)).toEqual([0, 1, 2.5, 4, 6]);
+  it("two, three or four of a kind give a small bonus: they work like two and a quarter, three and a half and five", () => {
+    expect([0, 1, 2, 3, 4].map(saucerPower)).toEqual([0, 1, 2.25, 3.5, 5]);
   });
 
-  it("slow: every one makes the numbers fall 5% slower, and two, three or four of them a bit more (four: 30%)", () => {
+  it("slow: every one makes the numbers fall 5% slower, and two, three or four of them a bit more (four: 25%)", () => {
     const base = speedFactorOf(none());
     expect(speedFactorOf(withSaucers(["slow"]))).toBeCloseTo(base * 0.95, 10);
-    expect(speedFactorOf(withSaucers(["slow", "slow"]))).toBeCloseTo(base * 0.875, 10);
-    expect(speedFactorOf(withSaucers(["slow", "slow", "slow"]))).toBeCloseTo(base * 0.8, 10);
-    expect(speedFactorOf(withSaucers(["slow", "slow", "slow", "slow"]))).toBeCloseTo(base * 0.7, 10);
+    expect(speedFactorOf(withSaucers(["slow", "slow"]))).toBeCloseTo(base * 0.8875, 10);
+    expect(speedFactorOf(withSaucers(["slow", "slow", "slow"]))).toBeCloseTo(base * 0.825, 10);
+    expect(speedFactorOf(withSaucers(["slow", "slow", "slow", "slow"]))).toBeCloseTo(base * 0.75, 10);
     const e = withSaucers(["slow", "slow"], "endless", 0);
-    expect(speedFactorOf(e)).toBeCloseTo(0.875, 10);
+    expect(speedFactorOf(e)).toBeCloseTo(0.8875, 10);
   });
 
   it("sparse: every one makes 10% fewer numbers come (the time between them is longer)", () => {
@@ -3520,17 +3625,17 @@ describe("the saucers of the shop", () => {
     };
     const base = wait(none());
     expect(wait(withSaucers(["sparse"]))).toBeCloseTo(base / 0.9, 6);
-    expect(wait(withSaucers(["sparse", "sparse"]))).toBeCloseTo(base / 0.75, 6);
-    expect(wait(withSaucers(["sparse", "sparse", "sparse", "sparse"]))).toBeCloseTo(base / 0.4, 6);
+    expect(wait(withSaucers(["sparse", "sparse"]))).toBeCloseTo(base / 0.775, 6);
+    expect(wait(withSaucers(["sparse", "sparse", "sparse", "sparse"]))).toBeCloseTo(base / 0.5, 6);
   });
 
   it("special: every one brings 10% more bonus balls (they come sooner)", () => {
     const base = none().bonusTimer;
-    expect(withSaucers(["special", "special"]).bonusTimer).toBeCloseTo(base / 1.25, 6);
-    expect(withSaucers(["special", "special", "special", "special"]).bonusTimer).toBeCloseTo(base / 1.6, 6);
+    expect(withSaucers(["special", "special"]).bonusTimer).toBeCloseTo(base / 1.225, 6);
+    expect(withSaucers(["special", "special", "special", "special"]).bonusTimer).toBeCloseTo(base / 1.5, 6);
   });
 
-  it("points: every one gives 50% more points (two work like two and a half)", () => {
+  it("points: every one gives 50% more points", () => {
     const score = (saucers: (SaucerKind | null)[]): number => {
       const g = withSaucers(saucers);
       g.cups[1].value = 6;
@@ -3539,7 +3644,7 @@ describe("the saucers of the shop", () => {
     };
     const base = score([]);
     expect(base).toBeGreaterThan(0);
-    expect(score(["points", "points"])).toBe(Math.round(base * 2.25)); // (two of a kind work like two and a half)
+    expect(score(["points", "points"])).toBeCloseTo(base * 2.125, -0.5); // (two of a kind work like two and a quarter)
     expect(score([null, "points"])).toBe(Math.round(base * 1.5));
   });
 });
@@ -3548,7 +3653,7 @@ describe("the cups of the daily challenge: two, then three, then four", () => {
   function daily(loadout: string[][] = []): GameState {
     const g = testGame(() => 0.5);
     g.loadout = loadout as GameState["loadout"];
-    startDaily(g, "2026-11-14");
+    startDaily(g, "2026-11-24");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     return g;
@@ -3583,9 +3688,9 @@ describe("the cups of the daily challenge: two, then three, then four", () => {
     expect(third.value).toBe(0);
     expect(third.kinds).toEqual(["laser"]);
     expect(g.cups.find((c) => c.x === 90)!.kinds).toContain("gold"); // (the cups that were there keep what they had)
-    climb(g, 11); // (the second rung: still three)
+    climb(g, 12); // (the second rung: still three)
     expect(g.cups).toHaveLength(3);
-    climb(g, 18);
+    climb(g, 21);
     expect(g.cols).toEqual([45, 135, 225, 315]);
     expect(g.cups).toHaveLength(4);
     expect(g.cups.find((c) => c.x === 315)!.kinds).toContain("big");
@@ -3606,7 +3711,7 @@ describe("the cups of the daily challenge: two, then three, then four", () => {
 describe("perks that are offered as x2 or x3 in the daily challenge", () => {
   function daily(): GameState {
     const g = testGame(() => 0.5);
-    startDaily(g, "2026-11-14");
+    startDaily(g, "2026-11-24");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     g.cups[0].value = 0;
@@ -3652,7 +3757,7 @@ describe("perks that are offered as x2 or x3 in the daily challenge", () => {
         s = (s * 1664525 + 1013904223) % 4294967296;
         return s / 4294967296;
       });
-      startDaily(g, "2026-11-14");
+      startDaily(g, "2026-11-24");
       const all: number[] = [];
       for (let i = 0; i < 80; i++) {
         g.phase = "play";
@@ -3684,7 +3789,7 @@ describe("perks that are offered as x2 or x3 in the daily challenge", () => {
 });
 
 describe("special perks in the daily challenge (the ones the saucers have)", () => {
-  function daily(day = "2026-11-14"): GameState {
+  function daily(day = "2026-11-24"): GameState {
     const g = testGame(() => 0.5);
     startDaily(g, day); // (the numbers, and the perks on offer, follow the day)
     g.spawnTimer = 1e9;
@@ -3735,12 +3840,12 @@ describe("special perks in the daily challenge (the ones the saucers have)", () 
     expect(wait(g)).toBeCloseTo(base / 0.8, 6);
     const h = daily();
     h.saucerLoadout = ["sparse", "sparse"];
-    startDaily(h, "2026-11-14");
+    startDaily(h, "2026-11-24");
     h.spawnTimer = 1e9;
     h.bonusTimer = 1e9;
     h.perks = ["sparse", "sparse"];
     const both = wait(h);
-    expect(both).toBeCloseTo(base / 0.55, 6); // (two saucers work like two and a half, and the two perks are two more)
+    expect(both).toBeCloseTo(base / 0.575, 6); // (two saucers work like two and a quarter, and the two perks are two more)
   });
 
   it("more specials: the bonus balls come sooner", () => {
@@ -3769,7 +3874,7 @@ describe("special perks in the daily challenge (the ones the saucers have)", () 
   });
 });
 
-describe("the match modes: Save the cup and 6 or 8", () => {
+describe("the match modes: Save the cup and Even numbers", () => {
   function lcg(seed: number): () => number {
     let s = seed;
     return () => {
@@ -3886,7 +3991,7 @@ describe("the match modes: Save the cup and 6 or 8", () => {
     expect(variantRate(started("sixeight"))).toBe(1);
   });
 
-  it("6 or 8: only 6s, 8s and numbers that divide by 2 fall, with the cups and saucers from the shop", () => {
+  it("Even numbers: only 2s, 4s, 8s, times 2 and divided by 2 fall, with the cups and saucers from the shop", () => {
     const g = started("sixeight");
     expect(g.variant).toBe("sixeight");
     expect(g.cups.map((c) => c.kinds)).toEqual([["gold"], ["magnet"], ["big"], ["laser"]]);
@@ -3895,7 +4000,7 @@ describe("the match modes: Save the cup and 6 or 8", () => {
     const numbers = seen(g, 60);
     expect(numbers.length).toBeGreaterThan(20);
     const kinds = new Set(numbers.map((n) => `${n.op}${n.v}`));
-    expect([...kinds].sort()).toEqual(["add6", "add8", "div2"]);
+    expect([...kinds].sort()).toEqual(["add2", "add4", "add8", "div2", "mul2"]);
     expect(numbers.every((n) => n.bonus === null)).toBe(true);
   });
 
@@ -3903,7 +4008,7 @@ describe("the match modes: Save the cup and 6 or 8", () => {
     const early = started("save");
     expect(seen(early, 80).some((n) => n.op === "steel")).toBe(false);
     const later = started("save");
-    later.level = 16; // (15 cups done: the fourth level)
+    later.level = 19; // (18 cups done: the fourth level)
     expect(endlessLevel(later)).toBe(4);
     const numbers = seen(later, 60);
     const steel = numbers.filter((n) => n.op === "steel");
@@ -3911,15 +4016,37 @@ describe("the match modes: Save the cup and 6 or 8", () => {
     expect(numbers.every((n) => n.v === 1)).toBe(true);
   });
 
-  it("6 or 8: half of the numbers divide by 2", () => {
-    const numbers = seen(started("sixeight"), 90);
-    expect(numbers.length).toBeGreaterThan(15);
-    const share = numbers.filter((n) => n.op === "div").length / numbers.length;
-    expect(share).toBeGreaterThan(0.3);
-    expect(share).toBeLessThan(0.7);
+  it("Even numbers: no steel and no times 4 or divided by 4 in the first levels; steel after the third and 4s after the fourth", () => {
+    const early = seen(started("sixeight"), 90);
+    expect(early.some((n) => n.op === "steel" || ((n.op === "mul" || n.op === "div") && n.v === 4))).toBe(false);
+    const third = started("sixeight");
+    third.level = 19; // (18 cups done: the fourth level)
+    expect(endlessLevel(third)).toBe(4);
+    const withSteel = seen(third, 120);
+    expect(withSteel.some((n) => n.op === "steel")).toBe(true);
+    expect(withSteel.filter((n) => n.op === "steel").every((n) => n.v === 2 || n.v === 4)).toBe(true);
+    expect(withSteel.some((n) => (n.op === "mul" || n.op === "div") && n.v === 4)).toBe(false);
+    const fourth = started("sixeight");
+    fourth.level = 27; // (the fifth level)
+    expect(endlessLevel(fourth)).toBe(5);
+    const later = seen(fourth, 150);
+    expect(later.some((n) => n.op === "mul" && n.v === 4)).toBe(true);
+    expect(later.some((n) => n.op === "div" && n.v === 4)).toBe(true);
+    expect(later.every((n) => n.v % 2 === 0)).toBe(true);
   });
 
-  it("6 or 8: 8 divided by 2 is 4 and 4 and 6 make 10", () => {
+  it("Even numbers: most are 2s, and about a fifth each are times 2 and divided by 2", () => {
+    const numbers = seen(started("sixeight"), 90);
+    expect(numbers.length).toBeGreaterThan(15);
+    const share = (op: string) => numbers.filter((n) => n.op === op).length / numbers.length;
+    expect(share("div")).toBeGreaterThan(0.08);
+    expect(share("div")).toBeLessThan(0.4);
+    expect(share("mul")).toBeGreaterThan(0.05);
+    expect(share("mul")).toBeLessThan(0.35);
+    expect(numbers.filter((n) => n.op === "add" && n.v === 2).length / numbers.length).toBeGreaterThan(0.3);
+  });
+
+  it("Even numbers: 8 divided by 2 is 4, times 2 is 8, and 2 more make 10", () => {
     const g = started("sixeight");
     g.spawnTimer = 1e9;
     g.cups.forEach((c) => (c.kinds = []));
@@ -3928,7 +4055,11 @@ describe("the match modes: Save the cup and 6 or 8", () => {
     div.op = "div";
     tapAndSettle(g, div);
     expect(g.cups[1].value).toBe(4);
-    tapAndSettle(g, drop(g, g.cups[1].x, 200, 6));
+    const times = drop(g, g.cups[1].x, 200, 2);
+    times.op = "mul";
+    tapAndSettle(g, times);
+    expect(g.cups[1].value).toBe(8);
+    tapAndSettle(g, drop(g, g.cups[1].x, 200, 2));
     expect(g.level).toBe(2); // (a perfect 10)
     expect(g.cups[1].value).toBe(0);
   });
@@ -3948,5 +4079,676 @@ describe("the match modes: Save the cup and 6 or 8", () => {
     g.score = 50;
     expect(recordBest(g)).toBe(true);
     expect(g.best).toBe(50);
+  });
+});
+
+describe("Defend the cups", () => {
+  function defend(): GameState {
+    const g = testGame(() => 0.5);
+    g.hideIntros = new Set(FEATURES);
+    startVariant(g, "defend");
+    g.spawnTimer = 1e9;
+    return g;
+  }
+
+  it("presents the skull when it starts (unless it has been hidden)", () => {
+    const g = testGame(() => 0.5);
+    g.hideIntros = new Set();
+    startVariant(g, "defend");
+    expect(g.phase).toBe("intro");
+    expect(g.intro).toEqual(["skull"]);
+    expect(defend().phase).toBe("play");
+  });
+
+  it("seven in ten of what falls is a skull, and the rest are plus numbers at first", () => {
+    let a = 7;
+    const g = testGame(() => {
+      a = (a * 1664525 + 1013904223) % 4294967296;
+      return a / 4294967296;
+    });
+    g.hideIntros = new Set(FEATURES);
+    startVariant(g, "defend");
+    const all = new Map<number, string>();
+    for (let i = 0; i < 60 * 60 && g.phase === "play"; i++) {
+      update(g, 1 / 60);
+      for (const n of g.numbers) all.set(n.id, `${n.op}:${n.v}`);
+    }
+    const kinds = [...all.values()];
+    const skulls = kinds.filter((k) => k.startsWith("skull")).length;
+    expect(kinds.length).toBeGreaterThan(10);
+    expect(skulls / kinds.length).toBeGreaterThan(0.5);
+    expect(skulls / kinds.length).toBeLessThan(0.9);
+    expect(kinds.filter((k) => !k.startsWith("skull")).every((k) => k.startsWith("add:") && Number(k.slice(4)) > 0)).toBe(true);
+  });
+
+  it("a tapped skull pops; a skull that lands in a cup kills it", () => {
+    const g = defend();
+    const s = drop(g, COLS[1], 200, 99);
+    s.op = "skull";
+    expect(tapAt(g, s.x, s.y)).toBe(true);
+    expect(g.numbers.includes(s)).toBe(false);
+    expect(g.events.some((e) => e.t === "skull")).toBe(true);
+    const t = drop(g, g.cups[2].x, 200, 99);
+    t.op = "skull";
+    for (let i = 0; i < 1800 && !g.cups[2].dead && g.numbers.includes(t); i++) update(g, 1 / 60);
+    expect(g.cups[2].dead, `${g.phase} ${t.y} ${g.cups[2].x} ${t.x}`).toBe(true);
+  });
+
+  it("is a bit faster, with a few more numbers, from the start", () => {
+    const g = defend();
+    expect(variantRamp(g)).toBeGreaterThan(1);
+    expect(variantRate(g)).toBeGreaterThan(1);
+  });
+});
+
+describe("the daily ladder mixes in a match mode", () => {
+  it("plays every other rung with the numbers of today's match mode", () => {
+    const g = testGame(() => 0.5);
+    g.hideIntros = new Set(FEATURES);
+    startDaily(g, "2026-11-16");
+    expect(["save", "sixeight", "defend", "ice", "fast", "find", "shield"]).toContain(g.dailyMix);
+  });
+
+  it("gives each even rung a match mode of its own, the same for everyone on the day", () => {
+    const day = "2026-11-16";
+    const modes = [2, 4, 6].map((r) => dailyMixOf(day, r));
+    expect(new Set(modes).size).toBe(3);
+    expect([2, 4, 6].map((r) => dailyMixOf(day, r))).toEqual(modes);
+    expect(["2026-11-14", "2026-11-15", "2026-11-16", "2026-11-17"].map((d) => dailyMixOf(d, 2)).some((m) => m !== modes[0])).toBe(true);
+  });
+});
+
+describe("the skull in the book", () => {
+  it("comes from level 1 of divide on, now and then, and not before", () => {
+    const seen = (mode: Mode, stage: number) => {
+      let a = 3;
+      const g = testGame(() => {
+        a = (a * 1664525 + 1013904223) % 4294967296;
+        return a / 4294967296;
+      });
+      startGame(g, mode, stage);
+      const ops = new Set<string>();
+      for (let i = 0; i < 90 * 60 && g.phase === "play"; i++) {
+        update(g, 1 / 60);
+        for (const n of g.numbers) ops.add(n.op);
+      }
+      return ops;
+    };
+    expect(seen("times", 12).has("skull")).toBe(false);
+    expect(seen("divide", 3).has("skull")).toBe(true);
+  });
+});
+
+describe("a skull in ice", () => {
+  it("has to be cracked free before it pops", () => {
+    const g = playing();
+    const s = drop(g, COLS[1], 200, 99);
+    s.op = "skull";
+    s.ice = 2;
+    expect(tapAt(g, s.x, s.y)).toBe(true);
+    expect(tapAt(g, s.x, s.y)).toBe(true);
+    expect(g.numbers.includes(s)).toBe(true);
+    expect(s.ice).toBe(0);
+    expect(tapAt(g, s.x, s.y)).toBe(true);
+    expect(g.numbers.includes(s)).toBe(false);
+  });
+
+  it("comes now and then on the levels that have ice", () => {
+    let found = false;
+    for (let seed = 1; seed < 30 && !found; seed++) {
+      let a = seed;
+      const g = testGame(() => {
+        a = (a * 1664525 + 1013904223) % 4294967296;
+        return a / 4294967296;
+      });
+      startGame(g, "divide", 6);
+      for (let i = 0; i < 60 * 60 && g.phase === "play" && !found; i++) {
+        update(g, 1 / 60);
+        found = g.numbers.some((n) => n.op === "skull" && n.ice > 0);
+      }
+    }
+    expect(found).toBe(true);
+  });
+});
+
+describe("Ice world", () => {
+  it("every number that falls is frozen in ice", () => {
+    let a = 11;
+    const g = testGame(() => {
+      a = (a * 1664525 + 1013904223) % 4294967296;
+      return a / 4294967296;
+    });
+    startVariant(g, "ice");
+    const seen: NumberTile[] = [];
+    for (let i = 0; i < 40 * 60 && g.phase === "play"; i++) {
+      update(g, 1 / 60);
+      for (const n of g.numbers) if (!seen.includes(n)) seen.push(n);
+    }
+    expect(seen.length).toBeGreaterThan(5);
+    expect(seen.every((n) => n.ice > 0 || n.state !== "fall" || n.y > 0)).toBe(true);
+    expect(seen.filter((n) => n.bonus === null).length).toBeGreaterThan(0);
+  });
+});
+
+describe("Fast fingers", () => {
+  function fast(seed = 13): GameState {
+    let a = seed;
+    const g = testGame(() => {
+      a = (a * 1664525 + 1013904223) % 4294967296;
+      return a / 4294967296;
+    });
+    startVariant(g, "fast");
+    return g;
+  }
+
+  it("counts down 3, 2, 1 (0.6 seconds each) before anything comes", () => {
+    const g = fast();
+    expect(g.countdown).toBeCloseTo(1.8, 5);
+    for (let i = 0; i < 1.7 * 60; i++) update(g, 1 / 60);
+    expect(g.numbers).toHaveLength(0);
+    for (let i = 0; i < 2 * 60; i++) update(g, 1 / 60);
+    expect(g.countdown).toBe(0);
+    expect(g.numbers.length).toBeGreaterThan(0);
+  });
+
+  it("brings only 10s, 0s and skulls, which hang still and then pop (a skull falls)", () => {
+    const g = fast();
+    for (let i = 0; i < 2 * 60; i++) update(g, 1 / 60);
+    const n = g.numbers[0];
+    expect(["ten", "zero", "skull", "trap"]).toContain(n.op);
+    const y = n.y;
+    update(g, 0.3);
+    expect(n.y).toBe(y);
+    g.spawnTimer = 1e9;
+    for (let i = 0; i < 4 * 60; i++) update(g, 1 / 60);
+    if (n.op === "skull") expect(n.y).toBeGreaterThan(y);
+    else expect(g.numbers.includes(n)).toBe(false);
+  });
+
+  it("comes in waves: several at once, more and more, and the next only when they are gone", () => {
+    const g = fast();
+    for (let i = 0; i < 2 * 60; i++) update(g, 1 / 60);
+    expect(g.numbers.length).toBe(fastWave(g));
+    expect(g.numbers.length).toBeGreaterThanOrEqual(2);
+    g.variantTime = 60;
+    expect(fastWave(g)).toBeGreaterThan(2);
+  });
+
+  it("later on, a 10 or a 0 sometimes comes chained to a red skull", () => {
+    let found = false;
+    for (let seed = 1; seed < 40 && !found; seed++) {
+      const g = fast(seed);
+      g.countdown = 0;
+      g.variantTime = 40;
+      g.numbers = [];
+      g.spawnTimer = 0;
+      update(g, 1 / 60);
+      found = g.numbers.some((n) => (n.op === "ten" || n.op === "zero") && n.chain !== null && g.numbers.find((m) => m.id === n.chain)?.op === "trap");
+    }
+    expect(found).toBe(true);
+  });
+
+  it("a red trap skull falls when it is tapped (into the cup under it, which dies)", () => {
+    const g = fast();
+    g.countdown = 0;
+    g.spawnTimer = 1e9;
+    const trap = drop(g, g.cups[2].x, 200, 99);
+    trap.op = "trap";
+    trap.hover = 2;
+    expect(tapAt(g, trap.x, trap.y)).toBe(true);
+    for (let i = 0; i < 180 && !g.cups[2].dead; i++) update(g, 1 / 60);
+    expect(g.cups[2].dead).toBe(true);
+  });
+
+  it("a tapped 10 makes a perfect 10, and the numbers hang for less and less time", () => {
+    const g = fast();
+    g.countdown = 0;
+    g.spawnTimer = 1e9;
+    const ten = drop(g, g.cups[1].x, 200, 10);
+    ten.op = "ten";
+    ten.hover = 2;
+    expect(tapAt(g, ten.x, ten.y)).toBe(true);
+    for (let i = 0; i < 120 && g.numbers.includes(ten); i++) update(g, 1 / 60);
+    expect(g.level).toBe(2);
+    const early = fastHover(g);
+    g.variantTime = 60;
+    expect(fastHover(g)).toBeLessThan(early);
+  });
+});
+
+describe("Sequence 10", () => {
+  function find(seed = 21): GameState {
+    let a = seed;
+    const g = testGame(() => {
+      a = (a * 1664525 + 1013904223) % 4294967296;
+      return a / 4294967296;
+    });
+    startVariant(g, "find");
+    for (let i = 0; i < 2.2 * 60; i++) update(g, 1 / 60);
+    return g;
+  }
+  const columns = (g: GameState) => g.cols.map((_, c) => g.numbers.filter((n) => n.col === c).sort((a, b) => a.y - b.y));
+
+  it("after the count down, sets out columns of numbers that stand still, and at least one makes 10 from the top down", () => {
+    for (let seed = 1; seed < 30; seed++) {
+      const g = find(seed);
+      const cols = columns(g).filter((c) => c.length > 0);
+      expect(cols.length).toBe(g.cups.filter((c) => !c.dead).length);
+      expect(cols.some((c) => columnValue(c) === 10)).toBe(true);
+    }
+  });
+
+  it("tapping the numbers of a column that makes 10 (top down) sends them into its cup: a perfect 10, and a new puzzle", () => {
+    const g = find();
+    const col = columns(g).find((c) => c.length > 0 && columnValue(c) === 10)!;
+    for (const n of col) {
+      expect(tapAt(g, n.x, n.y)).toBe(true);
+      for (let i = 0; i < 120 && g.numbers.includes(n); i++) update(g, 1 / 60);
+    }
+    for (let i = 0; i < 30; i++) update(g, 1 / 60);
+    expect(g.level).toBe(2);
+    expect(g.numbers.length).toBeGreaterThan(0);
+    expect(g.numbers.every((n) => n.hover !== undefined)).toBe(true);
+  });
+
+  it("no perfect 10 in time and a cup dies, and one dead cup is game over; the time gets shorter and shorter", () => {
+    const g = find();
+    for (let i = 0; i < (g.findTotal + 0.3) * 60; i++) update(g, 1 / 60);
+    expect(g.cups.filter((c) => c.dead).length).toBe(1);
+    expect(g.phase).toBe("over");
+    const t0 = findTime(g);
+    g.variantTime = 60;
+    expect(findTime(g)).toBeLessThan(t0);
+  });
+});
+
+describe("help with two or three cups", () => {
+  it("after a number lands, the next number finishes one of the cups (only that one)", () => {
+    let a = 5;
+    const g = testGame(() => {
+      a = (a * 1664525 + 1013904223) % 4294967296;
+      return a / 4294967296;
+    });
+    startGame(g, "plus", 1);
+    expect(g.cols.length).toBeLessThanOrEqual(3);
+    g.spawnTimer = 1e9;
+    g.cups[0].value = 7;
+    g.cups[1].value = 8;
+    g.helpDue = true;
+    g.numbers = [];
+    g.spawnTimer = 0;
+    update(g, 1 / 60);
+    const n = g.numbers[g.numbers.length - 1];
+    expect([3, 2]).toContain(n.v);
+    expect(g.helpDue).toBe(false);
+    // (and never two in a row: the next one, even if a number lands, is not a forced help)
+    g.helpDue = true;
+    g.spawnTimer = 0;
+    update(g, 1 / 60);
+    expect(g.helpDue).toBe(true);
+  });
+});
+
+describe("help with four cups", () => {
+  const gapOn = (mode: Mode, stage: number) => {
+    const g = testGame(() => 0.5);
+    startGame(g, mode, stage);
+    return helpGap(g);
+  };
+  it("helps often at first, less and less, and not at all from the divide chapter on", () => {
+    expect(gapOn("plus", 1)).toBe(2);
+    expect(gapOn("mixed", 1)).toBe(2);
+    expect(gapOn("mixed", 12)).toBeGreaterThan(gapOn("mixed", 1));
+    expect(gapOn("times", 12)).toBeGreaterThan(gapOn("mixed", 12));
+    expect(gapOn("divide", 1)).toBe(Infinity);
+    expect(gapOn("space", 5)).toBe(Infinity);
+  });
+});
+
+describe("Shield up", () => {
+  function shield(): GameState {
+    const g = testGame(() => 0.3);
+    startVariant(g, "shield");
+    g.spawnTimer = 1e9;
+    return g;
+  }
+  it("the shield stays in its area over the cups", () => {
+    const g = shield();
+    moveShield(g, -100, 9999);
+    expect(g.shieldX).toBe(SHIELD_AREA.x0);
+    expect(g.shieldY).toBe(SHIELD_AREA.y1);
+    moveShield(g, 180, 0);
+    expect(g.shieldY).toBe(SHIELD_AREA.y0);
+  });
+  it("knocks a skull away (the cup under it lives); a skull it misses kills the cup", () => {
+    const g = shield();
+    const cup = g.cups[1];
+    moveShield(g, cup.x, 400);
+    const skull = drop(g, cup.x, 300, 99);
+    skull.op = "skull";
+    for (let i = 0; i < 1500 && g.numbers.includes(skull); i++) update(g, 1 / 60);
+    expect(cup.dead).toBe(false);
+    moveShield(g, g.cups[3].x, 400);
+    const other = drop(g, g.cups[0].x, 300, 99);
+    other.op = "skull";
+    for (let i = 0; i < 1500 && !g.cups[0].dead; i++) update(g, 1 / 60);
+    expect(g.cups[0].dead).toBe(true);
+  });
+  it("a shield swept fast across a skull still pops it, and so does the edge of the shield", () => {
+    const g = shield();
+    moveShield(g, 40, 300);
+    const skull = drop(g, 200, 300, 99);
+    skull.op = "skull";
+    moveShield(g, 340, 300); // (one big jump over it)
+    expect(g.numbers.includes(skull)).toBe(false);
+    const edge = drop(g, 180 + g.shieldW + 10, 300, 99);
+    edge.op = "skull";
+    moveShield(g, 180, 300);
+    expect(g.numbers.includes(edge)).toBe(false);
+  });
+
+  it("at level 10 a boss comes: the shield has to hold it up a while before it bursts", () => {
+    const g = shield();
+    g.level = 10;
+    update(g, 1 / 60);
+    const boss = g.numbers.find((n) => n.boss)!;
+    expect(boss).toBeDefined();
+    moveShield(g, boss.x, 300);
+    for (let i = 0; i < 60 && g.numbers.includes(boss); i++) update(g, 1 / 60);
+    expect(g.numbers.includes(boss)).toBe(true); // (one second is not enough)
+    for (let i = 0; i < 60 * 20 && g.numbers.includes(boss); i++) update(g, 1 / 60);
+    expect(g.numbers.includes(boss)).toBe(false);
+    expect(g.cups.every((c) => !c.dead)).toBe(true);
+  });
+
+  it("a 10 that gets past the shield is a perfect 10", () => {
+    const g = shield();
+    moveShield(g, g.cups[3].x, 400);
+    const ten = drop(g, g.cups[0].x, 300, 10);
+    ten.op = "ten";
+    for (let i = 0; i < 1500 && g.level === 1; i++) update(g, 1 / 60);
+    expect(g.level).toBe(2);
+  });
+
+  it("keeps the cups from the shop", () => {
+    const g = testGame(() => 0.3);
+    g.loadout = [["big"], [], [], []];
+    startVariant(g, "shield");
+    expect(g.cups.some((c) => c.kinds.includes("big"))).toBe(true);
+  });
+
+  it("grows to its full size, and after that only its power goes up (many times), which hurts a boss faster", () => {
+    const g = shield();
+    const take = () => {
+      const ball = drop(g, g.shieldX, g.shieldY - 30, 0);
+      ball.bonus = "shield";
+      for (let i = 0; i < 120 && g.numbers.includes(ball); i++) update(g, 1 / 60);
+    };
+    for (let i = 0; i < 5; i++) take();
+    expect(g.shieldW).toBe(SHIELD_W_MAX);
+    expect(g.shieldPower).toBe(1);
+    const damage = shieldDamage(g);
+    for (let i = 0; i < 40; i++) take();
+    expect(g.shieldW).toBe(SHIELD_W_MAX);
+    expect(g.shieldPower).toBe(SHIELD_POWER_MAX);
+    expect(shieldDamage(g)).toBeGreaterThan(damage);
+  });
+});
+
+describe("Fighter jet", () => {
+  function jet(): GameState {
+    const g = testGame(() => 0.3);
+    startVariant(g, "jet");
+    g.countdown = 0;
+    g.spawnTimer = 1e9;
+    holdCraft(g, true);
+    return g;
+  }
+  it("shoots only while a finger holds it, and pops a skull over it", () => {
+    const idle = jet();
+    holdCraft(idle, false);
+    moveShield(idle, 180, 450);
+    for (let i = 0; i < 60; i++) update(idle, 1 / 60);
+    expect(idle.shots).toHaveLength(0);
+    const g = jet();
+    moveShield(g, 180, 450);
+    const skull = drop(g, 180, 200, 99);
+    skull.op = "skull";
+    for (let i = 0; i < 120 && g.numbers.includes(skull); i++) update(g, 1 / 60);
+    expect(g.numbers.includes(skull)).toBe(false);
+    expect(g.cups.every((c) => !c.dead)).toBe(true);
+  });
+  it("shoots a 10 too (it is lost), so the jet has to be moved away to let one in", () => {
+    const g = jet();
+    moveShield(g, 180, 450);
+    const ten = drop(g, 180, 200, 10);
+    ten.op = "ten";
+    for (let i = 0; i < 120 && g.numbers.includes(ten); i++) update(g, 1 / 60);
+    expect(g.numbers.includes(ten)).toBe(false);
+    expect(g.level).toBe(1);
+  });
+  it("picks up balls: more guns, missiles and a shield, and the shield takes the hit of a skull", () => {
+    const g = jet();
+    moveShield(g, 60, 450);
+    for (const kind of ["gun", "missile", "shield"] as const) {
+      const ball = drop(g, 60, 410, 0);
+      ball.pickup = kind;
+      for (let i = 0; i < 60 && g.numbers.includes(ball); i++) update(g, 1 / 60);
+    }
+    expect(g.jetGun).toBe(2);
+    expect(g.jetMissile).toBe(1);
+    expect(g.jetShield).toBe(true);
+    g.jetFire = 99;
+    g.jetMissileFire = 99;
+    const skull = drop(g, 60, 440, 99);
+    skull.op = "skull";
+    update(g, 1 / 60);
+    expect(g.jetShield).toBe(false);
+    expect(g.jetStun).toBe(0);
+  });
+  it("is knocked out for a moment by a skull when it has no shield", () => {
+    const g = jet();
+    moveShield(g, 60, 450);
+    g.jetFire = 99;
+    const skull = drop(g, 60, 440, 99);
+    skull.op = "skull";
+    update(g, 1 / 60);
+    expect(g.jetStun).toBeGreaterThan(0);
+  });
+  it("a boss comes at level 10 and takes many shots", () => {
+    const g = jet();
+    g.level = 10;
+    update(g, 1 / 60);
+    const boss = g.numbers.find((n) => n.boss)!;
+    expect(boss).toBeDefined();
+    expect(boss.boss!.max).toBeGreaterThan(10);
+  });
+});
+
+describe("Comet belt", () => {
+  function comet(): GameState {
+    const g = testGame(() => 0.3);
+    startVariant(g, "comet");
+    g.countdown = 0;
+    g.spawnTimer = 1e9;
+    return g;
+  }
+  it("is over when the ship touches a comet", () => {
+    const g = comet();
+    moveShield(g, 100, 400);
+    const n = drop(g, 100, 340, 1);
+    n.comet = true;
+    for (let i = 0; i < 120 && g.phase === "play"; i++) update(g, 1 / 60);
+    expect(g.phase).toBe("over");
+    expect(g.overReason).toBe("crash");
+    const h = comet();
+    moveShield(h, 100, 400);
+    const one = drop(h, 100, 340, 1);
+    one.op = "steel";
+    for (let i = 0; i < 120 && h.phase === "play"; i++) update(h, 1 / 60);
+    expect(h.overReason).toBe("crash"); // (a 1 must not be touched either)
+  });
+  it("is over when a comet only touches the nose or a fin of the ship", () => {
+    for (const [dx, dy] of [[0, -40], [24, 22], [-24, 22]]) {
+      const g = comet();
+      moveShield(g, 180, 400);
+      const n = drop(g, 180 + dx, 400 + dy - 4, 0);
+      n.comet = true;
+      update(g, 1 / 60);
+      expect(g.overReason).toBe("crash");
+    }
+  });
+  it("a comet that passes beside the ship does not hit it", () => {
+    const g = comet();
+    moveShield(g, 180, 400);
+    const n = drop(g, 180 + 50, 300, 0);
+    n.comet = true;
+    for (let i = 0; i < 300 && g.numbers.includes(n); i++) update(g, 1 / 60);
+    expect(g.phase).toBe("play");
+  });
+  it("the comets fall faster than the numbers", () => {
+    const g = comet();
+    moveShield(g, 20, 100);
+    const two = drop(g, g.cols[1], 100, 2);
+    two.op = "steel";
+    const rock = drop(g, 300, 100, 0);
+    rock.comet = true;
+    update(g, 1 / 60);
+    expect(rock.y - 100).toBeGreaterThan((two.y - 100) * 1.4);
+  });
+  it("the smaller a comet, the faster it falls", () => {
+    const g = comet();
+    moveShield(g, 20, 100);
+    const small = drop(g, 300, 100, 0);
+    small.comet = true;
+    small.scale = 0.6;
+    const big = drop(g, 340, 100, 0);
+    big.comet = true;
+    big.scale = 1.3;
+    update(g, 1 / 60);
+    expect(small.y - 100).toBeGreaterThan((big.y - 100) * 2);
+  });
+  it("uses fuel while the ship is held; when it runs out the ship cannot be flown, and it fills up again when it is let go", () => {
+    const g = comet();
+    moveShield(g, 20, 100);
+    holdCraft(g, true);
+    for (let i = 0; i < 60 * (FUEL_SECONDS + 0.5) && g.phase === "play"; i++) update(g, 1 / 60);
+    expect(g.fuel).toBe(0);
+    expect(g.fuelOut).toBe(true);
+    expect(shipFlying(g)).toBe(false);
+    moveShield(g, 200, 300);
+    expect(g.shieldX).toBe(20); // (no fuel: it does not move)
+    holdCraft(g, false);
+    for (let i = 0; i < 60 * FUEL_REFILL && g.phase === "play"; i++) update(g, 1 / 60);
+    expect(g.fuel).toBeCloseTo(1, 5);
+    expect(g.fuelOut).toBe(false);
+  });
+  it("a new level pops every comet (an ordinary perfect 10 does not)", () => {
+    const g = comet();
+    moveShield(g, 20, 100);
+    const stays = drop(g, 90, 150, 0);
+    stays.comet = true;
+    const first = g.cups[1];
+    first.value = 8;
+    const t2 = drop(g, first.x, 470, 2);
+    t2.op = "steel";
+    for (let i = 0; i < 300 && g.level === 1; i++) update(g, 1 / 60);
+    expect(g.level).toBe(2);
+    expect(g.numbers.includes(stays)).toBe(true);
+    g.numbers = [];
+    g.level = endlessCupsBefore(2); // (one cup left to level 2)
+    moveShield(g, 20, 100);
+    const a = drop(g, 90, 150, 0);
+    a.comet = true;
+    const b = drop(g, 270, 200, 0);
+    b.comet = true;
+    const cup = g.cups[1];
+    cup.value = 8;
+    const two = drop(g, cup.x, 470, 2);
+    two.op = "steel";
+    const before = g.level;
+    for (let i = 0; i < 300 && g.level === before; i++) update(g, 1 / 60);
+    expect(endlessLevel(g)).toBe(2);
+    expect(g.numbers.some((n) => n.comet)).toBe(false);
+  });
+  it("a fuel ball fills up the tank", () => {
+    const g = comet();
+    moveShield(g, 180, 400);
+    g.fuel = 0;
+    g.fuelOut = true;
+    const ball = drop(g, 180, 380, 0);
+    ball.pickup = "fuel";
+    update(g, 1 / 60);
+    expect(g.fuel).toBe(1);
+    expect(g.fuelOut).toBe(false);
+  });
+  it("goes 1.5 times as fast while the ship is held", () => {
+    const fallen = (held: boolean): number => {
+      const g = comet();
+      moveShield(g, 20, 100);
+      holdCraft(g, held);
+      const n = drop(g, 300, 100, 2);
+      n.op = "steel";
+      update(g, 1 / 60);
+      return n.y - 100;
+    };
+    expect(fallen(true)).toBeCloseTo(fallen(false) * 1.5, 2);
+  });
+  it("a shield ball gives the ship a shield, and the shield takes one hit", () => {
+    const g = comet();
+    moveShield(g, 180, 400);
+    const ball = drop(g, 180, 380, 0);
+    ball.pickup = "shield";
+    update(g, 1 / 60);
+    expect(g.jetShield).toBe(true);
+    const n = drop(g, 180, 380, 0);
+    n.comet = true;
+    update(g, 1 / 60);
+    expect(g.phase).toBe("play");
+    expect(g.jetShield).toBe(false);
+    const m = drop(g, 180, 380, 0);
+    m.comet = true;
+    update(g, 1 / 60);
+    expect(g.overReason).toBe("crash");
+  });
+  it("sends the 2s down the columns and the comets beside them", () => {
+    let a = 11;
+    const g = testGame(() => ((a = (a * 1664525 + 1013904223) % 4294967296) / 4294967296));
+    startVariant(g, "comet");
+    g.countdown = 0;
+    g.variantTime = 30;
+    moveShield(g, 20, 100);
+    const seen: NumberTile[] = [];
+    for (let i = 0; i < 60 * 30 && g.phase === "play"; i++) {
+      g.jetShield = true; // (the ship is in the way at the edge: the shield keeps the round going)
+      update(g, 1 / 60);
+      for (const n of g.numbers) if (!seen.includes(n)) seen.push(n);
+    }
+    const ones = seen.filter((n) => !n.comet && !n.pickup);
+    const comets = seen.filter((n) => n.comet);
+    expect(ones.length).toBeGreaterThan(0);
+    expect(comets.length).toBeGreaterThan(0);
+    expect(ones.filter((n) => !n.pickup).every((n) => n.v === 2 && g.cols.includes(n.x))).toBe(true);
+    expect(comets.every((n) => g.cols.every((x) => Math.abs(n.x - x) > 25))).toBe(true);
+  });
+  it("a 1 that misses the ship falls into a cup, and a comet falls past the cups", () => {
+    const g = comet();
+    moveShield(g, 20, 100);
+    const cup = g.cups[2];
+    const rock = drop(g, cup.x, 420, 0);
+    rock.comet = true;
+    for (let i = 0; i < 1500 && g.numbers.includes(rock); i++) update(g, 1 / 60);
+    expect(cup.value).toBe(0);
+    const n = drop(g, cup.x, 400, 1);
+    n.op = "steel";
+    for (let i = 0; i < 1500 && g.numbers.includes(n); i++) update(g, 1 / 60);
+    expect(cup.value).toBe(1);
+    expect(g.phase).toBe("play");
+  });
+  it("the numbers cannot be tapped (the ship is flown)", () => {
+    const g = comet();
+    const n = drop(g, 180, 200, 1);
+    n.comet = true;
+    expect(tapAt(g, n.x, n.y)).toBe(false);
   });
 });

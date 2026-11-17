@@ -31,7 +31,7 @@ export const TARGET = 10;
 export const STAGES = 12;
 
 /** How many things the tutorial lets you try. */
-export const TUTORIAL_STEPS = 4;
+export const TUTORIAL_STEPS = 5;
 
 /** A tapped number first hops up at this speed (units per second), then gravity pulls it down into the cup. */
 export const DIVE_HOP = 320;
@@ -39,10 +39,12 @@ export const DIVE_GRAVITY = 1800;
 
 /** Bonus balls: how many seconds the slow motion lasts, how slow the numbers fall in it, and the points a points ball gives per level. */
 export const SLOW_SECONDS = 10;
+/** How many erasers can be held at most (like the pull-down screens). */
+export const ERASER_MAX = 3;
 export const SLOW_FACTOR = 0.25;
 export const BONUS_POINTS = 100;
 /** The pause ball stops the numbers dead for this many seconds (you can still tap). */
-export const PAUSE_SECONDS = 3;
+export const PAUSE_SECONDS = 6;
 /** The bomb blows away every number (not bonus balls) within this many game units of it: the columns next to it, and the ones two columns away when they are at about the same height (the columns are 90 apart). */
 export const BOMB_RADIUS = 190;
 

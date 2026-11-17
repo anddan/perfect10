@@ -2,20 +2,22 @@
 // Page 1 is the tutorial, page 2 the plus levels (nine, three on every row), page 3 the plus and minus levels,
 // and the last page is the endless game. Every page of the book is in its own room (see background.ts).
 import {STREAK_DAYS, rungGoal, rungPayout, streakFactor} from "../game/daily";
-import {DAILY_RUNGS, H, SCREEN_MAX, W, STAGES} from "../game/constants";
+import {DAILY_RUNGS, ERASER_MAX, H, SCREEN_MAX, W, STAGES} from "../game/constants";
 import {type StepDesign, designOfDay, drawGift, drawLimitLine, drawSteps, halfWidth, stepY} from "./stepsArt";
 import {CUP_PRICE, SHOP_CUPS} from "../game/cups";
 import {LOOK_KINDS, type LookKind, looksOf, lookKey} from "../game/looks";
-import {CLOTH_PRICE, ENDLESS_COST, ENERGY_PRICE, MAX_COPIES, ONLINE_PRICE, VARIANT_PRICE, VIDEO_COINS, type UnlockMode, refillPrice} from "./wallet";
+import {CLOTH_PRICE, ERASER_PRICE, ENDLESS_COST, ENERGY_PRICE, MAX_COPIES, ONLINE_PRICE, VARIANT_PRICE, VIDEO_COINS, type UnlockMode, refillPrice} from "./wallet";
 import {SAUCERS, SAUCER_EFFECT, SAUCER_PRICE, SAUCER_SLOTS, type SaucerKind, isSaucer, saucerPower} from "../game/saucers";
 import {drawSaucerPlate} from "./saucerArt";
 import {ENERGY_MAX} from "./energy";
-import {ENERGY_PILL, coinsPillBox, drawGear} from "./settings";
+import {ENERGY_PILL, HEADER, coinsPillBox, drawGear} from "./settings";
 import {COIN_PACKS, CURRENCY, PREMIUM} from "./purchase";
-import {goalFor, starsFor} from "../game/engine";
-import type {GameState, Mode, Variant} from "../game/types";
+import {dailyMixOf, goalFor, starsFor} from "../game/engine";
+import type {GameState, Mode, Op, Variant} from "../game/types";
 import {roomOfMode, type Room} from "./background";
 import {drawShopCup} from "./cupArt";
+import {drawComet, drawJet, drawShip} from "./craftArt";
+import {applyTint} from "./tint";
 import {type Key, t} from "./i18n";
 import {playerName} from "./profile";
 import {drawKey, drawTrophy} from "./settings";
@@ -27,19 +29,22 @@ import {
   TAU,
   drawBall,
   drawBonusBall,
+  drawEraser,
+  drawIce,
+  setBallLabel,
   drawCoin,
   drawStar,
   drawButton,
   drawWoodPill,
   logoTitleFit,
+  logoWidth,
   registerHit,
   roundRect,
   softShadow,
   text,
   ui,
   wrapLines,
-  write,
-} from "./draw";
+  write, drawShieldArc} from "./draw";
 
 /** The holes along the left edge of the pages (their middle, measured from the left edge of the page and from the top), and the metal spiral that goes through them. */
 const SPIRAL_AT = [60, 138, 216, 294, 372, 450];
@@ -50,11 +55,13 @@ const HOLE_R = 4.6;
 export const BOOK = {x: 14, y: 62, w: 332, h: 514};
 
 /** What each page of the book is: the games, and after them the daily challenge (the ladder) and the shop. */
-export type Page = Mode | "contents" | "daily" | "shop" | "looks" | "buy" | "save" | "sixeight" | "online" | "back";
-export const PAGES: Page[] = ["contents", "tutorial", "daily", "plus", "minus", "mixed", "times", "divide", "space", "endless", "save", "sixeight", "online", "shop", "looks", "buy", "back"];
+export type Page = Mode | "cover" | "contents" | "daily" | "shop" | "looks" | "buy" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "online" | "back";
+export const PAGES: Page[] = ["cover", "contents", "tutorial", "daily", "plus", "minus", "mixed", "times", "divide", "space", "endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online", "shop", "looks", "buy", "back"];
 /** The pages of the match modes (they are kept together, under a line of their own, in the contents). */
-export const MATCH_PAGES: readonly Page[] = ["endless", "save", "sixeight", "online"];
+export const MATCH_PAGES: readonly Page[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online"];
 /** The pages of the daily challenge and the shop. */
+/** The front cover is the first thing in the book (it has no page number); the contents is page 1. */
+export const CONTENTS_PAGE = PAGES.indexOf("contents");
 export const DAILY_PAGE = PAGES.indexOf("daily");
 export const SHOP_PAGE = PAGES.indexOf("shop");
 export const BUY_PAGE = PAGES.indexOf("buy");
@@ -153,8 +160,8 @@ export function pageOfMode(mode: Mode): number {
 export const CHAPTER_STARS = 3 * STAGES;
 /** How many stars, all chapters added together (180 at most), open the endless game. */
 export const STARS_FOR_ENDLESS = 120;
-/** The stars that open the match modes (without buying them for coins, or Premium): Save the cup and 6 or 8. */
-export const STARS_FOR_VARIANT: Record<Variant, number> = {save: 130, sixeight: 140};
+/** The stars that open the match modes (without buying them for coins, or Premium): Save the cup and Even numbers. */
+export const STARS_FOR_VARIANT: Record<Variant, number> = {save: 130, sixeight: 140, defend: 150, ice: 160, fast: 170, find: 180, shield: 190, jet: 200, comet: 210};
 
 /** The stars got in a level (the points of its best try): none until it has been cleared. */
 export function starsOfLevel(b: Book, mode: Mode, stage: number): number {
@@ -204,7 +211,7 @@ export function openNextGame(b: Book, mode: Mode, stage: number): {mode: Mode; s
 /** The room behind a page of the book. */
 export function roomOfPage(page: number): Room {
   const p = PAGES[Math.min(LAST, Math.max(0, page))];
-  return p === "daily" || p === "save" || p === "sixeight" || p === "online" ? "terrace" : p === "shop" ? "bakery" : p === "looks" || p === "contents" ? "classroom" : p === "buy" || p === "back" ? "cafe" : roomOfMode(p);
+  return p === "daily" || p === "save" || p === "sixeight" || p === "defend" || p === "ice" || p === "fast" || p === "find" || p === "shield" || p === "jet" || p === "comet" || p === "online" ? "terrace" : p === "shop" ? "bakery" : p === "looks" || p === "contents" || p === "cover" ? "classroom" : p === "buy" || p === "back" ? "cafe" : roomOfMode(p);
 }
 
 /** The game that follows another in the book: level after level, then the next page, ending in the endless game. */
@@ -569,6 +576,38 @@ function drawTutorialRow(ctx: CanvasRenderingContext2D, i: number, y: number, do
         drawCupIcon(ctx, cx + 23, cy, "", INK, false, 0.5, true);
       },
     },
+    {
+      title: t("r5t"),
+      lines: [t("r5a"), t("r5b")],
+      icon: (cx, cy) => {
+        // The cloth: a piece of cloth on its roller, and the cord with the gold ring that is pulled.
+        ctx.fillStyle = "#f6f1e3";
+        ctx.strokeStyle = "rgba(90,60,25,0.55)";
+        ctx.lineWidth = 1.6;
+        roundRect(ctx, cx - 18, cy - 21, 36, 22, 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#8a6a44";
+        roundRect(ctx, cx - 20, cy + 1, 40, 4.5, 2);
+        ctx.fill();
+        ctx.strokeStyle = "#8a7a5c";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy + 5);
+        ctx.lineTo(cx, cy + 11);
+        ctx.stroke();
+        const ring = ctx.createLinearGradient(0, cy + 10, 0, cy + 24);
+        ring.addColorStop(0, "#f1cf86");
+        ring.addColorStop(1, "#a97a2c");
+        ctx.fillStyle = ring;
+        ctx.strokeStyle = "#5e4010";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(cx, cy + 17, 6.5, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+      },
+    },
   ];
   const row = rows[i];
   if (done) {
@@ -589,8 +628,8 @@ function drawTutorialRow(ctx: CanvasRenderingContext2D, i: number, y: number, do
     write(ctx, String(i + 1), 46, y + 1, 18, "#43270a", "center", 700);
   }
   row.icon(104, y);
-  write(ctx, row.title, 146, y - 18, 19, INK, "left", 700);
-  row.lines.forEach((line, k) => write(ctx, line, 146, y + 4 + k * 18, 14.5, "#5b4a36", "left", 600));
+  write(ctx, row.title, 146, y - 17, 19, INK, "left", 700);
+  row.lines.forEach((line, k) => write(ctx, line, 146, y + 3 + k * 16.5, 14.5, "#5b4a36", "left", 600));
 }
 
 function drawTutorialPage(ctx: CanvasRenderingContext2D, b: Book, time: number): void {
@@ -598,8 +637,7 @@ function drawTutorialPage(ctx: CanvasRenderingContext2D, b: Book, time: number):
   write(ctx, t("tutLabel"), w / 2, 38, 14, "#8a6d3b", "center", 700);
   write(ctx, t("tutorial"), w / 2, 82, 46, "#43270a", "center", 700);
   write(ctx, t("tutSub"), w / 2, 122, 16, "#5b4a36", "center", 600);
-  // (the last row sits a little higher, away from the button)
-  for (let i = 0; i < 4; i++) drawTutorialRow(ctx, i, 176 + i * 68 - (i === 3 ? 5 : 0), b.cleared.has(clearedKey("tutorial", 0)));
+  for (let i = 0; i < 5; i++) drawTutorialRow(ctx, i, 160 + i * 56, b.cleared.has(clearedKey("tutorial", 0)));
   drawButton(ctx, "play:tutorial:0", {x: w / 2 - 112, y: BOOK.h - 92, w: 224, h: 56}, b.cleared.has(clearedKey("tutorial", 0)) ? t("playAgain") : t("startTutorial"), "primary", {
     pulse: time,
     size: 22,
@@ -783,17 +821,17 @@ function drawTile(
   ctx.closePath();
   ctx.fill();
   ctx.restore();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = cleared ? "#ffd54a" : space && !locked ? "#8fd8ff" : col(62, 24);
+  // (no dark border round the tile: only the edge of a tile of space glows a little)
   if (space && !locked) {
-    // The edge of a tile of space glows a little.
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#8fd8ff";
     ctx.shadowColor = "rgba(130,210,255,0.85)";
     ctx.shadowBlur = 8;
+    roundRect(ctx, x, y + dy, s, s, 18 * k);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
   }
-  roundRect(ctx, x, y + dy, s, s, 18 * k);
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-  ctx.shadowColor = "transparent";
   ctx.strokeStyle = locked ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.6)";
   ctx.lineWidth = 1.5;
   roundRect(ctx, x + 2, y + dy + 2, s - 4, s - 4, 16 * k);
@@ -830,150 +868,34 @@ function drawTile(
 
 // ---- The signs of the chapters ------------------------------------------------------------
 
-const SIGN_LINE = 2;
-/** How far a sign reaches from its middle, and half the thickness of its arms. */
-const SIGN_ARM = 16;
-const SIGN_THICK = 4.5;
-/** How round the corners of a sign are. */
-const SIGN_SOFT = 3.5;
+/** How wide the ball of a chapter is on its page. */
+const SIGN_BALL = 46;
 
-type Pt = [number, number];
-
-/** A closed shape with soft (rounded) corners. */
-function softShape(ctx: CanvasRenderingContext2D, pts: Pt[], r: number): void {
-  const n = pts.length;
-  const mid = (a: Pt, b: Pt): Pt => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-  const start = mid(pts[n - 1], pts[0]);
-  ctx.beginPath();
-  ctx.moveTo(start[0], start[1]);
-  for (let i = 0; i < n; i++) {
-    const m = mid(pts[i], pts[(i + 1) % n]);
-    ctx.arcTo(pts[i][0], pts[i][1], m[0], m[1], r);
-  }
-  ctx.closePath();
-}
-
-/** The corners of a plus (one closed outline, so its border never runs into itself), `arm` from the middle to the end of an arm. */
-function plusPoints(cx: number, cy: number, arm: number, thick: number, turn = 0): Pt[] {
-  const raw: Pt[] = [
-    [-thick, -arm], [thick, -arm], [thick, -thick], [arm, -thick], [arm, thick], [thick, thick],
-    [thick, arm], [-thick, arm], [-thick, thick], [-arm, thick], [-arm, -thick], [-thick, -thick],
-  ];
-  const c = Math.cos(turn);
-  const s = Math.sin(turn);
-  return raw.map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c]);
-}
-
-/** A bar (the minus), `half` from its middle to its end. */
-function barPoints(cx: number, cy: number, half: number, thick: number): Pt[] {
-  return [[cx - half, cy - thick], [cx + half, cy - thick], [cx + half, cy + thick], [cx - half, cy + thick]];
-}
-
-/** How wide the sign of a chapter is. */
+/** How wide the sign of a chapter is (plus and minus has two balls). */
 function signWidth(mode: ChapterMode): number {
-  if (mode === "space") return 2 * 17 + SIGN_LINE;
-  if (mode === "times") return 2 * (SIGN_ARM + SIGN_THICK) * Math.SQRT1_2 + SIGN_LINE;
-  return 2 * SIGN_ARM + SIGN_LINE;
+  return mode === "mixed" ? 72 : SIGN_BALL;
 }
 
 /**
- * Fills the shape that is the current path like a glossy tile: the colour is lighter at the top and darker at the bottom (down to
- * the colour at the bottom of the tile), a soft shine fades out from the top and a bright rim runs just inside the upper edge.
- * The border is drawn by the caller.
+ * The sign of a chapter, centred on (cx, cy): the number ball of the chapter itself, as it looks in the game, with its sign alone on it: + on a green ball for plus,
+ * − on a red one for minus, both for plus and minus, × on a blue one, ÷ on a yellow one, and the star ball for the last chapter.
  */
-function fillGlossy(ctx: CanvasRenderingContext2D, hue: number, night: boolean, x0: number, y0: number, x1: number, y1: number): void {
-  const h = y1 - y0;
-  const body = ctx.createLinearGradient(0, y0, 0, y1);
-  if (night) {
-    body.addColorStop(0, `hsl(${hue} 60% 28%)`);
-    body.addColorStop(0.5, `hsl(${hue} 56% 19%)`);
-    body.addColorStop(1, `hsl(${hue} 55% 15%)`);
-  } else {
-    body.addColorStop(0, `hsl(${hue} 85% 58%)`);
-    body.addColorStop(0.5, `hsl(${hue} 80% 44%)`);
-    body.addColorStop(1, `hsl(${hue} 78% 36%)`);
-  }
-  ctx.fillStyle = body;
-  ctx.fill();
-  ctx.save();
-  ctx.clip();
-  // Only one thing on top of the colour: a white gloss over the upper part of the shape, cut off by a line that runs from the lower
-  // left up to the upper right (a little below the middle). A shape that is flat or wide gets a flatter line, since it goes by its size.
-  const w = x1 - x0;
-  const slope = (0.5 * h) / w; // (how much the line rises for every step to the right)
-  const edge = (x: number): number => y0 + h * 0.75 - (x - x0) * slope;
-  const gloss = ctx.createLinearGradient(0, y0, 0, y0 + h * 0.75);
-  gloss.addColorStop(0, "rgba(255,255,255,0.85)");
-  gloss.addColorStop(1, "rgba(255,255,255,0.5)");
-  ctx.fillStyle = gloss;
-  // (its own path, so that the path of the shape itself stays the current one: the border the caller draws runs along it)
-  const above = new Path2D();
-  above.moveTo(x0 - 6, edge(x0 - 6));
-  above.lineTo(x1 + 6, edge(x1 + 6));
-  above.lineTo(x1 + 6, y0 - 6);
-  above.lineTo(x0 - 6, y0 - 6);
-  above.closePath();
-  ctx.fill(above);
-  ctx.restore();
-}
-
-/**
- * The sign of a chapter, centred on (cx, cy): with soft corners, filled with the colour at the bottom of a level tile and
- * with that tile's dark border (hue is the colour of one of the level tiles).
- */
-function drawSign(ctx: CanvasRenderingContext2D, mode: ChapterMode, cx: number, cy: number, hue: number): void {
-  ctx.save();
-  ctx.lineJoin = "round";
-  ctx.lineWidth = SIGN_LINE + 0.5;
-  // The colours of level 3 of the chapter: the colour at the bottom of its tile, with its dark border (no white).
-  const night = mode === "space";
-  ctx.fillStyle = night ? `hsl(${hue} 55% 15%)` : `hsl(${hue} 78% 36%)`;
-  ctx.strokeStyle = night ? `hsl(${hue} 43% 10%)` : `hsl(${hue} 62% 24%)`;
-  const border = ctx.strokeStyle;
-  /** A shape made of these points (with this much rounding): glossy, with the dark border round it. */
-  const shape = (pts: Pt[], soft = SIGN_SOFT) => {
-    softShape(ctx, pts, soft);
-    const xs = pts.map((q) => q[0]);
-    const ys = pts.map((q) => q[1]);
-    fillGlossy(ctx, hue, night, Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
-    ctx.strokeStyle = border;
-    ctx.lineWidth = SIGN_LINE + 0.5;
-    ctx.stroke();
+function drawSign(ctx: CanvasRenderingContext2D, mode: ChapterMode, cx: number, cy: number, _hue: number): void {
+  const k = SIGN_BALL / 40;
+  const ball = (x: number, label: string, v: number, op: Op, size = k) => {
+    setBallLabel(label);
+    drawBall(ctx, x, cy, v, size, 0, 0, op, "classic");
+    setBallLabel(null);
   };
-  if (mode === "plus") {
-    shape(plusPoints(cx, cy, SIGN_ARM, SIGN_THICK));
-  } else if (mode === "minus") {
-    // Minus: a bar.
-    shape(barPoints(cx, cy, SIGN_ARM, SIGN_THICK));
-  } else if (mode === "mixed") {
-    // Plus and minus: the same plus as in chapter 1, with a bar under it.
-    shape(plusPoints(cx, cy - 8, SIGN_ARM, SIGN_THICK));
-    shape(barPoints(cx, cy + 17, SIGN_ARM, SIGN_THICK));
-  } else if (mode === "times") {
-    shape(plusPoints(cx, cy, SIGN_ARM, SIGN_THICK, Math.PI / 4));
-  } else if (mode === "space") {
-    // A five-pointed star, with only a little rounding at its points so that it still looks like a star.
-    shape(
-      Array.from({length: 10}, (_, k): Pt => {
-        const ang = (k * Math.PI) / 5 - Math.PI / 2;
-        const rad = k % 2 === 0 ? 18 : 7.6;
-        return [cx + rad * Math.cos(ang), cy + 1 + rad * Math.sin(ang)];
-      }),
-      1.6
-    );
-  } else {
-    // Divide: a bar with a ring above it and a ring under it.
-    shape(barPoints(cx, cy, SIGN_ARM, SIGN_THICK - 1));
-    for (const dy of [-13, 13]) {
-      ctx.beginPath();
-      ctx.arc(cx, cy + dy, 4.5, 0, TAU);
-      fillGlossy(ctx, hue, night, cx - 4.5, cy + dy - 4.5, cx + 4.5, cy + dy + 4.5);
-      ctx.strokeStyle = border;
-      ctx.lineWidth = SIGN_LINE + 0.5;
-      ctx.stroke();
-    }
-  }
-  ctx.restore();
+  if (mode === "plus") ball(cx, "+", 1, "add");
+  else if (mode === "minus") ball(cx, "−", -1, "add");
+  else if (mode === "mixed") {
+    // (they lie over each other a little: the minus ball behind, the plus ball in front)
+    ball(cx + 15, "−", -1, "add", k * 0.9);
+    ball(cx - 15, "+", 1, "add", k * 0.9);
+  } else if (mode === "times") ball(cx, "×", 2, "mul");
+  else if (mode === "divide") ball(cx, "÷", 2, "div");
+  else drawBonusBall(ctx, cx, cy, "star", k, 0);
 }
 
 /**
@@ -1024,6 +946,32 @@ function drawLevelsPage(ctx: CanvasRenderingContext2D, b: Book, mode: ChapterMod
   const gap = 14;
   const gx = (w - (3 * size + 2 * gap)) / 2;
   const top = 144;
+  // The level you are at (the first one here that is open and not cleared yet): a soft gold glow behind its tile, and a ring round it that pulses.
+  let at = -1;
+  for (let i = 0; i < STAGES && at < 0; i++) if (isUnlocked(b, mode, i + 1) && !b.cleared.has(clearedKey(mode, i + 1))) at = i;
+  const pulse = 0.5 + 0.5 * Math.sin((performance.now() / 1000) * 3.2);
+  if (at >= 0) {
+    const ax = gx + (at % 3) * (size + gap) + size / 2;
+    const ay = top + Math.floor(at / 3) * (size + gap) + size / 2;
+    // A wide warm light behind it, and a soft halo of light round the tile (a few blurred glows, stronger and weaker as it breathes).
+    const halo = ctx.createRadialGradient(ax, ay, size * 0.35, ax, ay, size * (0.95 + 0.1 * pulse));
+    halo.addColorStop(0, `rgba(255,214,80,${0.65 + 0.25 * pulse})`);
+    halo.addColorStop(0.55, `rgba(255,196,50,${0.28 + 0.15 * pulse})`);
+    halo.addColorStop(1, "rgba(255,190,40,0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(ax - size * 1.1, ay - size * 1.1, size * 2.2, size * 2.2);
+    const tx = ax - size / 2;
+    const ty = ay - size / 2;
+    ctx.save();
+    ctx.shadowColor = `rgba(255,200,60,${0.75 + 0.25 * pulse})`;
+    for (const [blur, alpha] of [[30 + 12 * pulse, 0.9], [16, 1], [8, 1]]) {
+      ctx.shadowBlur = blur * ui.px;
+      ctx.fillStyle = `rgba(255,220,110,${alpha})`;
+      roundRect(ctx, tx - 2, ty - 2, size + 4, size + 4, 16);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
   for (let i = 0; i < STAGES; i++) {
     drawTile(
       ctx,
@@ -1037,6 +985,29 @@ function drawLevelsPage(ctx: CanvasRenderingContext2D, b: Book, mode: ChapterMod
       size,
       b.bestScores.get(clearedKey(mode, i + 1)) ?? 0
     );
+  }
+  if (at >= 0) {
+    // (and a few little sparkles that come and go round it)
+    const tx = gx + (at % 3) * (size + gap);
+    const ty = top + Math.floor(at / 3) * (size + gap);
+    const now = performance.now() / 1000;
+    for (let k = 0; k < 4; k++) {
+      const life = Math.sin(((now * 0.7 + k / 4) % 1) * Math.PI);
+      const ang = k * 1.7 + now * 0.4;
+      const sx = tx + size / 2 + Math.cos(ang) * (size * 0.62);
+      const sy = ty + size / 2 + Math.sin(ang) * (size * 0.62);
+      const z = 4 * life;
+      ctx.globalAlpha = life;
+      ctx.fillStyle = "#fff6c4";
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - z);
+      ctx.quadraticCurveTo(sx, sy, sx + z, sy);
+      ctx.quadraticCurveTo(sx, sy, sx, sy + z);
+      ctx.quadraticCurveTo(sx, sy, sx - z, sy);
+      ctx.quadraticCurveTo(sx, sy, sx, sy - z);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
   // At the bottom: what opens this chapter (if it is shut), or else what opens the next one (nothing is said in the last chapter).
   const hint = !isUnlocked(b, mode, 1) ? t("openChapter", {n: chapter - 1}) : chapter < CHAPTER_MODES.length ? t("openChapterNext", {n: chapter + 1}) : "";
@@ -1071,6 +1042,20 @@ function pageName(page: Page): string {
       return t("saveName");
     case "sixeight":
       return t("sixEightName");
+    case "defend":
+      return t("defendName");
+    case "ice":
+      return t("iceName");
+    case "fast":
+      return t("fastName");
+    case "find":
+      return t("findName");
+    case "shield":
+      return t("shieldName");
+    case "jet":
+      return t("jetName");
+    case "comet":
+      return t("cometName");
     case "online":
       return t("onlineName");
     case "shop":
@@ -1098,7 +1083,7 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
   const mine: ChapterMode = isChapter(here as Mode) ? (here as ChapterMode) : here === "endless" ? CHAPTER_MODES[CHAPTER_MODES.length - 1] : CHAPTER_MODES[0];
   const lastChapter = CHAPTER_MODES[CHAPTER_MODES.length - 1];
   const rows: ({page: Page; index: number} | "toggle" | "modes")[] = [];
-  for (let i = 1; i < PAGES.length; i++) {
+  for (let i = CONTENTS_PAGE + 1; i < PAGES.length; i++) {
     const page = PAGES[i];
     if (page === "back") continue; // (the back cover is not a page that is listed)
     if (isChapter(page as Mode)) {
@@ -1192,7 +1177,7 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
     registerHit(ctx, id, {x, y: y0, w: rw, h: rowH});
     const y = y0 + (ui.pressed === id ? 2 : 0);
     const chapter = isChapter(page as Mode);
-    const locked = chapter ? !isUnlocked(b, page as Mode, 1) : page === "endless" ? !isUnlocked(b, "endless", 0) : page === "save" || page === "sixeight" || page === "online" ? !variantOpen(b, page) : false;
+    const locked = chapter ? !isUnlocked(b, page as Mode, 1) : page === "endless" ? !isUnlocked(b, "endless", 0) : page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "online" ? !variantOpen(b, page) : false;
     softCard(ctx, x, y, rw, rowH, 10, "cream");
     // The left and the right edge of the line have the colour of their group (the same as the tab and the page number).
     ctx.save();
@@ -1207,7 +1192,7 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
     ctx.beginPath();
     ctx.arc(x + 17, y + rowH / 2, Math.min(9.5, rowH / 2 - 2), 0, TAU);
     ctx.fill();
-    write(ctx, String(i + 1), x + 17, y + rowH / 2 + 0.5, 11.5, "#7a5c2e", "center", 700);
+    write(ctx, String(i), x + 17, y + rowH / 2 + 0.5, 11.5, "#7a5c2e", "center", 700);
     write(ctx, pageName(page), x + 36, y + rowH / 2 + 0.5, 14.5, locked ? "#8f8372" : "#3b2a14", "left", 700);
     // The chapter the player is on says so, in small letters after its name.
     if (chapter && page === here) {
@@ -1325,10 +1310,128 @@ export function variantOpen(b: Book, mode: UnlockMode): boolean {
 const VARIANT_KEYS: Record<Variant, {name: Key; sub: Key; rules: Key}> = {
   save: {name: "saveName", sub: "saveSub", rules: "saveRules"},
   sixeight: {name: "sixEightName", sub: "sixEightSub", rules: "sixEightRules"},
+  defend: {name: "defendName", sub: "defendSub", rules: "defendRules"},
+  ice: {name: "iceName", sub: "iceSub", rules: "iceRules"},
+  fast: {name: "fastName", sub: "fastSub", rules: "fastRules"},
+  find: {name: "findName", sub: "findSub", rules: "findRules"},
+  shield: {name: "shieldName", sub: "shieldSub", rules: "shieldRules"},
+  jet: {name: "jetName", sub: "jetSub", rules: "jetRules"},
+  comet: {name: "cometName", sub: "cometSub", rules: "cometRules"},
 };
 
 /** The picture in the middle of the page of a match mode. */
 function drawVariantArt(ctx: CanvasRenderingContext2D, mode: Variant, cx: number, cy: number, time: number): void {
+  if (mode === "jet") {
+    // Three cups, the jet flying from side to side and shooting at a steel skull, and a 10 on its way past it into a cup.
+    for (let i = 0; i < 3; i++) drawShopCup(ctx, [], cx + (i - 1) * 76, cy + 56, 0.66);
+    const jx = cx + Math.sin(time * 1.3) * 34;
+    const jy = cy + 12;
+    ctx.save();
+    ctx.strokeStyle = "#ffd54a";
+    ctx.lineCap = "round";
+    ctx.lineWidth = 3;
+    for (let k = 0; k < 3; k++) {
+      const u = (time * 2.5 + k / 3) % 1;
+      const y = jy - 26 - u * 70;
+      ctx.globalAlpha = 1 - u * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(jx, y);
+      ctx.lineTo(jx, y - 10);
+      ctx.stroke();
+    }
+    ctx.restore();
+    const steel = ui.steelSkulls;
+    ui.steelSkulls = true;
+    drawBall(ctx, jx, cy - 92 + Math.sin(time * 4) * 2, 99, 0.9, time, 0, "skull");
+    ui.steelSkulls = steel;
+    drawBall(ctx, cx + 76, cy - 40 + ((time * 30) % 60), 10, 0.85, time, 1, "ten");
+    ctx.save();
+    ctx.translate(jx, jy);
+    ctx.scale(0.8, 0.8);
+    drawJet(ctx, 0, 0, time, {missiles: 1});
+    ctx.restore();
+    return;
+  }
+  if (mode === "comet") {
+    // Three cups, steel 2s falling down into them, comets (balls of fire) falling beside them, and the ship weaving between it all.
+    for (let i = 0; i < 3; i++) drawShopCup(ctx, [], cx + (i - 1) * 76, cy + 56, 0.66);
+    [-76, 76].forEach((dx, i) => drawBall(ctx, cx + dx, cy - 70 + ((time * 40 + i * 50) % 100), 2, 0.75, time, i, "steel"));
+    [-38, 38].forEach((dx, i) => {
+      const n = {x: cx + dx, y: cy - 80 + ((time * 55 + i * 60) % 120), phase: i * 1.7, state: "fall"} as unknown as Parameters<typeof drawComet>[1];
+      drawComet(ctx, n, time);
+    });
+    ctx.save();
+    ctx.translate(cx + Math.sin(time * 1.6) * 9, cy + 14);
+    ctx.scale(0.75, 0.75);
+    drawShip(ctx, 0, 0, time);
+    ctx.restore(); // (in the gap between the two comets in the middle)
+    return;
+  }
+  if (mode === "shield") {
+    // Three cups, and a big steel boss skull held up by the shield, with its red life bar going down.
+    for (let i = 0; i < 3; i++) drawShopCup(ctx, [], cx + (i - 1) * 76, cy + 50, 0.66);
+    const sx = cx + Math.sin(time * 1.4) * 30;
+    const steel = ui.steelSkulls;
+    ui.steelSkulls = true;
+    const by = cy - 28 + Math.sin(time * 5) * 1.5;
+    drawBall(ctx, sx, by, 99, 1.45, time, 0, "skull");
+    ui.steelSkulls = steel;
+    drawShieldArc(ctx, sx, cy + 6, 48, 14, 1);
+    const bw = 66;
+    const life = 1 - ((time * 0.25) % 1);
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    roundRect(ctx, sx - bw / 2 - 2, by - 48, bw + 4, 11, 5.5);
+    ctx.fill();
+    ctx.fillStyle = "#e0352b";
+    roundRect(ctx, sx - bw / 2, by - 46, bw * life, 7, 3.5);
+    ctx.fill();
+    write(ctx, "BOSS", sx, by - 56, 11, "#b8261d", "center", 800);
+    return;
+  }
+  if (mode === "find") {
+    // Four columns of numbers over four cups: the one that makes 10 shines.
+    const cols = [[3, 4], [2, 5, 3], [6, 1], [4, 2, 2]];
+    cols.forEach((list, c) => {
+      const x = cx + (c - 1.5) * 64;
+      drawShopCup(ctx, [], x, cy + 56, 0.55);
+      if (c === 1) {
+        const glow = ctx.createRadialGradient(x, cy - 30, 6, x, cy - 30, 60);
+        glow.addColorStop(0, `rgba(255,213,74,${0.4 + 0.2 * Math.sin(time * 3)})`);
+        glow.addColorStop(1, "rgba(255,213,74,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(x - 60, cy - 100, 120, 140);
+      }
+      list.forEach((v, i) => drawBall(ctx, x, cy - 56 + i * 30, v, 0.66, time, c + i, "add"));
+    });
+    return;
+  }
+  if (mode === "fast") {
+    // A 10, a 0 and a skull hanging in the air over three cups, and a big 3 of the count down.
+    for (let i = 0; i < 3; i++) drawShopCup(ctx, [], cx + (i - 1) * 76, cy + 44, 0.66);
+    drawBall(ctx, cx - 76, cy - 30 + Math.sin(time * 6) * 1.5, 10, 1, time, 0, "ten");
+    drawBall(ctx, cx, cy - 12 + Math.sin(time * 6 + 1) * 1.5, 99, 1, time, 1, "skull");
+    drawBall(ctx, cx + 76, cy - 30 + Math.sin(time * 6 + 2) * 1.5, 0, 1, time, 2, "zero");
+    return;
+  }
+  if (mode === "ice") {
+    // Three numbers frozen in ice, over three cups.
+    for (let i = 0; i < 3; i++) drawShopCup(ctx, [], cx + (i - 1) * 76, cy + 44, 0.66);
+    [3, -2, 5].forEach((v, i) => {
+      const x = cx + (i - 1) * 76;
+      const y = cy - 24 + (i % 2) * 12 + Math.sin(time * 2 + i) * 3;
+      drawBall(ctx, x, y, v, 1, time, i, "add");
+      drawIce(ctx, x, y, 2, 1);
+    });
+    return;
+  }
+  if (mode === "defend") {
+    // Three cups, with skulls and a few numbers on their way down to them.
+    for (let i = 0; i < 3; i++) drawShopCup(ctx, [], cx + (i - 1) * 76, cy + 44, 0.66);
+    drawBall(ctx, cx - 76, cy - 30 + Math.sin(time * 2) * 3, 99, 1, time, 0, "skull");
+    drawBall(ctx, cx, cy - 14 + Math.sin(time * 2 + 1) * 3, 3, 1, time, 1, "add");
+    drawBall(ctx, cx + 76, cy - 34 + Math.sin(time * 2 + 2) * 3, 99, 1, time, 2, "skull");
+    return;
+  }
   if (mode === "save") {
     // Four cups, one of them dead (grey, with a red cross), and 1s on their way down.
     for (let i = 0; i < 4; i++) {
@@ -1355,11 +1458,10 @@ function drawVariantArt(ctx: CanvasRenderingContext2D, mode: Variant, cx: number
       drawBall(ctx, x, cy - 24 + (i % 2) * 14 + Math.sin(time * 2 + i) * 3, 1, 0.66, time, i, "add");
     }
   } else {
-    // A 6, an 8 and a number that divides by 2.
-    drawBall(ctx, cx - 78, cy, 6, 1.05, time, 0, "add");
-    drawBall(ctx, cx, cy + 6, 8, 1.05, time, 1, "add");
-    drawBall(ctx, cx + 78, cy, 2, 1.05, time, 2, "div");
-    write(ctx, "8 \u00F7 2 = 4,  4 + 6 = 10", cx, cy + 58, 15, "#7a5c2e", "center", 700);
+    // A 2, a 4, an 8, times 2 and divided by 2.
+    const shown: [number, Op][] = [[2, "add"], [4, "add"], [8, "add"], [2, "mul"], [2, "div"]];
+    shown.forEach(([v, op], i) => drawBall(ctx, cx + (i - 2) * 62, cy + (i % 2) * 8, v, 0.9, time, i, op));
+    write(ctx, "4 \u00D7 2 = 8,  8 + 2 = 10", cx, cy + 58, 15, "#7a5c2e", "center", 700);
   }
 }
 
@@ -1505,20 +1607,6 @@ function flourish(ctx: CanvasRenderingContext2D, cx: number, y: number, half: nu
   ctx.lineTo(cx - 5, y);
   ctx.closePath();
   ctx.fill();
-}
-
-/** The number of the page (for instance 15/16), as a pill in the top left corner of a page. */
-function pagePill(ctx: CanvasRenderingContext2D, index: number): void {
-  const label = `${index + 1}/${BUY_PAGE + 1}`;
-  ctx.font = `700 15px ${FONT}`;
-  const pw = ctx.measureText(label).width + 26;
-  ctx.fillStyle = "rgba(90,60,25,0.13)";
-  roundRect(ctx, 14, 10, pw, 26, 13);
-  ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(90,60,25,0.25)";
-  ctx.stroke();
-  write(ctx, label, 14 + pw / 2, 24, 15, "#5b4a36", "center", 700);
 }
 
 /** The stars (for instance 16/32), as a pill in the top right corner of a page. */
@@ -1730,9 +1818,9 @@ function drawShopSaucers(ctx: CanvasRenderingContext2D): void {
     }
   });
   ctx.font = `600 12px ${FONT}`;
-  wrapLines(ctx, t("saucerHint"), w - 50)
-    .slice(0, 2)
-    .forEach((line, k) => write(ctx, line, w / 2, 490 + k * 14, 12, "#6a583f", "center", 600));
+  wrapLines(ctx, `${t("saucerHint")} ${t("saucerSetNote")}`, w - 50)
+    .slice(0, 3)
+    .forEach((line, k) => write(ctx, line, w / 2, 484 + k * 14, 12, "#6a583f", "center", 600));
 }
 
 /** The energy for coins (one point, or a full refill) and the continue token that carries on a lost round without an ad. */
@@ -1745,29 +1833,31 @@ function drawShopEnergy(ctx: CanvasRenderingContext2D): void {
     {id: "shop:energy1", name: t("supEnergy1"), desc: `${t("supEnergy1D")} ${t("shopClothB", {n: ui.energyN, m: ENERGY_MAX})}`, price: ENERGY_PRICE, off: missing < 1, icon: 0},
     {id: "shop:energyFull", name: t("supRefill"), desc: t("supRefillD", {n: missing}), price: refillPrice(missing), off: missing < 1, icon: 1},
     {id: "shop:cloth", name: t("shopCloth"), desc: `${t("shopClothA")} ${t("shopClothB", {n: ui.screens, m: SCREEN_MAX})}`, price: CLOTH_PRICE, off: ui.screens >= SCREEN_MAX, icon: 2},
+    {id: "shop:eraser", name: t("shopEraser"), desc: `${t("shopEraserA")} ${t("shopClothB", {n: ui.erasers, m: ERASER_MAX})}`, price: ERASER_PRICE, off: ui.erasers >= ERASER_MAX, icon: 3},
   ];
   items.forEach((it, i) => {
-    const y0 = 176 + i * 106;
-    softCard(ctx, x0, y0, cw, 94, 16, "cream");
+    const y0 = 172 + i * 84;
+    softCard(ctx, x0, y0, cw, 76, 16, "cream");
     ctx.fillStyle = "rgba(110,80,40,0.1)";
     ctx.beginPath();
-    ctx.arc(x0 + 40, y0 + 47, 27, 0, TAU);
+    ctx.arc(x0 + 40, y0 + 38, 27, 0, TAU);
     ctx.fill();
-    if (it.icon === 0) drawKey(ctx, x0 + 40, y0 + 47, 38, true);
+    if (it.icon === 0) drawKey(ctx, x0 + 40, y0 + 38, 38, true);
     else if (it.icon === 1) {
-      drawKey(ctx, x0 + 29, y0 + 51, 26, true);
-      drawKey(ctx, x0 + 52, y0 + 51, 26, true);
-      drawKey(ctx, x0 + 40, y0 + 43, 34, true);
-    } else {
+      drawKey(ctx, x0 + 29, y0 + 42, 26, true);
+      drawKey(ctx, x0 + 52, y0 + 42, 26, true);
+      drawKey(ctx, x0 + 40, y0 + 34, 34, true);
+    } else if (it.icon === 3) drawEraser(ctx, x0 + 40, y0 + 38, 1.7);
+    else {
       ctx.save();
-      ctx.translate(x0 + 40, y0 + 47);
+      ctx.translate(x0 + 40, y0 + 38);
       ctx.scale(1.05, 1.05);
       drawBonusBall(ctx, 0, 0, "cloth", 1, 0);
       ctx.restore();
     }
-    write(ctx, it.name, x0 + 78, y0 + 24, 17, INK, "left", 700);
-    shopText(ctx, it.desc, x0 + 78, y0 + 42, cw - 78 - 96, 3);
-    const btn = {x: x0 + cw - 86, y: y0 + 29, w: 76, h: 36};
+    write(ctx, it.name, x0 + 78, y0 + 20, 17, INK, "left", 700);
+    shopText(ctx, it.desc, x0 + 78, y0 + 36, cw - 78 - 96, 3, 11);
+    const btn = {x: x0 + cw - 86, y: y0 + 20, w: 76, h: 36};
     if (it.off) drawButton(ctx, it.id, btn, t("shopFull"), "secondary", {size: 15});
     else {
       const afford = ui.coins >= it.price;
@@ -1797,7 +1887,9 @@ function drawDailyPage(ctx: CanvasRenderingContext2D, time: number): void {
     const last = i === DAILY_RUNGS - 1;
     // On the left: the rung, and the cups it needs.
     write(ctx, t("dailyRung", {n: i + 1}), geom.cx - half - 8, y - 4, 14, reached ? "#8a5208" : INK, "right", 700);
-    write(ctx, t("dailyCups", {n: rungGoal(i + 1)}), geom.cx - half - 8, y + 9, 10.5, "#7a6648", "right", 600);
+    // (the even rungs are played as today's match mode: its name is under them, in the colour of the match pages)
+    const mix = (i + 1) % 2 === 0 ? `  ·  ${t(VARIANT_KEYS[dailyMixOf(undefined, i + 1)].name)}` : "";
+    write(ctx, t("dailyCups", {n: rungGoal(i + 1)}) + mix, geom.cx - half - 8, y + 9, 10.5, mix ? "#1f7a8c" : "#7a6648", "right", mix ? 700 : 600);
     // On the right: what it pays today, in a small pill (gold for the top).
     const amount = rungPayout(i, ui.streakDay);
     ctx.font = `700 14px ${FONT}`;
@@ -2213,7 +2305,8 @@ function drawTopTag(ctx: CanvasRenderingContext2D, index: number): void {
 }
 
 /** The back cover: the green leather of the book (the same as the front), a gold frame, "coming soon" and the button for writing to us. */
-function drawBackCover(ctx: CanvasRenderingContext2D, time: number): void {
+/** The green leather of a cover: the soft light, the shade by the spine, the holes of the spiral and the gold frame. */
+function drawCoverBase(ctx: CanvasRenderingContext2D): void {
   const {w, h} = BOOK;
   const leather = ctx.createLinearGradient(0, 0, w, h);
   leather.addColorStop(0, "#3d5f46");
@@ -2247,6 +2340,34 @@ function drawBackCover(ctx: CanvasRenderingContext2D, time: number): void {
   ctx.strokeStyle = "rgba(255,213,74,0.3)";
   roundRect(ctx, 34, 28, w - 56, h - 56, 12);
   ctx.stroke();
+}
+
+/**
+ * The front cover of the book: the title, the ball with the 10, a few words about why it is good to train the brain with numbers, and a button that opens the book.
+ */
+function drawFrontCover(ctx: CanvasRenderingContext2D, time: number): void {
+  const {w, h} = BOOK;
+  drawCoverBase(ctx);
+  const cx = w / 2 + 8;
+  text(ctx, "PERFECT 10", cx, 82, 38, "#f4d36a", "center", "rgba(20,36,24,0.9)");
+  flourish(ctx, cx, 110, 78);
+  // The ball with the 10, with a soft golden light round it.
+  const glow = ctx.createRadialGradient(cx, 186, 20, cx, 186, 100);
+  glow.addColorStop(0, "rgba(255,226,120,0.4)");
+  glow.addColorStop(1, "rgba(255,226,120,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(cx - 120, 76, 240, 220);
+  drawBall(ctx, cx, 186 + Math.sin(time * 1.6) * 3, 10, 2.3, time, 0, "add");
+  // Why it is good.
+  text(ctx, t("coverTag"), cx, 272, 24, "#ffe9a0", "center", "rgba(20,36,24,0.9)");
+  ctx.font = `600 16px ${FONT}`;
+  wrapLines(ctx, t("coverLine"), w - 112).forEach((line, i) => write(ctx, line, cx, 308 + i * 22, 16, "#d9ead9", "center", 600));
+  drawButton(ctx, `toc:${CONTENTS_PAGE}`, {x: cx - 100, y: h - 102, w: 200, h: 50}, t("coverOpen"), "primary", {pulse: time, size: 21});
+}
+
+function drawBackCover(ctx: CanvasRenderingContext2D, time: number): void {
+  const {w, h} = BOOK;
+  drawCoverBase(ctx);
   const cx = w / 2 + 8;
   write(ctx, "PERFECT 10", cx, 112, 30, "#f4d36a", "center", 700);
   flourish(ctx, cx, 136, 70);
@@ -2267,6 +2388,12 @@ function paintPage(ctx: CanvasRenderingContext2D, index: number, b: Book, _g: Ga
   // The page after the last one is the back cover of the book: green leather, with what is coming and a way to write to us.
   if (PAGES[index] === "back") {
     drawBackCover(ctx, time);
+    ctx.restore();
+    return;
+  }
+  // The first page is the front cover.
+  if (PAGES[index] === "cover") {
+    drawFrontCover(ctx, time);
     ctx.restore();
     return;
   }
@@ -2312,12 +2439,10 @@ function paintPage(ctx: CanvasRenderingContext2D, index: number, b: Book, _g: Ga
   else if (mode === "shop") drawShopPage(ctx);
   else if (mode === "looks") drawLooksPage(ctx);
   else if (mode === "buy") drawBuyPage(ctx);
-  else if (mode === "save" || mode === "sixeight") drawVariantPage(ctx, b, mode, time);
+  else if (mode === "save" || mode === "sixeight" || mode === "defend" || mode === "ice" || mode === "fast" || mode === "find" || mode === "shield" || mode === "jet" || mode === "comet") drawVariantPage(ctx, b, mode, time);
   else if (mode === "online") drawOnlinePage(ctx, b, time);
   else if (isChapter(mode)) drawLevelsPage(ctx, b, mode);
   else drawEndlessPage(ctx, b, time);
-  // The number of the page is always in the top left corner (and, where there are stars to count, they are in the top right one).
-  pagePill(ctx, index);
   drawTopTag(ctx, index);
   ctx.restore();
 }
@@ -2352,16 +2477,17 @@ const LEAD = 0.55;
  * The page on top, `f` of the way turned. It peels from the top: the top rows turn first, so the free edge is slanted.
  * At the start and the end it trembles a little at the top.
  */
-function drawTurning(ctx: CanvasRenderingContext2D, picture: HTMLCanvasElement, f: number, time: number): void {
+function drawTurning(ctx: CanvasRenderingContext2D, picture: HTMLCanvasElement, f: number, time: number, stiff = false): void {
   const s = ui.px;
   const edgeF = Math.min(f, 1 - f);
   const rowH = BOOK.h / ROWS;
   for (let r = 0; r < ROWS; r++) {
     const y0 = r * rowH;
     const yc = (r + 0.5) / ROWS;
-    let a = f * (1 + LEAD) - yc * LEAD;
+    // (a cover is stiff: it turns flat, with no lead at the top and no ripple)
+    let a = stiff ? f : f * (1 + LEAD) - yc * LEAD;
     // A smooth ripple down the page (not noise from row to row), strongest at the top.
-    if (edgeF < 0.3) a += Math.sin(time * 30 + yc * 9) * 0.017 * Math.sin((edgeF / 0.3) * Math.PI) * (1 - yc * 0.75);
+    if (!stiff && edgeF < 0.3) a += Math.sin(time * 30 + yc * 9) * 0.017 * Math.sin((edgeF / 0.3) * Math.PI) * (1 - yc * 0.75);
     a = Math.min(1, Math.max(0, a));
     const dw = BOOK.w * Math.cos((a * Math.PI) / 2);
     if (dw < 0.6) continue;
@@ -2427,7 +2553,7 @@ export const TAB_GROUPS: {id: string; color: GroupColor; icon: string}[] = [
 /** Which group a page belongs to (an index into TAB_GROUPS). */
 export function groupOfPage(page: number): number {
   const p = PAGES[Math.min(LAST, Math.max(0, page))];
-  if (p === "contents") return 0;
+  if (p === "contents" || p === "cover") return 0;
   if (p === "tutorial" || p === "daily") return 1;
   if (isChapter(p as Mode)) return 2;
   if (MATCH_PAGES.includes(p)) return 3;
@@ -2436,7 +2562,7 @@ export function groupOfPage(page: number): number {
 
 /** The page a tab goes to: the contents, the daily steps, the chapter the player is on, the match mode that was visited last, or the shop. */
 export function tabTarget(b: Book, group: number): number {
-  if (group === 0) return 0;
+  if (group === 0) return CONTENTS_PAGE;
   if (group === 1) return PAGES.indexOf("daily");
   if (group === 2) {
     const cur = currentPage(b);
@@ -2448,6 +2574,49 @@ export function tabTarget(b: Book, group: number): number {
     return last >= 0 ? last : PAGES.indexOf("endless");
   }
   return SHOP_PAGE;
+}
+
+/** The tabs on the right edge of the book: where the first one is, how tall each is, and how far apart. */
+const TAB = {y: BOOK.y + 50, h: 50, pitch: 56, w: 22, wOn: 32};
+
+/** The coloured tabs on the right edge, one for each group of pages (a setting: they can be hidden): the one the book is open at sticks out further. A tap goes to the group. */
+function drawTabs(ctx: CanvasRenderingContext2D, b: Book): void {
+  const here = ui.scrubAmt > 0.02 ? b.target : Math.round(b.pos);
+  const active = PAGES[here] === "back" ? -1 : groupOfPage(here);
+  TAB_GROUPS.forEach((grp, k) => {
+    const on = k === active;
+    const wk = on ? TAB.wOn : TAB.w;
+    const x = W - wk;
+    const y = TAB.y + k * TAB.pitch;
+    const c = grp.color;
+    registerHit(ctx, `side:${k}`, {x: x - 2, y, w: wk + 2, h: TAB.h});
+    ctx.save();
+    ctx.globalAlpha = on ? 1 : 0.88;
+    ctx.fillStyle = "rgba(0,0,0,0.36)";
+    ctx.beginPath();
+    ctx.roundRect(x - 2.5, y + 3, wk + 6, TAB.h, [11, 0, 0, 11]);
+    ctx.fill();
+    const fill = ctx.createLinearGradient(0, y, 0, y + TAB.h);
+    fill.addColorStop(0, c.light);
+    fill.addColorStop(0.55, c.mid);
+    fill.addColorStop(1, c.deep);
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.roundRect(x, y, wk + 6, TAB.h, [11, 0, 0, 11]);
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = c.edge;
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x + 11, y + 1.8);
+    ctx.lineTo(W, y + 1.8);
+    ctx.stroke();
+    const s = on ? 0.82 : 0.6;
+    drawBarSign(ctx, grp, x + wk / 2 + 1, y + TAB.h / 2, 24 * s, "#ffffff");
+    ctx.restore();
+  });
 }
 
 /** The bar at the bottom of the screen (like the one in Forza Manager): how tall it is, and the round button in the middle that sticks up over its top edge. */
@@ -2477,6 +2646,13 @@ const SUB_ICON: Partial<Record<Page, string>> = {
   endless: "M12 12c-1.5-2.5-3-4-5-4a4 4 0 0 0 0 8c2 0 3.5-1.5 5-4zm0 0c1.5 2.5 3 4 5 4a4 4 0 0 0 0-8c-2 0-3.5 1.5-5 4z",
   save: "M5 5h11v7a5.5 5.5 0 0 1-11 0zM16 7h2.5a2.5 2.5 0 0 1 0 5H16M6 20.5h10",
   sixeight: "M4 12h16M12 6.2v.1M12 17.8v.1",
+  defend: "M12 3a7 7 0 0 0-7 7c0 2.5 1.2 4.2 3 5.2V19h8v-3.8c1.8-1 3-2.7 3-5.2a7 7 0 0 0-7-7zM9 10.5v.1M15 10.5v.1M10 19v2M14 19v2",
+  ice: "M12 2v20M3.5 7l17 10M3.5 17l17-10M9 4l3 3 3-3M9 20l3-3 3 3",
+  shield: "M3 13a9 9 0 0 1 18 0M6 13a6 6 0 0 1 12 0M12 2v2M8 18l-2 3M16 18l2 3",
+  jet: "M12 2l2 6v4l7 4v2l-7-2v4l2 2v1l-4-1-4 1v-1l2-2v-4l-7 2v-2l7-4V8z",
+  comet: "M15 9a3 3 0 1 0 0 .1M13 11L3 21M12 8L5 15M16 12l-7 7",
+  find: "M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM16 16l5 5M7.5 10.5h6M10.5 7.5v6",
+  fast: "M9 11V5.5a1.5 1.5 0 0 1 3 0V11M12 10V4.5a1.5 1.5 0 0 1 3 0V11M15 10.5V6a1.5 1.5 0 0 1 3 0v7c0 4-2.5 7-6.5 7-3 0-4.5-1.5-6-4L4 12.5a1.5 1.5 0 0 1 2.5-1.5L9 13.5M2 4l2 2M2 9h2M5 1.5l.8 2.5",
   online: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3.2 3 3.2 15 0 18M12 3c-3.2 3-3.2 15 0 18",
   shop: "M5 8h14l-1 12H6zM9 8V6.5a3 3 0 0 1 6 0V8",
   looks: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 16.5v3M17 18h3",
@@ -2486,7 +2662,7 @@ const SUB_ICON: Partial<Record<Page, string>> = {
 /** Whether a page of the arc is shut (the match modes that have not been opened yet). */
 function subLocked(b: Book, page: Page): boolean {
   if (page === "endless") return !isUnlocked(b, "endless", 0);
-  if (page === "save" || page === "sixeight" || page === "online") return !variantOpen(b, page);
+  if (page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "online") return !variantOpen(b, page);
   return false;
 }
 
@@ -2513,6 +2689,7 @@ function drawBarSign(ctx: CanvasRenderingContext2D, grp: (typeof TAB_GROUPS)[num
  * in the middle is a big round button. A tap goes to the group. (It is drawn in the game's own coordinates, with the bottom of the screen at y = 640.)
  */
 export function drawMenuBar(ctx: CanvasRenderingContext2D, b: Book): void {
+  if (ui.coverIntro || ui.layout !== "menu") return; // (the very first start, or the tabs on the edge are used instead)
   const here = ui.scrubAmt > 0.02 ? b.target : Math.round(b.pos);
   const active = PAGES[here] === "back" ? -1 : groupOfPage(here); // (nothing is lit at the back cover)
   const top = H - BAR.h;
@@ -2537,6 +2714,11 @@ export function drawMenuBar(ctx: CanvasRenderingContext2D, b: Book): void {
   ctx.beginPath();
   ctx.roundRect(0, top, W, BAR.h + 40, [20, 20, 0, 0]);
   ctx.fill();
+  // (the bar follows the tone that is chosen in the Looks, like the room does)
+  ctx.save();
+  ctx.clip();
+  applyTint(ctx, ui.look.tint, 0, top, W, BAR.h + 40);
+  ctx.restore();
   ctx.lineWidth = 1.6;
   ctx.strokeStyle = "rgba(255,213,74,0.35)";
   ctx.stroke();
@@ -2597,7 +2779,10 @@ export function drawMenuBar(ctx: CanvasRenderingContext2D, b: Book): void {
     drawBarSign(ctx, grp, cx, cy, 24, ink);
     write(ctx, word, cx, top + 49, 10.5, ink, "center", on ? 700 : 600);
     // A marker on Today while the daily challenge has not been started today (green, with a play triangle, like the button for the free coins in the shop).
-    if (group === 1 && !ui.dailyUsed) drawMarker(ctx, cx + 13, cy - 11);
+    // (and while the gift of the day is waiting)
+    if (group === 1 && (!ui.dailyUsed || ui.giftReady)) drawMarker(ctx, cx + 13, cy - 11);
+    // The same on Shop while the free coins of the Purchase page can be got.
+    if (group === 4 && ui.videoReady) drawMarker(ctx, cx + 13, cy - 11);
   });
   if (open >= 0) drawArc(ctx, b, open, top, here);
 }
@@ -2638,18 +2823,32 @@ function drawArc(ctx: CanvasRenderingContext2D, b: Book, group: number, top: num
   const c = TAB_GROUPS[group].color;
   const px = W / 2;
   const py = top + 4;
-  const radius = 130;
-  const step = 36;
   const age = performance.now() / 1000 - ui.barOpenAt;
+  // (up to four in one arc; more go in two rows: the first half in an outer arc, the rest in an inner one under it)
+  const twoRows = pages.length > 4;
+  const outer = twoRows ? Math.ceil(pages.length / 2) : pages.length;
+  // (with many (the match modes) they stand in a grid of three across instead, the last row nearest the bar)
+  const grid = pages.length > 6;
+  const rows = Math.ceil(pages.length / 3);
   pages.forEach((index, k) => {
     const page = PAGES[index];
-    const a = ((k - (pages.length - 1) / 2) * step * Math.PI) / 180;
+    const inOuter = k < outer;
+    const row = inOuter ? outer : pages.length - outer;
+    const kk = inOuter ? k : k - outer;
+    const radius = !twoRows ? 130 : inOuter ? 222 : 118;
+    const step = !twoRows ? 36 : inOuter ? 36 : 46;
+    const a = ((kk - (row - 1) / 2) * step * Math.PI) / 180;
     const p = Math.min(1, Math.max(0, (age - k * 0.035) / 0.22));
     const back = p - 1;
     const pop = p >= 1 ? 1 : 1 + 2.70158 * back * back * back + 1.70158 * back * back; // (it overshoots a little, and settles)
     const spread = Math.min(1, p * 1.4);
-    const x = px + Math.sin(a) * radius * spread;
-    const y = py - Math.cos(a) * radius * spread;
+    // (in two rows the places are spread evenly across the width, with a gentle curve, so that four of them fit in a row)
+    const off = kk - (row - 1) / 2;
+    const gRow = Math.floor(k / 3);
+    const tx = grid ? px + ((k % 3) - 1) * 104 : twoRows ? px + off * 82 : px + Math.sin(a) * radius;
+    const ty = grid ? py - 92 - (rows - 1 - gRow) * 86 : twoRows ? py - (inOuter ? 208 : 116) + off * off * (inOuter ? 9 : 14) : py - Math.cos(a) * radius;
+    const x = px + (tx - px) * spread;
+    const y = py + (ty - py) * spread;
     const r = 28 * Math.max(0.01, pop);
     const lit = index === here;
     const locked = subLocked(b, page);
@@ -2667,6 +2866,12 @@ function drawArc(ctx: CanvasRenderingContext2D, b: Book, group: number, top: num
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
+    if (!lit) {
+      ctx.save();
+      ctx.clip();
+      applyTint(ctx, ui.look.tint, x - r, y - r, r * 2, r * 2);
+      ctx.restore();
+    }
     ctx.lineWidth = lit ? 3 : 1.6;
     ctx.strokeStyle = lit ? "#ffffff" : c.mid;
     ctx.stroke();
@@ -2685,6 +2890,8 @@ function drawArc(ctx: CanvasRenderingContext2D, b: Book, group: number, top: num
       ctx.stroke(new Path2D(icon));
     }
     ctx.restore();
+    // (the Purchase page has the marker while the free coins can be got)
+    if (page === "buy" && ui.videoReady && p >= 1) drawMarker(ctx, x + r * 0.72, y - r * 0.72);
     // The name under the button (made smaller if it is long, so that it stays clear of the next one).
     ctx.save();
     ctx.globalAlpha = p * (locked ? 0.7 : 1);
@@ -2821,12 +3028,24 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
 
   if (ui.headerRows === 2) {
     // Room above: the title on a row of its own, across the whole width.
-    logoTitleFit(ctx, "PERFECT 10", W / 2, 22 + ui.titleDy, W - 48, ui.titleMax);
+    logoTitleFit(ctx, "PERFECT10", W / 2, 22 + ui.titleDy, W - 48, ui.titleMax);
   } else {
-    // Tight: the title fills what there is between the energy and the gear, as big as it fits.
-    const gapL = ENERGY_PILL.x + ENERGY_PILL.w + 6;
-    const gapR = coinsPillBox(ctx, ui.coins).x - 6;
-    logoTitleFit(ctx, "PERFECT 10", (gapL + gapR) / 2, 22 + ui.titleDy, gapR - gapL, 44);
+    // The keys stand under the coins at the top right, and the title fills the room to the left of them, as big as it fits.
+    const size = 46;
+    const left = 4;
+    // (the top of the coins is level with the top of the title: the cap height of the title is about 0.36 of its size over its middle, the coin 9 over its own)
+    const wFull = logoWidth(ctx, "PERFECT10", size);
+    HEADER.coinsDy = 0;
+    const box0 = coinsPillBox(ctx, ui.coins);
+    const wLogo = Math.min(box0.x - 8 - left, wFull);
+    const shown = Math.min(size, (size * wLogo) / wFull);
+    const cy = 38 + ui.titleDy;
+    HEADER.coinsDy = cy - shown * 0.36 - (box0.y + box0.h / 2 - 9) - ui.headerDy;
+    const coinsBox = coinsPillBox(ctx, ui.coins);
+    ENERGY_PILL.w = coinsBox.w;
+    ENERGY_PILL.x = coinsBox.x;
+    ENERGY_PILL.y = coinsBox.y + coinsBox.h - 6;
+    logoTitleFit(ctx, "PERFECT10", left + wLogo / 2, cy, wLogo, size);
   }
 
   // The book lying on the table: its shadow, the green leather cover, and the edges of the pages under the top one.
@@ -2861,6 +3080,23 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
     ctx.restore();
   }
 
+  // At the front cover the cover is as big as the back of the book (it lies over the edges of the pages under it).
+  if (b.pos < 0.02 && !b.jump) {
+    const front = ctx.createLinearGradient(x, y, x + w, y + h);
+    front.addColorStop(0, "#3d5f46");
+    front.addColorStop(1, "#1f3626");
+    ctx.fillStyle = front;
+    roundRect(ctx, x - 10, y - 8, w + 20, h + 22, 14);
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,213,74,0.4)";
+    ctx.lineWidth = 1.2;
+    roundRect(ctx, x - 6, y - 4, w + 12, h + 14, 11);
+    ctx.stroke();
+  }
+
   // The pages: the next one lies underneath, and the one on top is turned.
   const pos = Math.min(LAST, Math.max(0, b.pos));
   let i = Math.min(LAST, Math.floor(pos));
@@ -2882,7 +3118,7 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
     paintPage(ctx, under, b, g, time);
     ctx.restore();
     drawSpiral(ctx, x, y);
-    drawTurning(ctx, pictureOfPage(i, b, g, time), f, time);
+    drawTurning(ctx, pictureOfPage(i, b, g, time), f, time, PAGES[i] === "cover");
     ui.registering = true;
   } else {
     ctx.save();
@@ -2903,4 +3139,5 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
   if (!turning) drawSpiral(ctx, x, y);
 
   drawNav(ctx, b);
+  if (ui.layout === "groups" && !ui.coverIntro) drawTabs(ctx, b);
 }

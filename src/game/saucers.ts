@@ -17,9 +17,9 @@ export const SAUCER_EFFECT: Record<SaucerKind, number> = {slow: 0.05, sparse: 0.
 
 /**
  * The bonus for putting two, three or four saucers of the same kind on the desk: as many extra saucers of that kind as this count (by how many there are).
- * Two slow saucers work like two and a half, three like four, and four like six.
+ * Two slow saucers work like two and a quarter, three like three and a half, and four like five.
  */
-export const SAUCER_SET_BONUS = [0, 0, 0.5, 1, 2] as const;
+export const SAUCER_SET_BONUS = [0, 0, 0.25, 0.5, 1] as const;
 
 /** How many saucers of a kind they work like, with the bonus for two, three or four of a kind counted in. */
 export function saucerPower(count: number): number {

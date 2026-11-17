@@ -3,7 +3,7 @@
 import {CUP_H, H, TARGET, W} from "../game/constants";
 import {FADE_TICKS, fadeCap, fadeOn} from "../game/engine";
 import type {GameEvent, GameState} from "../game/types";
-import {drawStar, ui} from "./draw";
+import {drawSkull, drawStar, ui} from "./draw";
 import {t} from "./i18n";
 import {segmentCenter, segmentCount, segmentFilledBy, segmentLayout} from "./progress";
 
@@ -130,6 +130,8 @@ export class Fx {
   private drops: Drop[] = [];
   private confetti: Confetti[] = [];
   private texts: FloatText[] = [];
+  /** The skulls that have been popped: they drift up and fade out fast. */
+  private skulls: {x: number; y: number; age: number}[] = [];
   /** The "PERFECT 10!" over a cup that reached 10: where it is (the middle of the words), and how long it has been there. */
   private perfects: {x: number; y: number; age: number; life: number}[] = [];
   /**
@@ -321,7 +323,11 @@ export class Fx {
                   ? [t("bonusPause"), "#b9f5d4"]
                   : e.kind === "bomb"
                     ? [t("bonusBomb"), "#ffb36b"]
-                    : [t("bonusSlow"), "#b8ecff"];
+                    : e.kind === "wand"
+                      ? [t("bonusWand"), "#ffc8f2"]
+                      : e.kind === "reverse"
+                        ? [t("bonusReverse"), "#c8fff4"]
+                      : [t("bonusSlow"), "#b8ecff"];
         this.texts.push({x: e.x, y: e.y - 24, text, age: 0, life: 1.2, color, size: 22});
         if (e.kind === "star" && e.amount > 0) this.texts.push({x: e.x, y: e.y + 2, text: `+${e.amount}`, age: 0, life: 1.2, color: "#fff3c0", size: 18});
         break;
@@ -355,6 +361,27 @@ export class Fx {
           const a = rnd() * Math.PI * 2;
           const s = 80 + rnd() * 260;
           this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.4 + rnd() * 0.4, color: i % 2 === 0 ? "#ffffff" : "#8fdcff"});
+        }
+        break;
+      }
+      case "skull": {
+        // A skull is popped: a ring of grey and purple bits, and the skull itself drifts up and fades away.
+        const BITS = ["#ffffff", "#d8d0e4", "#8c6bb0", "#3a2850"];
+        for (let i = 0; i < 16; i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 110 + rnd() * 170;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.25 + rnd() * 0.3, color: BITS[Math.floor(rnd() * BITS.length)]});
+        }
+        this.skulls.push({x: e.x, y: e.y, age: 0});
+        break;
+      }
+      case "pop": {
+        // A number is rubbed out by the eraser: pink and white crumbs fly off it.
+        const CRUMBS = ["#ffffff", "#ffd0e0", "#ff8fb0", "#6fa8ff"];
+        for (let i = 0; i < 18; i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 80 + rnd() * 180;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.3 + rnd() * 0.35, color: CRUMBS[Math.floor(rnd() * CRUMBS.length)]});
         }
         break;
       }
@@ -406,6 +433,41 @@ export class Fx {
         };
         burst(e.x, e.y, 80, 560);
         for (const h of e.hits) burst(h.x, h.y, 14, 240);
+        break;
+      }
+      case "boom": {
+        // An explosion (a missile that hits, a skull that hits the jet, a boss that bursts, the ship that crashes): fire and smoke, bigger for a big one.
+        const FIRE = ["#ffffff", "#fff3b0", "#ffd54a", "#ff9a3c", "#ff6a2a", "#5a504a"];
+        const n = e.big ? 70 : 22;
+        const speed = e.big ? 420 : 200;
+        for (let i = 0; i < n; i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = speed * (0.3 + rnd() * 0.7);
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 30, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: (e.big ? 0.5 : 0.3) + rnd() * 0.4, color: FIRE[Math.floor(rnd() * FIRE.length)]});
+        }
+        break;
+      }
+      case "comets": {
+        // A perfect 10 in the comet belt pops every comet: each one bursts into fire and bits of rock.
+        const FIRE = ["#ffffff", "#fff3b0", "#ffd54a", "#ff9a3c", "#ff6a2a", "#6a4a3a", "#3a2a26"];
+        for (const h of e.hits) {
+          const n = Math.round(26 * h.size);
+          for (let i = 0; i < n; i++) {
+            const a = rnd() * Math.PI * 2;
+            const s = (140 + rnd() * 240) * h.size;
+            this.confetti.push({x: h.x, y: h.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, rot: rnd() * 6, vr: (rnd() - 0.5) * 18, age: 0, life: 0.35 + rnd() * 0.45, color: FIRE[Math.floor(rnd() * FIRE.length)]});
+          }
+        }
+        break;
+      }
+      case "pickup": {
+        // The jet picks up a ball: a ring of sparks in its colour.
+        const C = e.kind === "fuel" ? ["#d8ffd0", "#5fd35f", "#ffffff"] : e.kind === "gun" ? ["#fff3b0", "#ffd54a", "#ffffff"] : e.kind === "missile" ? ["#ffd0c8", "#ff6a4a", "#ffffff"] : ["#d8f4ff", "#5cc8f5", "#ffffff"];
+        for (let i = 0; i < 24; i++) {
+          const a = (i / 24) * Math.PI * 2;
+          const s = 160 + rnd() * 80;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.35 + rnd() * 0.3, color: C[i % C.length]});
+        }
         break;
       }
       case "won": {
@@ -563,6 +625,8 @@ export class Fx {
 
   update(g: GameState, dt: number): void {
     const rnd = Math.random;
+    for (const s of this.skulls) s.age += dt;
+    this.skulls = this.skulls.filter((s) => s.age < 0.6);
     this.pop.t = Math.max(0, this.pop.t - dt * 1.8);
     this.updateFade(g, dt);
     for (const z of this.zaps) z.age += dt;
@@ -819,6 +883,13 @@ export class Fx {
   }
 
   drawTop(ctx: CanvasRenderingContext2D): void {
+    for (const s of this.skulls) {
+      const k = s.age / 0.6;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - k * k);
+      drawSkull(ctx, s.x, s.y - 70 * k, 1.5 + 0.4 * k);
+      ctx.restore();
+    }
     // The lightning of a diamond: a jagged line from the diamond to the number it strikes, that flickers for a moment.
     for (const z of this.zaps) {
       z.hits.forEach((h, i) => {

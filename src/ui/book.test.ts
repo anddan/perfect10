@@ -1,7 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {STAGES} from "../game/constants";
 import type {Mode} from "../game/types";
-import {DAILY_PAGE, MATCH_PAGES, PAGES, SHOP_PAGE, STARS_FOR_VARIANT, TAB_GROUPS, type Page, groupOfPage, tabTarget, variantOpen} from "./book";
+import {CONTENTS_PAGE, DAILY_PAGE, MATCH_PAGES, PAGES, SHOP_PAGE, STARS_FOR_VARIANT, TAB_GROUPS, type Page, groupOfPage, tabTarget, variantOpen} from "./book";
 import {ui} from "./draw";
 import {DESIGNS, designOfDay, halfWidth} from "./stepsArt";
 import {CHAPTER_MODES, CHAPTER_STARS, STARS_FOR_ENDLESS, type Book, chapterCleared, barOrder, subPages, chapterOf, chapterStars, createBook, currentPage, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, markScore, nextGame, openNextGame, pageOfMode, totalStars, updateBook} from "./book";
@@ -170,12 +170,14 @@ describe("which levels are open", () => {
     expect(nextGame("endless", 0)).toBeUndefined();
   });
 
-  it("has the contents first, then the tutorial and the ladder of the daily challenge, and the shop and the page for buying last", () => {
-    expect(PAGES[0]).toBe("contents");
-    expect(PAGES[1]).toBe("tutorial");
-    expect(DAILY_PAGE).toBe(2);
-    expect(pageOfMode("plus")).toBe(3);
-    expect(pageOfMode("minus")).toBe(4);
+  it("has the front cover first, then the contents, the tutorial and the ladder of the daily challenge, and the shop and the page for buying last", () => {
+    expect(PAGES[0]).toBe("cover");
+    expect(PAGES[1]).toBe("contents");
+    expect(CONTENTS_PAGE).toBe(1);
+    expect(PAGES[2]).toBe("tutorial");
+    expect(DAILY_PAGE).toBe(3);
+    expect(pageOfMode("plus")).toBe(4);
+    expect(pageOfMode("minus")).toBe(5);
     expect(SHOP_PAGE).toBe(PAGES.length - 4);
     expect(PAGES[PAGES.length - 3]).toBe("looks");
     expect(PAGES).not.toContain("supplies"); // (the energy is in the shop)
@@ -185,9 +187,9 @@ describe("which levels are open", () => {
 
   it("has the match modes together after the chapters: the endless game, Save the cup, 6 or 8 and Online, before the shop", () => {
     const from = PAGES.indexOf("endless");
-    expect(PAGES.slice(from, from + 4)).toEqual(["endless", "save", "sixeight", "online"]);
-    expect(PAGES.slice(from, from + 4)).toEqual([...MATCH_PAGES]);
-    expect(PAGES[from + 4]).toBe("shop");
+    expect(PAGES.slice(from, from + 11)).toEqual(["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online"]);
+    expect(PAGES.slice(from, from + 11)).toEqual([...MATCH_PAGES]);
+    expect(PAGES[from + 11]).toBe("shop");
   });
 
   it("opens a match mode when it has been bought, or with Premium (or the admin switch)", () => {
@@ -203,7 +205,7 @@ describe("which levels are open", () => {
   });
 
   it("opens the match modes with enough stars too: 130 for Save the cup and 140 for 6 or 8 (and Online never with stars: coins or Premium)", () => {
-    expect(STARS_FOR_VARIANT).toEqual({save: 130, sixeight: 140});
+    expect(STARS_FOR_VARIANT).toEqual({save: 130, sixeight: 140, defend: 150, ice: 160, fast: 170, find: 180, shield: 190, jet: 200, comet: 210});
     const b = createBook();
     ui.modes = [];
     for (const mode of ["plus", "minus", "mixed", "times"] as const) clearWithThreeStars(b, mode); // (4 chapters of 36 stars: 144)
@@ -230,6 +232,7 @@ describe("which levels are open", () => {
 
   it("groups the pages for the tabs on the edge: the contents, today, the chapters, the match modes and the shop", () => {
     const g = (page: string) => groupOfPage(PAGES.indexOf(page as Page));
+    expect(g("cover")).toBe(0);
     expect([g("contents"), g("tutorial"), g("daily"), g("plus"), g("space"), g("endless"), g("online"), g("shop"), g("looks"), g("buy")]).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4, 4]);
     expect(TAB_GROUPS).toHaveLength(5);
   });
@@ -237,7 +240,7 @@ describe("which levels are open", () => {
   it("sends the tabs to the contents, the daily steps, the chapter the player is on, the match mode visited last, and the shop", () => {
     const b = createBook();
     ui.lastMatch = "sixeight";
-    expect(tabTarget(b, 0)).toBe(0);
+    expect(tabTarget(b, 0)).toBe(CONTENTS_PAGE);
     expect(tabTarget(b, 1)).toBe(DAILY_PAGE);
     expect(PAGES[tabTarget(b, 2)]).toBe("plus");
     expect(tabTarget(b, 3)).toBe(PAGES.indexOf("sixeight"));
@@ -255,7 +258,7 @@ describe("which levels are open", () => {
   });
 
   it("pops out the match modes and the shop pages from the bar, and goes straight to the page for the others", () => {
-    expect(subPages(3).map((i) => PAGES[i])).toEqual(["endless", "save", "sixeight", "online"]);
+    expect(subPages(3).map((i) => PAGES[i])).toEqual(["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online"]);
     expect(subPages(4).map((i) => PAGES[i])).toEqual(["shop", "looks", "buy"]);
     expect([0, 1, 2].map((g) => subPages(g).length)).toEqual([0, 0, 0]);
   });

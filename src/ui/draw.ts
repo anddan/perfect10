@@ -2,6 +2,10 @@
 // (outlined text, titles, candy buttons that press down, panels, and the glossy number balls).
 // Buttons also register where they are, so a tap can find the one under the finger.
 
+import {applyTint} from "./tint";
+
+/** The lettering of the logo (PERFECT10): a heavy display face, with the game font behind it. */
+export const LOGO_FONT = `"Lilita One",${"\"Fredoka\",\"Trebuchet MS\",system-ui,sans-serif"}`;
 export const FONT = '"Fredoka","Trebuchet MS","Segoe UI",system-ui,sans-serif';
 export const TAU = Math.PI * 2;
 
@@ -75,35 +79,70 @@ export function logoTitleFit(ctx: CanvasRenderingContext2D, s: string, x: number
  * faint shine that fades out over the top half of the letters.
  */
 export function logoTitle(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, size: number): void {
+  if (s !== "PERFECT10") {
+    paintLogo(ctx, s, x, y, size);
+    return;
+  }
+  // The logo: PERFECT, a 1 that leans back against the T, and the 0 in the same gold.
+  ctx.save();
+  ctx.font = `400 ${size}px ${LOGO_FONT}`;
+  if ("letterSpacing" in ctx) (ctx as unknown as {letterSpacing: string}).letterSpacing = `${(size * 0.05).toFixed(1)}px`;
+  const wWord = ctx.measureText("PERFECT").width;
+  const wTen = ctx.measureText("10").width;
+  ctx.restore();
+  const gap = size * 0.1;
+  const total = wWord + gap + wTen;
+  const left = x - total / 2;
+  paintLogo(ctx, "PERFECT", left + wWord / 2, y, size);
+  paintLogo(ctx, "10", left + total - wTen / 2, y, size);
+}
+
+function paintLogo(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, size: number): void {
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `700 ${size}px ${FONT}`;
+  ctx.font = `400 ${size}px ${LOGO_FONT}`;
   ctx.lineJoin = "round";
   // A little air between the letters, so that the edges do not run into each other (where the browser can do it).
   if ("letterSpacing" in ctx) (ctx as unknown as {letterSpacing: string}).letterSpacing = `${(size * 0.05).toFixed(1)}px`;
-  ctx.lineWidth = size * 0.26;
-  ctx.strokeStyle = "rgba(0,0,0,0.35)";
-  ctx.strokeText(s, x, y + size * 0.12);
-  ctx.lineWidth = size * 0.2;
-  ctx.strokeStyle = "#2b1608";
-  ctx.strokeText(s, x, y);
+  // A soft drop shadow under it all.
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.3)";
+  ctx.shadowBlur = size * 0.12;
+  ctx.shadowOffsetY = size * 0.05;
+  ctx.fillStyle = "#3a1e08";
+  ctx.fillText(s, x, y + size * 0.05);
+  ctx.restore();
+  // A slim bronze depth under the face.
+  const depth = size * 0.05;
+  for (let d = depth; d > 0; d -= 0.75) {
+    ctx.lineWidth = size * 0.07;
+    ctx.strokeStyle = "#4a260a";
+    ctx.strokeText(s, x, y + d);
+    ctx.fillStyle = "#8a4a12";
+    ctx.fillText(s, x, y + d);
+  }
+  // A thin dark outline round the face.
   ctx.lineWidth = size * 0.07;
-  ctx.strokeStyle = "#f5c25a";
+  ctx.strokeStyle = "#1c0f05";
   ctx.strokeText(s, x, y);
-  const gold = ctx.createLinearGradient(0, y - size * 0.5, 0, y + size * 0.5);
-  gold.addColorStop(0, "#ffd24a");
-  gold.addColorStop(0.5, "#f7a620");
-  gold.addColorStop(1, "#dd7410");
+  // The face: polished gold, light at the top, a crisp horizon a little under the middle, warm amber below.
+  const gold = ctx.createLinearGradient(0, y - size * 0.45, 0, y + size * 0.42);
+  gold.addColorStop(0, "#fff6d0");
+  gold.addColorStop(0.3, "#ffd75e");
+  gold.addColorStop(0.52, "#f2a922");
+  gold.addColorStop(0.54, "#c8740c");
+  gold.addColorStop(1, "#f0a83a");
   ctx.fillStyle = gold;
   ctx.fillText(s, x, y);
-  // A white gloss over the top of the letters: strong at the top, and cut off by a soft edge a little above the middle of them.
-  const gloss = ctx.createLinearGradient(0, y - size * 0.42, 0, y + size * 0.34);
-  gloss.addColorStop(0, "rgba(255,255,255,0.85)");
-  gloss.addColorStop(0.4, "rgba(255,255,255,0.7)");
-  gloss.addColorStop(0.46, "rgba(255,255,255,0)");
-  ctx.fillStyle = gloss;
-  ctx.fillText(s, x, y);
+  // A fine light bevel along the edge of the face.
+  ctx.lineWidth = Math.max(1, size * 0.025);
+  const rim = ctx.createLinearGradient(0, y - size * 0.45, 0, y + size * 0.42);
+  rim.addColorStop(0, "rgba(255,250,225,0.95)");
+  rim.addColorStop(0.5, "rgba(255,220,140,0.5)");
+  rim.addColorStop(1, "rgba(120,60,10,0.6)");
+  ctx.strokeStyle = rim;
+  ctx.strokeText(s, x, y);
   ctx.restore();
 }
 
@@ -266,6 +305,8 @@ export const ui = {
   /** Whether the contents shows all the chapters (otherwise only the one the player is on). */
   tocOpen: false,
   titleDy: 0,
+  /** Shield up is being played: its skulls are drawn in steel. */
+  steelSkulls: false,
   /** The biggest size of the title when it has a row of its own (it follows the room there is). */
   titleMax: 44,
   /** The days in a row: which day of the week today is, how many days there are to show, whether today is counted, and whether a package is waiting. */
@@ -299,6 +340,7 @@ export const ui = {
   noticeTime: 0,
   /** How many pull-down screens there are in the book (for the shop). */
   screens: 0,
+  erasers: 0,
   owned: {} as Record<string, number>,
   /** How many saucers of each kind are under the cups in the game (two, three or four of a kind glow). */
   saucerSet: {} as Record<string, number>,
@@ -321,14 +363,23 @@ export const ui = {
   settingsOpen: false,
   /** The top list of a game is open, and which game's it is. */
   scoresOpen: false,
-  scoresMode: "endless" as "endless" | "save" | "sixeight",
+  scoresMode: "endless" as "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet",
   /** The match modes that have been bought, the best score of every game, and whether the match modes are open in the contents. */
   modes: [] as string[],
-  bests: {endless: 0, save: 0, sixeight: 0} as Record<string, number>,
+  bests: {endless: 0, save: 0, sixeight: 0, defend: 0, ice: 0, fast: 0, find: 0, shield: 0} as Record<string, number>,
   modesOpen: false,
   /** The group of the bar at the bottom whose pages are popped out in an arc over it (-1 when none is), and when (performance.now in seconds) it was opened. */
   barOpen: -1,
   barOpenAt: 0,
+  /** How the pages are reached (a setting): the bar along the bottom ("menu"), or the coloured tabs on the edge of the book ("groups"). */
+  layout: "menu" as "menu" | "groups",
+  /** The very first start: the book shows its front cover, and the bar at the bottom is hidden, until "Open the book" is pressed. */
+  coverIntro: false,
+  /** The gift of the day (the first start of a day gives coins, and an ad doubles them): it can still be taken today, its dialog is open, how long it has been open, and what was got (0 until it is taken). */
+  giftReady: false,
+  giftOpen: false,
+  giftAge: 0,
+  giftGot: 0,
   /** The match mode page that was visited last: the contents shows it, with the line that opens all the match modes under it. */
   lastMatch: "endless" as string,
   /** Whether a match mode page has been visited at all (only then does the contents say "last" on it). */
@@ -345,7 +396,7 @@ export const ui = {
   /** The make-believe ad is showing (before one more try, or for energy), and how many seconds ago it started. */
   adOpen: false,
   adTime: 0,
-  adFor: "continue" as "continue" | "energy" | "coins" | "retry",
+  adFor: "continue" as "continue" | "energy" | "coins" | "retry" | "gift",
   /** Whether today's try of the daily challenge can be tried again (it did not get to the goal line, and the one retry of the day is not used). */
   dailyRetry: false,
   /** Whether the video for coins can be watched today (it can once a day). */
@@ -370,6 +421,7 @@ export function beginUi(ctx: CanvasRenderingContext2D): void {
 
 /** Remembers that a rectangle (in the current drawing coordinates) is a button. */
 export function registerHit(ctx: CanvasRenderingContext2D, id: string, b: Button): void {
+  if (fitKey) fitLow = Math.max(fitLow, b.y + b.h);
   if (!ui.registering) return;
   const m = ctx.getTransform();
   const k = ui.px;
@@ -389,10 +441,16 @@ export function hitTest(x: number, y: number): string | null {
  * A pill of dark wood with a thin gold edge, the same as the bar along the bottom of the screen (the keys and the coins in the header of the book).
  * `id`: the button it is (null if it is only to look at). `content` draws what is on it, round the middle of the pill.
  */
-export function drawWoodPill(ctx: CanvasRenderingContext2D, id: string | null, b: Button, content: (ctx: CanvasRenderingContext2D, cx: number, cy: number) => void): void {
+export function drawWoodPill(ctx: CanvasRenderingContext2D, id: string | null, b: Button, content: (ctx: CanvasRenderingContext2D, cx: number, cy: number) => void, bare = false): void {
   if (id) registerHit(ctx, id, b);
   ctx.save();
   if (id && ui.pressed === id) ctx.translate(0, 1.5);
+  // (bare: only what is in it, with no wood, border or shadow)
+  if (bare) {
+    content(ctx, b.x + b.w / 2, b.y + b.h / 2);
+    ctx.restore();
+    return;
+  }
   const r = b.h / 2;
   ctx.fillStyle = "rgba(0,0,0,0.38)";
   roundRect(ctx, b.x, b.y + 2.5, b.w, b.h, r);
@@ -403,6 +461,11 @@ export function drawWoodPill(ctx: CanvasRenderingContext2D, id: string | null, b
   ctx.fillStyle = wood;
   roundRect(ctx, b.x, b.y, b.w, b.h, r);
   ctx.fill();
+  // (it follows the tone that is chosen in the Looks, like the room does)
+  ctx.save();
+  ctx.clip();
+  applyTint(ctx, ui.look.tint, b.x, b.y, b.w, b.h);
+  ctx.restore();
   ctx.lineWidth = 1.6;
   ctx.strokeStyle = "rgba(255,213,74,0.35)";
   ctx.stroke();
@@ -525,6 +588,29 @@ export function drawAdIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number
 }
 
 /** A rounded panel: dark glass (for the screen) or paper (for the book). */
+/** The dialogs that fit their panel to what is in it: how far down their lowest button reached last time it was drawn. */
+const fitLows: Record<string, number> = {};
+let fitKey: string | null = null;
+let fitLow = 0;
+
+/**
+ * A dialog panel that grows and shrinks with what is in it: it is as tall as its lowest button (as it was the time before) plus a margin, so that a
+ * button that is not there (an ad, a retry) leaves no empty room. `h` is the height until it has been drawn once. Call endFit() after the content.
+ */
+export function fitPanel(ctx: CanvasRenderingContext2D, key: string, x: number, y: number, w: number, h: number, r = 24): void {
+  const low = fitLows[key];
+  const hh = low !== undefined && low > y ? low - y + 22 : h;
+  drawPanel(ctx, x, y, w, hh, r);
+  fitKey = key;
+  fitLow = 0;
+}
+
+/** The content of a fitted dialog is done: how low it reached is kept for the next time. */
+export function endFit(): void {
+  if (fitKey) fitLows[fitKey] = fitLow;
+  fitKey = null;
+}
+
 export function drawPanel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r = 18, kind: "glass" | "card" = "glass"): void {
   softShadow(ctx, x, y + 3, w, h, r, 8, 0.4);
   const fill = ctx.createLinearGradient(0, y, 0, y + h);
@@ -691,6 +777,75 @@ export function drawCoin(ctx: CanvasRenderingContext2D, x: number, y: number, r:
  * A bonus ball: a ball with a gold border instead of silver, a soft golden glow that pulses, and a picture on it:
  * a heart (a dead cup comes back), a star (points) or an hourglass (slow motion).
  */
+/** The sign of the reverse (like the card in the game of cards): two thick bent arrows, one pointing down and one pointing up, white with a dark edge. Centred on (x, y), `k` is the size. */
+/** An eraser, centred on (x, y): pink and blue, tilted, with a little shine. `k` is the size (about 24 units wide at 1). */
+export function drawEraser(ctx: CanvasRenderingContext2D, x: number, y: number, k = 1): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(k, k);
+  ctx.rotate(-0.5);
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#3a2030";
+  ctx.fillStyle = "#ff8fb0";
+  roundRect(ctx, -12, -6.5, 13, 13, 3);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#6fa8ff";
+  roundRect(ctx, 0, -6.5, 12, 13, 3);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  roundRect(ctx, -9.5, -4.5, 8, 3, 1.5);
+  ctx.fill();
+  ctx.restore();
+}
+
+export function drawReverseIcon(ctx: CanvasRenderingContext2D, x: number, y: number, k: number): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(k, k);
+  // (the arrows stand upright: one points down, the other up, side by side)
+  ctx.rotate(Math.PI / 4);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  const arrow = (pass: "edge" | "fill") => {
+    // The shaft, bent once, and the head at its end (pointing down and to the right).
+    ctx.beginPath();
+    ctx.moveTo(-8.5, -4);
+    ctx.lineTo(-5, -7.5);
+    ctx.lineTo(2.5, 0);
+    ctx.lineWidth = pass === "edge" ? 6.6 : 3.6;
+    ctx.strokeStyle = pass === "edge" ? "#0b5e55" : "#ffffff";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(7.5, 5);
+    ctx.lineTo(5.5, -3.5);
+    ctx.lineTo(-1, 3);
+    ctx.closePath();
+    if (pass === "edge") {
+      ctx.lineWidth = 3.2;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+    }
+  };
+  // (one arrow above the other, side by side across the diagonal, so that they do not run into each other)
+  for (const pass of ["edge", "fill"] as const) {
+    ctx.save();
+    ctx.translate(3.2, -3.2);
+    arrow(pass);
+    ctx.restore();
+    ctx.save();
+    ctx.rotate(Math.PI);
+    ctx.translate(3.2, -3.2);
+    arrow(pass);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: number, kind: Bonus, scale = 1, time = 0): void {
   const R = 21;
   const r = R - 4;
@@ -759,6 +914,14 @@ export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: numbe
     face.addColorStop(0, "#c6cfff");
     face.addColorStop(0.5, "#4f62e6");
     face.addColorStop(1, "#1a1f78");
+  } else if (kind === "reverse") {
+    face.addColorStop(0, "#c8fff4");
+    face.addColorStop(0.5, "#1fb7a6");
+    face.addColorStop(1, "#0b5e55");
+  } else if (kind === "wand") {
+    face.addColorStop(0, "#ffd6f6");
+    face.addColorStop(0.5, "#d94fbe");
+    face.addColorStop(1, "#6c1258");
   } else if (kind === "bomb") {
     face.addColorStop(0, "#8d96a6");
     face.addColorStop(0.5, "#2b303a");
@@ -798,6 +961,34 @@ export function drawBonusBall(ctx: CanvasRenderingContext2D, x: number, y: numbe
     ctx.stroke();
   } else if (kind === "points") {
     drawStar(ctx, 0, 1, 12, true);
+  } else if (kind === "reverse") {
+    drawReverseIcon(ctx, 0, 0, 1);
+  } else if (kind === "wand") {
+    // A magic wand: a dark stick with a gold tip, a star at its end and a few sparkles.
+    ctx.lineWidth = 4.5;
+    ctx.strokeStyle = "#2a1030";
+    ctx.beginPath();
+    ctx.moveTo(-9, 10);
+    ctx.lineTo(4, -3);
+    ctx.stroke();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = "#f7f0ff";
+    ctx.beginPath();
+    ctx.moveTo(-9, 10);
+    ctx.lineTo(1, 0);
+    ctx.stroke();
+    ctx.strokeStyle = "#ffd54a";
+    ctx.beginPath();
+    ctx.moveTo(1, 0);
+    ctx.lineTo(4, -3);
+    ctx.stroke();
+    drawStar(ctx, 7, -6, 6.5, true);
+    ctx.fillStyle = "#ffffff";
+    for (const [sx, sy, sr] of [[-2, -9, 1.6], [12, 3, 1.3], [-10, -2, 1.1]] as const) {
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr + 0.4 * Math.sin(time * 6 + sx), 0, TAU);
+      ctx.fill();
+    }
   } else if (kind === "pause") {
     // Two bars: the pause sign.
     for (const bx of [-7, 3]) {
@@ -1058,8 +1249,15 @@ function swapOp(op: Op): Op {
   return op === "mul" ? "div" : op === "div" ? "mul" : op;
 }
 
+/** What is written on the balls instead of their number (only the balls that stand for a chapter on its page: the sign alone, + − × ÷); null for the number. */
+let ballOverride: string | null = null;
+export function setBallLabel(label: string | null): void {
+  ballOverride = label;
+}
+
 /** What is written on a number ball, and how big. */
 function ballLabel(op: Op, v: number): {s: string; size: number} {
+  if (ballOverride !== null) return {s: ballOverride, size: 26};
   if (op === "zero") return {s: "=0", size: 22};
   if (op === "ten") return {s: "=10", size: 18};
   if (op === "mul") return {s: `\u00D7${v}`, size: 21};
@@ -1244,7 +1442,89 @@ function drawSunRays(ctx: CanvasRenderingContext2D, R: number, time: number): vo
   ctx.restore();
 }
 
+/** A skull, white with dark eyes, centred on (0, 0) (about 22 units tall at k = 1). */
+export function drawSkull(ctx: CanvasRenderingContext2D, x: number, y: number, k = 1): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(k, k);
+  ctx.lineJoin = "round";
+  ctx.fillStyle = "#f6f2ea";
+  ctx.strokeStyle = "#1c1424";
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.arc(0, -2.5, 9, Math.PI * 0.85, Math.PI * 0.15);
+  ctx.lineTo(5.5, 6.5);
+  ctx.lineTo(-5.5, 6.5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  roundRect(ctx, -5, 5, 10, 5, 1.5);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#1c1424";
+  for (const ex of [-3.8, 3.8]) {
+    ctx.beginPath();
+    ctx.ellipse(ex, -1.5, 2.6, 3, 0, 0, TAU);
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.moveTo(0, 2);
+  ctx.lineTo(-1.4, 4.2);
+  ctx.lineTo(1.4, 4.2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.lineWidth = 1;
+  for (const tx of [-2.5, 0, 2.5]) {
+    ctx.beginPath();
+    ctx.moveTo(tx, 5.5);
+    ctx.lineTo(tx, 9.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v: number, scale = 1, time = 0, phase = 0, op: Op = "add", style: string = ui.look.numbers, reversed = false): void {
+  if (op === "skull" || op === "trap") {
+    // The skull of Defend the cups: a dark purple ball with a silver ring and a white skull on it (the trap skull of Fast fingers has a red ring).
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.arc(2, 4, 20, 0, TAU);
+    ctx.fill();
+    const ring = ctx.createLinearGradient(-20, -20, 20, 20);
+    const trap = op === "trap";
+    ring.addColorStop(0, trap ? "#ffb3a8" : "#e6e1ee");
+    ring.addColorStop(0.5, trap ? "#e0352b" : "#8c839c");
+    ring.addColorStop(1, trap ? "#7a0f0a" : "#4b4458");
+    ctx.fillStyle = ring;
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, TAU);
+    ctx.fill();
+    const steel = ui.steelSkulls && !trap;
+    const face = ctx.createRadialGradient(-6, -8, 2, 0, 0, 19);
+    // (in Shield up the skull is steel: brushed grey metal with four rivets, like a steel number)
+    face.addColorStop(0, steel ? "#e9eef3" : "#6b4f8a");
+    face.addColorStop(0.55, steel ? "#8d99a6" : "#2c1c3c");
+    face.addColorStop(1, steel ? "#46505b" : "#120a1a");
+    ctx.fillStyle = face;
+    ctx.beginPath();
+    ctx.arc(0, 0, 16.5, 0, TAU);
+    ctx.fill();
+    if (steel) {
+      ctx.fillStyle = "#5d6873";
+      for (const k of [0, 1, 2, 3]) {
+        const a = Math.PI / 4 + (k * Math.PI) / 2;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * 13, Math.sin(a) * 13, 1.5, 0, TAU);
+        ctx.fill();
+      }
+    }
+    drawSkull(ctx, 0, 0, 1.05);
+    ctx.restore();
+    return;
+  }
   const R = 20;
   const r = R - 3.5;
   const minus = v < 0;
@@ -1354,7 +1634,9 @@ export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, v:
   ctx.fillRect((sweep * 2 - 1) * r * 1.4, -r * 1.6, 5, r * 3.2);
   ctx.restore();
 
-  if (op === "steel") text(ctx, signed(v), 0, 1, 20, "#ffffff", "center", "rgba(20,28,40,0.95)");
+  // (the balls that stand for a chapter on its page have the sign alone on them)
+  if (ballOverride !== null) text(ctx, ballOverride, 0, 1, 26, "#ffffff", "center", cop === "mul" ? "rgba(5,30,80,0.9)" : cop === "div" ? "rgba(90,50,0,0.9)" : cminus ? "rgba(90,8,5,0.9)" : "rgba(5,60,28,0.9)");
+  else if (op === "steel") text(ctx, signed(v), 0, 1, 20, "#ffffff", "center", "rgba(20,28,40,0.95)");
   else if (op === "dim") text(ctx, signed(v), 0, 1, 22, "#ffffff", "center", "rgba(0,0,0,0.95)");
   else if (op === "zero") text(ctx, "=0", 0, 1, 22, "#ffffff", "center", "rgba(110,50,0,0.9)");
   else if (op === "ten") text(ctx, "=10", 0, 1, 18, "#ffffff", "center", "rgba(110,50,0,0.9)");
@@ -1600,5 +1882,47 @@ export function drawChain(ctx: CanvasRenderingContext2D, ax: number, ay: number,
     ctx.stroke();
     ctx.restore();
   }
+  ctx.restore();
+}
+
+/** The shield of Shield up: a steel arc (highest in the middle), x and y the middle of its top edge and half the width of it. */
+/**
+ * (power, 0 to 1: how far it has been upgraded. The colour goes from light blue towards purple with it, and at full power (1) it is purple and glows more.)
+ */
+export function drawShieldArc(ctx: CanvasRenderingContext2D, x: number, y: number, half: number, bend = 14, power = 0, boost = 0): void {
+  ctx.save();
+  ctx.lineCap = "round";
+  const path = (dy: number) => {
+    ctx.beginPath();
+    ctx.moveTo(x - half, y + bend + dy);
+    ctx.quadraticCurveTo(x, y - bend + dy, x + half, y + bend + dy);
+  };
+  // a glow of light round it (it breathes a little), a dark edge, the steel, and a shine along the top
+  const full = power >= 1;
+  const mix = (a: number[], b: number[]) => a.map((v, i) => Math.round(v + (b[i] - v) * power)).join(",");
+  const glowC = mix([110, 210, 255], [190, 90, 255]);
+  const pulse = (full ? 0.85 : 0.75) + 0.25 * Math.sin(performance.now() / (full ? 160 : 260));
+  ctx.save();
+  ctx.shadowColor = `rgba(${glowC},${pulse})`;
+  // (every power upgrade after the full size makes the glow a little stronger)
+  ctx.shadowBlur = (full ? 38 : 22) + 26 * boost;
+  ctx.strokeStyle = `rgba(${mix([140, 220, 255], [205, 130, 255])},${Math.min(1, (full ? 0.75 : 0.55) + 0.25 * boost) * pulse})`;
+  ctx.lineWidth = (full ? 26 : 20) + 8 * boost;
+  path(0);
+  ctx.stroke();
+  ctx.restore();
+  const steel = ctx.createLinearGradient(0, y - 8, 0, y + bend + 8);
+  // (the same light blue as its glow, solid)
+  steel.addColorStop(0, `rgb(${mix([230, 248, 255], [245, 225, 255])})`);
+  steel.addColorStop(0.5, `rgb(${mix([140, 220, 255], [190, 120, 255])})`);
+  steel.addColorStop(1, `rgb(${mix([79, 180, 230], [130, 60, 210])})`);
+  ctx.strokeStyle = steel;
+  ctx.lineWidth = 9;
+  path(0);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.8)";
+  ctx.lineWidth = 2;
+  path(-2.5);
+  ctx.stroke();
   ctx.restore();
 }

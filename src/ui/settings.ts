@@ -1,7 +1,7 @@
 // The settings page: a gear in the corner opens it over whatever is on the screen. Sound, language, the presentations of
 // new things, and the button for the one who makes the game that opens every level.
 import {H, W} from "../game/constants";
-import {CHALK, FONT, GOLD, TAU, type Button, drawButton, drawCoin, drawWoodPill, drawFlag, logoTitle, wrapLines, drawPanel, drawRibbon, registerHit, roundRect, text, ui, write} from "./draw";
+import {CHALK, FONT, GOLD, TAU, type Button, drawButton, drawCoin, drawWoodPill, endFit, fitPanel, drawFlag, logoTitle, wrapLines, drawPanel, drawRibbon, registerHit, roundRect, text, ui, write} from "./draw";
 import {LANGS, LANG_NAMES, lang, t} from "./i18n";
 import {type Board} from "./scores";
 import {VOLUME_STEPS} from "./audio";
@@ -16,19 +16,23 @@ export const ENERGY_PILL: Button = {x: 14, y: 6, w: 68, h: 30};
 export const GEAR_BUTTON: Button = {x: 308, y: 3, w: 38, h: 38};
 
 /** The coins in the top right corner of the header of the book (where the gear used to be): a pill that is as wide as the number needs. */
+/** How far the coins (and the keys under them) are moved down, so that the top of the coins is level with the top of the title. */
+export const HEADER = {coinsDy: 0};
+
 export function coinsPillBox(ctx: CanvasRenderingContext2D, coins: number): Button {
   ctx.font = `700 17px ${FONT}`;
   const w = Math.max(68, Math.ceil(ctx.measureText(String(coins)).width) + 50);
-  return {x: 346 - w, y: 6, w, h: 30};
+  return {x: 346 - w, y: 6 + HEADER.coinsDy, w, h: 30};
 }
 
 /** The coins, as a wood pill like the one for the keys on the other side (a tap goes to the shop). */
 export function drawCoinsPill(ctx: CanvasRenderingContext2D, coins: number): void {
   const b = coinsPillBox(ctx, coins);
   drawWoodPill(ctx, "coins", b, (c, _cx, cy) => {
-    drawCoin(c, b.x + 17, cy, 9);
-    text(c, String(coins), b.x + b.w - 12, cy + 1, 17, "#ffffff", "right", "rgba(40,25,5,0.85)");
-  });
+    // (the coin at the right, and the amount right-aligned next to it)
+    drawCoin(c, b.x + b.w - 14, cy, 9);
+    text(c, String(coins), b.x + b.w - 30, cy + 1, 17, "#ffffff", "right", "rgba(40,25,5,0.85)");
+  }, true);
 }
 
 /** The pause button in a round: big and in the corner, where the thumb is. It takes the place of the gear. */
@@ -153,7 +157,7 @@ function drawSwitch(ctx: CanvasRenderingContext2D, id: string, x: number, y: num
   ctx.fill();
 }
 
-const PANEL = {x: 24, y: 92, w: 312, h: 520};
+const PANEL = {x: 24, y: 92, w: 312, h: 536};
 
 /** Three bars that grow: the volume. */
 function volumeIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, ink: string): void {
@@ -193,13 +197,15 @@ export interface SettingsState {
   name: string;
   /** Some of the presentations of new things have been hidden with "don't show again". */
   hiddenIntros: boolean;
+  /** How the pages are reached: the bar at the bottom, or the coloured tabs on the edge of the book. */
+  layout: "menu" | "groups";
 }
 
 /** The settings page: a dark veil over everything, and a panel with the settings. Tapping the veil, or Done, closes it. */
 export function drawSettings(ctx: CanvasRenderingContext2D, st: SettingsState, time: number): void {
   ctx.fillStyle = "rgba(8,6,14,0.72)";
-  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
-  registerHit(ctx, "settingsClose", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
+  ctx.fillRect(0, -ui.extra, W, H + 2 * ui.extra);
+  registerHit(ctx, "settingsClose", {x: 0, y: -ui.extra, w: W, h: H + 2 * ui.extra});
   registerHit(ctx, "settingsPanel", PANEL);
   drawPanel(ctx, PANEL.x, PANEL.y, PANEL.w, PANEL.h, 24);
   drawRibbon(ctx, W / 2, 62, 240, t("settings"), "#ffe27a", "#d49a14");
@@ -210,7 +216,7 @@ export function drawSettings(ctx: CanvasRenderingContext2D, st: SettingsState, t
   text(ctx, t("sound"), 84, rowY + 16, 20, CHALK, "left");
   drawSwitch(ctx, "set:sound", PANEL.x + PANEL.w - 80, rowY, !st.muted);
 
-  // The music in the background (it is silent as well when the sound is off).
+  // The music in the background (it has its own switch: the sound above is for the sound effects only).
   const musicY = rowY + 42;
   note(ctx, 56, musicY + 15, CHALK, st.music);
   text(ctx, t("music"), 84, musicY + 16, 20, CHALK, "left");
@@ -218,9 +224,10 @@ export function drawSettings(ctx: CanvasRenderingContext2D, st: SettingsState, t
 
   // The volume of everything: minus, bars (one for each step) and plus.
   const volY = musicY + 42;
-  // (with the sound off the music is silent too, so there is nothing to turn up: the whole row is dimmed and its buttons do nothing)
+  // (with the sound and the music both off there is nothing to turn up: the whole row is dimmed and its buttons do nothing)
+  const silent = st.muted && !st.music;
   ctx.save();
-  if (st.muted) ctx.globalAlpha = 0.35;
+  if (silent) ctx.globalAlpha = 0.35;
   volumeIcon(ctx, 56, volY + 15, CHALK);
   text(ctx, t("volume"), 84, volY + 16, 20, CHALK, "left");
   for (let i = 0; i < VOLUME_STEPS; i++) {
@@ -230,48 +237,79 @@ export function drawSettings(ctx: CanvasRenderingContext2D, st: SettingsState, t
     ctx.fill();
   }
   ctx.restore();
-  drawButton(ctx, "set:volDown", {x: 184, y: volY - 2, w: 34, h: 34}, "", "round", {draw: sign(false), alpha: st.muted ? 0.3 : st.volume <= 1 ? 0.4 : 1});
-  drawButton(ctx, "set:volUp", {x: 282, y: volY - 2, w: 34, h: 34}, "", "round", {draw: sign(true), alpha: st.muted ? 0.3 : st.volume >= VOLUME_STEPS ? 0.4 : 1});
+  drawButton(ctx, "set:volDown", {x: 184, y: volY - 2, w: 34, h: 34}, "", "round", {draw: sign(false), alpha: silent ? 0.3 : st.volume <= 1 ? 0.4 : 1});
+  drawButton(ctx, "set:volUp", {x: 282, y: volY - 2, w: 34, h: 34}, "", "round", {draw: sign(true), alpha: silent ? 0.3 : st.volume >= VOLUME_STEPS ? 0.4 : 1});
 
-  // Language: a flag for each, the one that is on is lit.
-  text(ctx, t("language"), 44, 288, 20, CHALK, "left");
+  // Language: a pill for each, two by two, with its flag and its name; the one that is on is gold, with a check mark.
+  text(ctx, t("language"), 44, 284, 20, CHALK, "left");
   LANGS.forEach((l, i) => {
-    const b = {x: 40 + i * 72, y: 304, w: 64, h: 46};
+    const b = {x: 40 + (i % 2) * 142, y: 298 + Math.floor(i / 2) * 38, w: 136, h: 32};
     const id = `set:lang:${l}`;
     const current = l === lang();
     registerHit(ctx, id, b);
     const pressed = ui.pressed === id;
-    ctx.fillStyle = current ? "rgba(255,213,74,0.22)" : pressed ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.07)";
-    roundRect(ctx, b.x, b.y, b.w, b.h, 12);
+    if (current) {
+      const gold = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
+      gold.addColorStop(0, "#ffe98f");
+      gold.addColorStop(1, "#f2b320");
+      ctx.fillStyle = gold;
+    } else ctx.fillStyle = pressed ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)";
+    roundRect(ctx, b.x, b.y + (pressed ? 1 : 0), b.w, b.h, b.h / 2);
     ctx.fill();
-    ctx.lineWidth = current ? 2.4 : 1.4;
-    ctx.strokeStyle = current ? GOLD : "rgba(255,255,255,0.25)";
+    ctx.lineWidth = current ? 1.6 : 1.2;
+    ctx.strokeStyle = current ? "#9c610a" : "rgba(255,255,255,0.22)";
     ctx.stroke();
-    drawFlag(ctx, l, b.x + b.w / 2 - 17, b.y + b.h / 2 - 12, 34, 24);
+    // (the flag in a little round frame at the left)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(b.x + 18, b.y + b.h / 2, 11, 0, TAU);
+    ctx.clip();
+    drawFlag(ctx, l, b.x + 5, b.y + b.h / 2 - 11, 32, 22);
+    ctx.restore();
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = current ? "#9c610a" : "rgba(255,255,255,0.4)";
+    ctx.beginPath();
+    ctx.arc(b.x + 18, b.y + b.h / 2, 11, 0, TAU);
+    ctx.stroke();
+    write(ctx, LANG_NAMES[l], b.x + 36, b.y + b.h / 2 + 1, 14, current ? "#4a2a05" : "#e8dcc2", "left", 700);
+    if (current) {
+      ctx.strokeStyle = "#4a2a05";
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(b.x + b.w - 22, b.y + b.h / 2);
+      ctx.lineTo(b.x + b.w - 17, b.y + b.h / 2 + 5);
+      ctx.lineTo(b.x + b.w - 10, b.y + b.h / 2 - 5);
+      ctx.stroke();
+    }
   });
-  write(ctx, LANG_NAMES[lang()], W / 2, 364, 15, "#e8dcc2", "center", 600);
 
   // The presentations of new things.
-  drawButton(ctx, "set:news", {x: 40, y: 384, w: 280, h: 42}, st.hiddenIntros ? t("introsAgain") : t("introsOn"), "secondary", {size: 17, alpha: st.hiddenIntros ? 1 : 0.5});
+  drawButton(ctx, "set:news", {x: 40, y: 376, w: 280, h: 42}, st.hiddenIntros ? t("introsAgain") : t("introsOn"), "secondary", {size: 17, alpha: st.hiddenIntros ? 1 : 0.5});
 
   // The name in the top list.
-  drawButton(ctx, "set:name", {x: 40, y: 436, w: 280, h: 42}, `${t("name")}: ${st.name || "\u2014"}`, "secondary", {size: 17});
+  drawButton(ctx, "set:name", {x: 40, y: 424, w: 280, h: 42}, `${t("name")}: ${st.name || "\u2014"}`, "secondary", {size: 17});
+
+  // How the pages are reached: on, the coloured tabs on the edge of the book (and no bar at the bottom); off, the bar at the bottom.
+  write(ctx, t("setTabs"), 44, 489, 15, "#e8dcc2", "left", 600);
+  drawSwitch(ctx, "set:layout", PANEL.x + PANEL.w - 80, 473, st.layout === "groups");
 
   // For the one who makes the game: every level open.
-  write(ctx, t("adminRow"), 44, 504, 15, "#e8dcc2", "left", 600);
-  drawSwitch(ctx, "set:admin", PANEL.x + PANEL.w - 80, 488, st.unlockAll);
+  write(ctx, t("adminRow"), 44, 531, 15, "#e8dcc2", "left", 600);
+  drawSwitch(ctx, "set:admin", PANEL.x + PANEL.w - 80, 515, st.unlockAll);
 
-  drawButton(ctx, "settingsClose", {x: W / 2 - 110, y: 544, w: 220, h: 54}, t("done"), "primary", {pulse: time, size: 22});
+  drawButton(ctx, "settingsClose", {x: W / 2 - 110, y: 556, w: 220, h: 54}, t("done"), "primary", {pulse: time, size: 22});
 }
 
 /** The very first start of the game: choose a language (English is on) and start a new game. */
 export function drawStart(ctx: CanvasRenderingContext2D, time: number): void {
   ctx.fillStyle = "rgba(8,6,14,0.94)";
-  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
-  registerHit(ctx, "startPanel", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
+  ctx.fillRect(0, -ui.extra, W, H + 2 * ui.extra);
+  registerHit(ctx, "startPanel", {x: 0, y: -ui.extra, w: W, h: H + 2 * ui.extra});
   drawPanel(ctx, 24, 70, 312, 500, 24);
   drawRibbon(ctx, W / 2, 62, 240, t("startWelcome"), "#ffe27a", "#d49a14");
-  logoTitle(ctx, "PERFECT 10", W / 2, 150, 36);
+  logoTitle(ctx, "PERFECT10", W / 2, 150, 36);
   write(ctx, t("startPickLang"), W / 2, 222, 18, "#e8dcc2", "center", 700);
   LANGS.forEach((l, i) => {
     const b = {x: 42 + (i % 2) * 140, y: 246 + Math.floor(i / 2) * 76, w: 136, h: 64};
@@ -371,39 +409,41 @@ export function drawEnergyPill(ctx: CanvasRenderingContext2D, n: number, nextSec
   const spending = f >= 0 && f < 1 && !unlimited;
   const ease = (u: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, u)), 3);
   const ink = n > 0 || unlimited ? "#ffffff" : "#ff9a8f";
-  drawWoodPill(ctx, "energy", ENERGY_PILL, (c, cx, cy) => {
+  drawWoodPill(ctx, "energy", ENERGY_PILL, (c, _cx, cy) => {
     {
       // The bolt: it swells a little and settles.
       const pop = spending ? 1 + 0.3 * Math.pow(Math.max(0, 1 - f / 0.32), 2) : 1;
       c.save();
-      c.translate(cx - 13, cy);
+      // (the key and the number line up with the coin and the coins above: the icon at the left, the number to the right edge)
+      const R = ENERGY_PILL.x + ENERGY_PILL.w - 30;
+      c.translate(ENERGY_PILL.x + ENERGY_PILL.w - 14, cy);
       c.scale(pop, pop);
       drawKey(c, 0, 0, 20, n > 0 || unlimited);
       c.restore();
       if (unlimited) {
-        text(c, "∞", cx + 12, cy + 1, 24, ink, "center", "rgba(40,25,5,0.85)");
+        text(c, "∞", R, cy + 1, 22, ink, "right", "rgba(40,25,5,0.85)");
       } else if (spending) {
         // The old number goes up and out, the new one comes up from below.
         const u = ease(f / 0.42);
         c.save();
         c.beginPath();
-        c.rect(cx - 1, cy - 14, 28, 28);
+        c.rect(R - 40, cy - 14, 44, 28);
         c.clip();
         c.globalAlpha = 1 - u;
-        text(c, String(n + 1), cx + 12, cy + 1 - u * 15, 20, "#ffffff", "center", "rgba(40,25,5,0.85)");
+        text(c, String(n + 1), R, cy + 1 - u * 15, 17, "#ffffff", "right", "rgba(40,25,5,0.85)");
         c.globalAlpha = u;
-        text(c, String(n), cx + 12, cy + 1 + (1 - u) * 15, 20, ink, "center", "rgba(40,25,5,0.85)");
+        text(c, String(n), R, cy + 1 + (1 - u) * 15, 17, ink, "right", "rgba(40,25,5,0.85)");
         c.restore();
       } else {
-        text(c, String(n), cx + 12, cy + 1, 20, ink, "center", "rgba(40,25,5,0.85)");
+        text(c, String(n), R, cy + 1, 17, ink, "right", "rgba(40,25,5,0.85)");
       }
     }
-  });
+  }, true);
   // The countdown to the next point: under the pill, or (with room, when the title has a row of its own) just to the right of it.
   if (n < ENERGY_MAX && !unlimited) {
     const label = `+1 · ${clock(nextSeconds)}`;
     if (beside) text(ctx, label, ENERGY_PILL.x + ENERGY_PILL.w + 8, 22, 13, "#fff3c0", "left", "rgba(0,0,0,0.75)");
-    else text(ctx, label, 48, 46, 12, "#fff3c0", "center", "rgba(0,0,0,0.75)");
+    else text(ctx, label, ENERGY_PILL.x + ENERGY_PILL.w / 2, ENERGY_PILL.y + ENERGY_PILL.h + 8, 12, "#fff3c0", "center", "rgba(0,0,0,0.75)");
   }
   if (!spending) return;
   const u = Math.min(1, f / 0.6);
@@ -447,8 +487,8 @@ const CUP_DESC = {gold: ["cupGoldA", "cupGoldB"], thermos: ["cupThermosA", "cupT
  */
 export function drawCups(ctx: CanvasRenderingContext2D): void {
   ctx.fillStyle = "rgba(8,6,14,0.8)";
-  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
-  registerHit(ctx, "cupsPanel", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
+  ctx.fillRect(0, -ui.extra, W, H + 2 * ui.extra);
+  registerHit(ctx, "cupsPanel", {x: 0, y: -ui.extra, w: W, h: H + 2 * ui.extra});
   const owned = SHOP_CUPS.filter((k) => (ui.owned[k] ?? 0) > 0);
   const rowH = 42;
   const listY = 312;
@@ -588,11 +628,11 @@ export function drawCoinPill(ctx: CanvasRenderingContext2D, coins: number): void
  */
 export function drawEnergy(ctx: CanvasRenderingContext2D, n: number, nextSeconds: number, time: number): void {
   ctx.fillStyle = "rgba(8,6,14,0.74)";
-  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
-  registerHit(ctx, "energyClose", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
+  ctx.fillRect(0, -ui.extra, W, H + 2 * ui.extra);
+  registerHit(ctx, "energyClose", {x: 0, y: -ui.extra, w: W, h: H + 2 * ui.extra});
   const panel = {x: 40, y: 150, w: 280, h: 400};
   registerHit(ctx, "energyPanel", panel);
-  drawPanel(ctx, panel.x, panel.y, panel.w, panel.h, 24);
+  fitPanel(ctx, "energy", panel.x, panel.y, panel.w, panel.h, 24);
   drawRibbon(ctx, W / 2, 120, 220, t(n > 0 ? "energy" : "energyOut"), "#ffe27a", "#d49a14");
   drawKey(ctx, W / 2 - 62, 218, 54, n > 0);
   text(ctx, `${n} / ${ENERGY_MAX}`, W / 2 + 30, 220, 46, n > 0 ? "#ffffff" : "#ff9a8f", "center", "rgba(40,25,5,0.85)");
@@ -604,6 +644,7 @@ export function drawEnergy(ctx: CanvasRenderingContext2D, n: number, nextSeconds
   // (the energy can also be bought with coins, on the page for it in the book)
   drawButton(ctx, "energyShop", {x: W / 2 - 110, y: n < ENERGY_MAX ? 412 : 346, w: 220, h: 46}, t("energyBuy"), "primary", {size: 18});
   drawButton(ctx, "energyClose", {x: W / 2 - 110, y: n < ENERGY_MAX ? 468 : 402, w: 220, h: 46}, t("done"), "secondary", {size: 19});
+  endFit();
 }
 
 /**
@@ -612,7 +653,7 @@ export function drawEnergy(ctx: CanvasRenderingContext2D, n: number, nextSeconds
  */
 export function drawPause(ctx: CanvasRenderingContext2D, muted: boolean, music: boolean, time: number): void {
   ctx.fillStyle = "rgba(8,6,14,0.74)";
-  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+  ctx.fillRect(0, -ui.extra, W, H + 2 * ui.extra);
   const panel = {x: 40, y: 150, w: 280, h: 340};
   drawPanel(ctx, panel.x, panel.y, panel.w, panel.h, 24);
   drawRibbon(ctx, W / 2, 120, 220, t("paused"), "#ffe27a", "#d49a14");
@@ -656,15 +697,15 @@ export function drawTrophy(ctx: CanvasRenderingContext2D, cx: number, cy: number
 }
 
 /** The top list of a game (the endless game or a match mode): the best ten with their names, or what is wrong with it. Tapping the veil, or Done, closes it. */
-export function drawScores(ctx: CanvasRenderingContext2D, bd: Board, myDevice: string, time: number, game: "endless" | "save" | "sixeight" = "endless"): void {
+export function drawScores(ctx: CanvasRenderingContext2D, bd: Board, myDevice: string, time: number, game: "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" = "endless"): void {
   ctx.fillStyle = "rgba(8,6,14,0.74)";
-  ctx.fillRect(0, -ui.extra, W, H + ui.extra);
-  registerHit(ctx, "scoresClose", {x: 0, y: -ui.extra, w: W, h: H + ui.extra});
+  ctx.fillRect(0, -ui.extra, W, H + 2 * ui.extra);
+  registerHit(ctx, "scoresClose", {x: 0, y: -ui.extra, w: W, h: H + 2 * ui.extra});
   const panel = {x: 24, y: 92, w: 312, h: 476};
   registerHit(ctx, "scoresPanel", panel);
   drawPanel(ctx, panel.x, panel.y, panel.w, panel.h, 24);
   drawRibbon(ctx, W / 2, 62, 240, t("topList"), "#ffe27a", "#d49a14");
-  write(ctx, t(game === "endless" ? "endless" : game === "save" ? "saveName" : "sixEightName"), W / 2, 122, 17, "#ffe27a", "center", 700);
+  write(ctx, t(game === "endless" ? "endless" : game === "save" ? "saveName" : game === "defend" ? "defendName" : game === "ice" ? "iceName" : game === "fast" ? "fastName" : game === "find" ? "findName" : game === "shield" ? "shieldName" : game === "jet" ? "jetName" : game === "comet" ? "cometName" : "sixEightName"), W / 2, 122, 17, "#ffe27a", "center", 700);
   if (bd.status === "ok" && bd.rows.length > 0) {
     bd.rows.forEach((r, i) => {
       const y = 152 + i * 32;

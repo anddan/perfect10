@@ -17,18 +17,18 @@ export const VARIANT_PRICE = 500;
 export const ONLINE_PRICE = 150;
 
 /** The match modes. */
-export const VARIANTS: readonly Variant[] = ["save", "sixeight"];
+export const VARIANTS: readonly Variant[] = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet"];
 
 export function isVariant(v: unknown): v is Variant {
-  return v === "save" || v === "sixeight";
+  return v === "save" || v === "sixeight" || v === "defend" || v === "ice" || v === "fast" || v === "find" || v === "shield" || v === "jet" || v === "comet";
 }
 
 /** Everything that can be bought once for coins: the two match modes, and Online. */
 export type UnlockMode = Variant | "online";
-export const UNLOCK_MODES: readonly UnlockMode[] = ["save", "sixeight", "online"];
+export const UNLOCK_MODES: readonly UnlockMode[] = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online"];
 
 export function isUnlockMode(v: unknown): v is UnlockMode {
-  return v === "save" || v === "sixeight" || v === "online";
+  return v === "save" || v === "sixeight" || v === "defend" || v === "ice" || v === "fast" || v === "find" || v === "shield" || v === "jet" || v === "comet" || v === "online";
 }
 
 /** What it costs in coins. */
@@ -38,11 +38,15 @@ export function priceOfMode(mode: UnlockMode): number {
 
 /** The coins for watching the video of the day (once a day). */
 export const VIDEO_COINS = 25;
+/** The coins the gift of the day gives (the first start of a day; an ad doubles them). */
+export const DAILY_GIFT = 10;
 
 /** How many cups there are on the desk. */
 export const SLOT_COUNT = 4;
 /** What a pull-down screen (a cloth) costs in the shop. */
 export const CLOTH_PRICE = 48;
+/** The price of an eraser in the shop. */
+export const ERASER_PRICE = 60;
 /** Energy for coins: one point costs this, and a full refill costs this much for every point that is missing (so it is cheaper than buying them one by one). */
 export const ENERGY_PRICE = 36;
 export const REFILL_PER_POINT = 24;
@@ -207,6 +211,13 @@ export function equipLook(w: Wallet, kind: LookKind, id: string): boolean {
   if (!ownsLook(w, kind, id)) return false;
   w.look[kind] = id;
   return true;
+}
+
+/** Buys an eraser: returns how many there are then, or null if there is no room for one more or not enough coins. */
+export function buyEraser(w: Wallet, held: number, max: number): number | null {
+  if (held >= max || w.coins < ERASER_PRICE) return null;
+  w.coins -= ERASER_PRICE;
+  return held + 1;
 }
 
 /** Buys a pull-down screen: returns how many there are then, or null if there is no room for one more (`held` of `max`) or not enough coins. */

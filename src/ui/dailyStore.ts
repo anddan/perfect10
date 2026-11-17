@@ -77,3 +77,22 @@ export function saveVideoDay(day: string): void {
     /* private mode */
   }
 }
+
+const GIFT_KEY = "p10-gift-day";
+
+/** The last day the gift of the day was taken (it comes once a day). */
+export function loadGiftDay(): string | null {
+  try {
+    return localStorage.getItem(GIFT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveGiftDay(day: string): void {
+  try {
+    localStorage.setItem(GIFT_KEY, day);
+  } catch {
+    /* private mode */
+  }
+}

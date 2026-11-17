@@ -2,6 +2,7 @@
 // Every part of the book has its own place: the tutorial and the plus levels are in a classroom,
 // the plus and minus levels in a café, the last chapter on a spaceship, and the endless game on a terrace in the evening.
 // All of them are dimmed a little, and have a table at the front that the cups stand on.
+import {TINTS} from "./tint";
 import {DESK_Y, H, W} from "../game/constants";
 import type {Mode} from "../game/types";
 import {FONT, TAU} from "./draw";
@@ -1228,18 +1229,6 @@ function dim(ctx: CanvasRenderingContext2D, extra: number): void {
   ctx.fillStyle = v;
   ctx.fillRect(0, 0, W, H + extra);
 }
-
-/** The tones of the light that can be put over a room: layers of colour, each with the way it is mixed with the picture. */
-const TINTS: Record<string, [GlobalCompositeOperation, string][]> = {
-  sunset: [["overlay", "rgba(255,128,48,0.6)"], ["source-over", "rgba(255,90,60,0.1)"]],
-  night: [["multiply", "rgba(80,100,200,0.7)"], ["overlay", "rgba(40,60,170,0.4)"]],
-  forest: [["overlay", "rgba(70,170,90,0.55)"], ["multiply", "rgba(160,225,170,0.3)"]],
-  sepia: [["saturation", "rgba(128,128,128,1)"], ["multiply", "rgba(214,172,120,0.9)"]],
-  ocean: [["overlay", "rgba(40,150,210,0.55)"], ["multiply", "rgba(150,205,240,0.35)"]],
-  rose: [["overlay", "rgba(235,110,160,0.55)"], ["multiply", "rgba(250,200,220,0.3)"]],
-  dawn: [["overlay", "rgba(255,170,130,0.4)"], ["screen", "rgba(150,120,210,0.2)"]],
-  mono: [["saturation", "rgba(128,128,128,1)"]],
-};
 
 /**
  * The finished picture of a room, at `pxPerUnit` pixels for every game unit. On a tall phone the picture is `extra` units taller: the room

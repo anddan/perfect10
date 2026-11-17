@@ -27,13 +27,48 @@ let clickBuf: AudioBuffer | null = null;
 let pageTurnBuf: AudioBuffer | null = null;
 let muted = false;
 
-/** The music in the background (public/sounds/music.mp3): quiet, loops, and has its own switch in the settings. */
+/** The music in the background: quiet, loops, and has its own switch in the settings. */
 const MUSIC_VOLUME = 0.128;
-let musicBuf: AudioBuffer | null = null;
+
+/** The songs, and which part of each loops (seconds: the slow start and the slow end are left out), how fast it plays and how loud it is. */
+export type MusicTrack = "music" | "space" | "ambient1" | "ambient2" | "calm";
+const TRACKS: Record<MusicTrack, {file: string; from: number; to: number; rate: number; gain: number}> = {
+  music: {file: "music.mp3", from: 0, to: 0, rate: 0.9, gain: 1},
+  // (the space chapter: from 32 seconds in to before its long fade at the end, 20% slower, and louder since it is a quiet recording)
+  space: {file: "space-ambient.mp3", from: 32, to: 100, rate: 0.8, gain: 2.2},
+  // (20% calmer than they are)
+  ambient1: {file: "ambient1.mp3", from: 0.5, to: 94.5, rate: 0.9, gain: 0.8 * 0.73},
+  ambient2: {file: "ambient2.mp3", from: 0.5, to: 107.5, rate: 0.9, gain: 0.8 * 1.3},
+  calm: {file: "calm-ambient.mp3", from: 2, to: 119.5, rate: 0.9, gain: 1}, // (all but the space song play 10% slower)
+};
+/** The songs that have been loaded (null while one is loading, or if it could not be). */
+const trackBufs: Partial<Record<MusicTrack, AudioBuffer | null>> = {};
+/** The song that should play, and the one that does. */
+let wantTrack: MusicTrack = "music";
+let playingTrack: MusicTrack | null = null;
 let musicGain: GainNode | null = null;
 let musicSrc: AudioBufferSourceNode | null = null;
+/** The volume of the song that plays (each song has its own, so that one can fade out while the next fades in). */
+let musicSrcGain: GainNode | null = null;
 /** The song that has been told to stop and is fading out. */
 let fadingSrc: AudioBufferSourceNode | null = null;
+
+function loadTrack(track: MusicTrack): void {
+  if (!ctx || track in trackBufs) return;
+  trackBufs[track] = null;
+  void loadSample(ctx, TRACKS[track].file).then((b) => {
+    trackBufs[track] = b;
+    updateMusic();
+  });
+}
+
+/** Which song plays in the round (a song that is already playing goes on if it is the same; another one fades over to the new one). */
+export function setMusicTrack(track: MusicTrack): void {
+  if (track === wantTrack) return;
+  wantTrack = track;
+  loadTrack(track);
+  updateMusic();
+}
 let musicOn = true;
 /** The volume of everything (sounds and music) in steps, 1 to VOLUME_STEPS, set with the buttons in the settings. Where everything ends up. */
 export const VOLUME_STEPS = 5;
@@ -113,51 +148,63 @@ export function setMusicScene(playing: boolean, quiet = false): void {
 }
 
 /**
- * Starts the music (fading in) when it should play, and fades it out and stops it when it should not (the sound is off, the music is,
+ * Starts the music (fading in) when it should play, and fades it out and stops it when it should not (the music is off,
  * or no round is on). While a round is on it only moves the volume: down for a pause, a cleared level or game over, and up again after.
  */
 function updateMusic(): void {
   if (!ctx || !musicGain) return;
-  const want = inRound && musicOn && !muted && musicBuf !== null;
+  const buf = trackBufs[wantTrack] ?? null;
+  // (the sound switch is for the sound effects only: the music has its own switch)
+  const want = inRound && musicOn && buf !== null;
   const t = ctx.currentTime;
-  const level = musicQuiet ? 0 : MUSIC_VOLUME;
-  if (want && !musicSrc) {
-    // A song that is still fading out is cut, so that two copies of it do not play over each other.
+  const tr = TRACKS[wantTrack];
+  const level = musicQuiet ? 0 : MUSIC_VOLUME * tr.gain;
+  // Another song should play: the one that plays fades out, and the new one starts below.
+  if (musicSrc && (!want || playingTrack !== wantTrack)) {
+    const src = musicSrc;
+    const g = musicSrcGain!;
+    musicSrc = null;
+    musicSrcGain = null;
+    playingTrack = null;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(g.gain.value, t);
+    // Leaving the round for the book fades out slowly; turning the music off, or a new song, is quicker.
+    const fadeOut = inRound ? 0.6 : 1.4;
+    g.gain.linearRampToValueAtTime(0, t + fadeOut);
+    src.stop(t + fadeOut + 0.05);
     if (fadingSrc) {
       try {
-        fadingSrc.stop(t);
+        fadingSrc.stop(t + fadeOut + 0.05);
       } catch {
         /* already stopped */
       }
-      fadingSrc = null;
     }
+    fadingSrc = src;
+  }
+  if (want && !musicSrc && buf) {
     const src = ctx.createBufferSource();
-    src.buffer = musicBuf;
+    src.buffer = buf;
     src.loop = true;
-    src.connect(musicGain);
-    musicGain.gain.cancelScheduledValues(t);
-    musicGain.gain.setValueAtTime(0, t);
-    // (the file itself has no fade: its end flows into its start, so the loop has no dip)
-    musicGain.gain.linearRampToValueAtTime(level, t + 2);
-    src.start(t);
+    if (tr.to > tr.from) {
+      src.loopStart = tr.from;
+      src.loopEnd = Math.min(tr.to, buf.duration);
+    }
+    src.playbackRate.value = tr.rate;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(level, t + 2);
+    src.connect(g).connect(musicGain);
+    src.start(t, tr.from);
     musicSrc = src;
+    musicSrcGain = g;
+    playingTrack = wantTrack;
     musicLevel = level;
-  } else if (want && musicSrc) {
+  } else if (want && musicSrc && musicSrcGain) {
     if (level === musicLevel) return;
     musicLevel = level;
-    musicGain.gain.cancelScheduledValues(t);
-    musicGain.gain.setValueAtTime(musicGain.gain.value, t);
-    musicGain.gain.linearRampToValueAtTime(level, t + (level === 0 ? 0.8 : 1.2));
-  } else if (!want && musicSrc) {
-    const src = musicSrc;
-    musicSrc = null;
-    musicGain.gain.cancelScheduledValues(t);
-    musicGain.gain.setValueAtTime(musicGain.gain.value, t);
-    // Leaving the round for the book fades out slowly; turning the music or the sound off is quicker.
-    const fadeOut = inRound ? 0.4 : 1.4;
-    musicGain.gain.linearRampToValueAtTime(0, t + fadeOut);
-    src.stop(t + fadeOut + 0.05);
-    fadingSrc = src;
+    musicSrcGain.gain.cancelScheduledValues(t);
+    musicSrcGain.gain.setValueAtTime(musicSrcGain.gain.value, t);
+    musicSrcGain.gain.linearRampToValueAtTime(level, t + (level === 0 ? 0.8 : 1.2));
   }
 }
 
@@ -192,15 +239,13 @@ export function unlockAudio(): void {
         void loadSample(ctx, "complete2.mp3").then((b) => (clearedBuf = b));
         void loadSample(ctx, "gameover.mp3").then((b) => (gameOverBuf = b));
         void loadSample(ctx, "click.wav").then((b) => (clickBuf = b));
-        void loadSample(ctx, "turn-page.wav").then((b) => (pageTurnBuf = b));
+        void loadSample(ctx, "page-turn.mp3").then((b) => (pageTurnBuf = b));
         // The music has its own volume and does not go through the compressor of the sounds.
         musicGain = ctx.createGain();
-        musicGain.gain.value = 0;
+        musicGain.gain.value = 1;
         musicGain.connect(outGain);
-        void loadSample(ctx, "music.mp3").then((b) => {
-          musicBuf = b;
-          updateMusic();
-        });
+        loadTrack("music");
+        loadTrack(wantTrack);
       }
     } catch {
       ctx = null;
@@ -364,9 +409,9 @@ export function playFadeGone(): void {
   noise(0.35, {type: "bandpass", freq: 1800, to: 500, q: 0.9, vol: 0.07, delay: 0.02});
 }
 
-/** A page of the book being turned. The recording (turn-page.wav) is already cut: it starts at once, and fades out at its end. */
+/** A page of the book being turned. */
 export function playPageTurn(rate = 1): void {
-  if (pageTurnBuf) sample(pageTurnBuf, 0.7, rate);
+  if (pageTurnBuf) sample(pageTurnBuf, 0.7, rate, {from: 0.012, to: 0.8, fade: 0.25});
 }
 
 /** Plays the sound that goes with something that happened in the game. */
@@ -401,6 +446,16 @@ export function playEvent(e: GameEvent): void {
       noise(0.55, {type: "bandpass", freq: 300, to: 1800, q: 0.6, vol: 0.09, attack: 0.15});
       tone(200, 0.5, {type: "triangle", to: 120, vol: 0.04, attack: 0.1});
       noise(0.5, {type: "bandpass", freq: 1500, to: 280, q: 0.6, vol: 0.07, delay: 0.85, attack: 0.1});
+      break;
+    case "skull":
+      // A skull pops: a quick hollow knock and a puff.
+      tone(300, 0.1, {to: 160, glide: 0.08, vol: 0.22, attack: 0.002});
+      noise(0.08, {type: "bandpass", freq: 1200, vol: 0.08});
+      break;
+    case "pop":
+      // A number is rubbed out: a soft quick pop.
+      tone(520, 0.08, {to: 900, glide: 0.06, vol: 0.18, attack: 0.003});
+      noise(0.06, {type: "highpass", freq: 3000, vol: 0.05});
       break;
     case "steel":
       if (steelBuf) {
@@ -488,6 +543,21 @@ export function playEvent(e: GameEvent): void {
       // The bomb: a deep boom and a crackle of noise.
       tone(110, 0.5, {to: 38, glide: 0.4, vol: 0.4, attack: 0.004});
       noise(0.45, {type: "lowpass", freq: 1800, to: 200, vol: 0.28, attack: 0.003});
+      break;
+    case "boom":
+      // An explosion: a boom (deep and long for a big one) and a crackle.
+      tone(e.big ? 100 : 180, e.big ? 0.6 : 0.22, {to: e.big ? 32 : 60, glide: e.big ? 0.5 : 0.18, vol: e.big ? 0.42 : 0.2, attack: 0.004});
+      noise(e.big ? 0.55 : 0.2, {type: "lowpass", freq: 2000, to: 200, vol: e.big ? 0.3 : 0.14, attack: 0.003});
+      break;
+    case "comets":
+      // Every comet pops: a crackling burst, and a bright chime on top.
+      noise(0.4, {type: "highpass", freq: 2500, vol: 0.14, attack: 0.003});
+      tone(220, 0.35, {to: 60, glide: 0.3, vol: 0.22, attack: 0.004});
+      [1046.5, 1318.5, 1568].forEach((f, i) => bell(f, 0.07, 0.05 + i * 0.05, 0.4));
+      break;
+    case "pickup":
+      // The jet picks something up: a quick rising chime.
+      [659.25, 987.77, 1318.5].forEach((f, i) => bell(f, 0.08, i * 0.05, 0.35));
       break;
     case "bonus":
       // A bonus ball: a bright chime that goes up.

@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// The top lists of the endless game and of the match modes Save the cup and 6 or 8 (see src/ui/scores.ts); the three have the same rules. No accounts: a device is known by a random id, and its document in
+// The top lists of the endless game and of the match modes Save the cup, Even numbers, Defend the cups, Ice world, Fast fingers and Find the Perfect 10 (see src/ui/scores.ts); the three have the same rules. No accounts: a device is known by a random id, and its document in
 // "highscores" has that id. Anyone can read the list; a device can only add its own document and can only raise its score (the
 // name can change), size-bounded. Nobody can delete one from the game.
 service cloud.firestore {
@@ -48,6 +48,139 @@ service cloud.firestore {
     }
 
     match /highscores_sixeight/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_defend/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_ice/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_fast/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_find/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_shield/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_jet/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 10000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_comet/{device} {
       allow read: if true;
       allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == device

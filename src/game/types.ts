@@ -4,7 +4,7 @@ import type {SaucerKind} from "./saucers";
 export type Phase = "menu" | "intro" | "perk" | "play" | "over" | "won";
 
 /** The new kinds of number a chapter brings in, one at a time: the pull-down screen, the fourth cup, the 0, three bonus balls, chains, ice, ghosts, the black number, the star, the steel number and the chain of three. */
-export type Feature = "screen" | "cups" | "zero" | "ten" | "points" | "life" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "chain" | "ice" | "ghost" | "fog" | "star" | "steel" | "chain3" | "diamond" | "cup3" | "vchain" | "fade";
+export type Feature = "screen" | "cups" | "zero" | "ten" | "points" | "life" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "chain" | "ice" | "ghost" | "fog" | "star" | "steel" | "chain3" | "diamond" | "cup3" | "vchain" | "fade" | "wand" | "reverse" | "eraser" | "skull";
 
 /**
  * "tutorial": a guided round where you try each thing. "plus": the plus levels (only plus numbers). "minus": only minus numbers (reach −10).
@@ -15,21 +15,21 @@ export type Feature = "screen" | "cups" | "zero" | "ten" | "points" | "life" | "
  */
 /**
  * The match modes, which are the endless game with rules of their own: "save" (Save the cup: one of the four cups is dead from the start, only 1s fall, and a 1
- * that gets into the dead cup is the end; it gets faster and faster) and "sixeight" (6 or 8: only 6s, 8s and numbers that divide by 2 fall).
+ * that gets into the dead cup is the end; it gets faster and faster) and "sixeight" (Even numbers: only 2s, 4s, 8s, times 2 and divided by 2 fall).
  */
-export type Variant = "save" | "sixeight";
+export type Variant = "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet";
 
 export type Mode = "tutorial" | "plus" | "minus" | "mixed" | "times" | "divide" | "space" | "endless";
 
 /** What a number does to the cup it lands in: adds itself (green and red), multiplies it (blue), divides it (yellow), sets it to 0 (orange), sets it to 10 (orange, with a 10 on it), adds itself and hides the number of the cup (black), or is a steel number that adds itself but cannot be tapped. */
-export type Op = "add" | "mul" | "div" | "zero" | "ten" | "dim" | "steel";
+export type Op = "add" | "mul" | "div" | "zero" | "ten" | "dim" | "steel" | "skull" | "trap";
 
 /**
  * The bonus balls, with a gold border: "life" brings a dead cup back, "points" gives points, "slow" slows the numbers down, "pause"
  * stops them for a few seconds, "bomb" blows away the numbers close to it, "cloth" gives one more pull-down screen, "shield" puts a shield on the
  * nearest cup (it takes the number that would have killed the cup), and a "star" (which jumps between the columns) clears all the cups.
  */
-export type Bonus = "life" | "points" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "star" | "diamond";
+export type Bonus = "life" | "points" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "star" | "diamond" | "wand" | "reverse";
 
 /** The perks of the daily challenge: "slow" (the numbers fall slower), "shield" (a shield on a cup), "cloth" (one more pull-down screen), "life" (a dead cup is back), "bonus" (more bonus balls), "help" (more numbers that finish a cup), "remove" (a dead cup is taken away), or a cup with a property (it replaces an ordinary cup). */
 export type PerkId = "slow" | "shield" | "cloth" | "life" | "bonus" | "help" | "remove" | "gold" | "thermos" | "magnet" | "big" | "laser" | "sparse" | "special" | "points";
@@ -40,7 +40,7 @@ export type TutorialNote = "" | "good" | "retry";
 /** The kinds of cup: an ordinary one, and the four of the shop (gold: double points; thermos: starts with a shield; magnet: takes a number that would have killed another cup; big: does not die until it is over 12; laser: a double tap clears its column). */
 export type CupKind = "plain" | "gold" | "thermos" | "magnet" | "big" | "laser";
 
-export type GameOverReason = "deadCup" | "allDead";
+export type GameOverReason = "deadCup" | "allDead" | "crash";
 
 export interface Cup {
   id: number;
@@ -93,8 +93,25 @@ export interface NumberTile {
   ghost: Ghost | null;
   /** How many taps are left to crack the ice a number is frozen in (0: no ice). A number in ice only dives when the ice is gone. */
   ice: number;
+  /** Fast fingers: the seconds it still hangs still in the air (then a 10 or a 0 pops, and a skull falls). Not set for any other number. */
+  hover?: number;
+  /** Knocked away by the shield (Shield up): it flies off sideways at this speed and lands nowhere. */
+  vx?: number;
+  /** Shield up: a boss skull (big): how many seconds the shield still has to hold it up before it pops, and how many it had. */
+  boss?: {hp: number; max: number};
+  /** Already turned by the magic wand (into a 0 or a 10), so it is not turned again. */
+  wanded?: boolean;
+  /** The fighter jet: what it gets if it flies into this ball (it is no number). */
+  pickup?: Pickup;
+  /** The comet belt: a 1 that is a comet (it has a tail of fire). */
+  comet?: boolean;
+  /** Balls that hang together in a chain (a row of comets, or skulls one over the other): the same number for all of them. */
+  link?: number;
+  /** Thin ice (Ice world): it looks like any ice, but one tap breaks all of it. */
+  thin?: boolean;
   /** "fall": drifting down on its own. "dive": tapped, on its way into a cup. */
-  state: "fall" | "dive";
+  /** Falling on its own, tapped and on its way down into a cup, or tapped while the reverse is on and flying up and away. */
+  state: "fall" | "dive" | "rise";
   target: number | null;
   /** The sideways place a tapped number is heading for: the column of the cup it was sent to. It keeps to it even if the cups are swapped on the way. (A star that jumps between the columns: the column it is jumping to.) */
   aim: number;
@@ -133,7 +150,28 @@ export type GameEvent =
   | {t: "combo"; n: number; x: number; y: number; bonus: number}
   | {t: "sweep"}
   | {t: "screens"; n: number}
-  | {t: "steel"; x: number; y: number};
+  | {t: "steel"; x: number; y: number}
+  | {t: "erasers"; n: number}
+  | {t: "pop"; x: number; y: number}
+  | {t: "skull"; x: number; y: number}
+  | {t: "boom"; x: number; y: number; big: boolean}
+  | {t: "comets"; hits: {x: number; y: number; size: number}[]}
+  | {t: "pickup"; x: number; y: number; kind: Pickup};
+
+/** What the fighter jet can pick up: faster and more guns, missiles from its wings, or a shield (and the ship of the comet belt: a shield, or a full tank of fuel). */
+export type Pickup = "gun" | "missile" | "shield" | "fuel";
+
+/** A shot of the fighter jet: a bullet straight up, or a missile that steers after a skull (the last few places it was, for its smoke). */
+export interface Shot {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  missile: boolean;
+  age: number;
+  trail: {x: number; y: number}[];
+  dead?: boolean;
+}
 
 export interface GameState {
   phase: Phase;
@@ -156,6 +194,18 @@ export interface GameState {
   /** The match mode that is being played (it is the endless game, with rules of its own), and the seconds it has been going. */
   variant: Variant | null;
   variantTime: number;
+  /** Fast fingers: the seconds of the count down (3, 2, 1) left before the first numbers come. */
+  countdown: number;
+  /** A number has landed: with only two or three cups, the next number to come finishes one of them. */
+  helpDue: boolean;
+  /** How many numbers have come since the last one that finished a cup (with two or three cups). */
+  sinceHelp: number;
+  /** Find the Perfect 10: the seconds left to find the column, how many seconds it had, and the column that makes 10. */
+  findTimer: number;
+  findTotal: number;
+  findAnswer: number;
+  /** The daily ladder on a day of Fast fingers: the rung that last had its count down. */
+  mixRung: number;
   perks: PerkId[];
   perkChoices: PerkId[];
   /** How many times each of them is taken if it is chosen (sometimes a perk is offered as x2 or x3: x2 of the shield puts a shield on two cups). */
@@ -165,9 +215,37 @@ export interface GameState {
   extra: number;
   /** The diamond is changing the numbers: seconds since it began, where it hangs, and the numbers that are to be changed (when, and to a 10 or a 0). Everything else waits. Null when no diamond is at work. */
   zap: {time: number; x: number; y: number; end: number; steps: {id: number; at: number; ten: boolean; done: boolean}[]} | null;
-  /** Seconds of slow motion left, seconds the numbers are stopped for (a pause ball), and seconds until the next bonus ball comes. */
+  /** Seconds of slow motion left, seconds the numbers are stopped for (a pause ball), seconds the magic wand is at work (every number is a 1: +1, −1, ×1 or ÷1), and seconds until the next bonus ball comes. */
   slow: number;
   pause: number;
+  wand: number;
+  /** Shield up: where the shield is (the middle of its top edge) and half of its width. */
+  shieldX: number;
+  shieldY: number;
+  shieldW: number;
+  /** Seconds since the shield last grew (a shield ball was caught), for the effect: large when it has not grown. */
+  shieldGrew: number;
+  /** Shield up: the power upgrades taken after the shield has reached its full size (each one hurts a boss more). */
+  shieldPower: number;
+  /** The fighter jet: its guns (1 to 5), its missiles (0 to 3), whether it has a shield, the seconds it is knocked out (cannot shoot), the time to its next shots, its shots, and the last thing it picked up (and how long ago). */
+  jetGun: number;
+  jetMissile: number;
+  jetShield: boolean;
+  jetStun: number;
+  /** Whether a finger is holding the jet: it only shoots while it is held. */
+  jetHeld: boolean;
+  /** Comet belt: the fuel of the ship (1 is full). It is used while the ship is held, and fills up again while it is let go; when it runs out the ship cannot be flown until it has been let go and has filled up a bit. */
+  fuel: number;
+  fuelOut: boolean;
+  jetFire: number;
+  jetMissileFire: number;
+  shots: Shot[];
+  jetGot: number;
+  jetGotKind: Pickup;
+  /** The level the last boss of Shield up came at (one comes at every tenth level). */
+  bossLevel: number;
+  /** Seconds the reverse is on: a tapped number flies up and away instead of falling into a cup. */
+  reverse: number;
   bonusTimer: number;
   /** The new kinds of number that this level (or this level of the endless game) brings in and that have not been shown yet, and the seconds until the next one is made to fall. */
   showcase: Feature[];
@@ -204,6 +282,17 @@ export interface GameState {
   lifeDue: boolean;
   /** The level was cleared with three stars, and that gave a pull-down screen (for the effect on the card). */
   screenWon: boolean;
+  /** How many numbers of each kind have landed in the cups this round (for the card after it): plus, minus, times, divided by, 0, 10, steel, black and skull. */
+  landed: Record<string, number>;
+  /** The match mode that every other rung of today's daily ladder is played as (the even rungs). */
+  dailyMix: Variant | null;
+  /** The day of the daily challenge being played (each even rung of its ladder has a match mode of its own, picked at random for the day). */
+  dailyDay: string;
+  /** ...or an eraser instead (one or the other is the prize). */
+  eraserWon: boolean;
+  /** How many erasers there are left to use, and the seconds the one in use has left (every number that is tapped then pops). */
+  erasers: number;
+  erase: number;
   /** How many pull-down screens there are left to use, and how long ago the one that is down now started to come down (-1: none is down). */
   screens: number;
   sweep: number;

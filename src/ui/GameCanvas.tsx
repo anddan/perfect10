@@ -1,27 +1,27 @@
 // The game's canvas: runs the loop, scales the 360 x 640 game to the screen, and takes the finger.
 import {type FormEvent, useCallback, useEffect, useRef, useState} from "react";
-import {DAILY_BONUS, DAILY_REWARD, DAILY_RUNGS, EXTRA_MAX, H, SCREEN_MAX, TAP_RADIUS, W, WIN_DELAY} from "../game/constants";
+import {DAILY_BONUS, DAILY_REWARD, DAILY_RUNGS, EXTRA_MAX, H, SCREEN_MAX, ERASER_MAX, TAP_RADIUS, W, WIN_DELAY} from "../game/constants";
 import {STREAK_RUNGS, type Package, type Streak, dayKey, recordDay, rollPackage, rungEnds, rungsDone, streakCoins, streakCount, streakDayFor} from "../game/daily";
 import {CUP_PRICE, isShopCup} from "../game/cups";
 import {SAUCER_PRICE, isSaucer} from "../game/saucers";
 import {LOOK_KINDS, type LookKind, findLook} from "../game/looks";
-import {FEATURES, choosePerk, continueGame, createGame, cupAt, dropCup, endIntro, fireLaser, moveCup, recordBest, showMenu, startDaily, startGame, startVariant, tapAt, untangleCups, update, useScreen} from "../game/engine";
+import {FEATURES, moveShield, craftOn, holdCraft, choosePerk, continueGame, createGame, cupAt, dropCup, endIntro, fireLaser, moveCup, recordBest, useEraser, showMenu, startDaily, startGame, startVariant, tapAt, untangleCups, update, useScreen} from "../game/engine";
 import type {Cup, Feature, Mode, Variant} from "../game/types";
-import {getVolumeStep, isMusicOn, isMuted, playBuy, playFadeGone, playGain, playClick, playEvent, playPageTurn, setMusicScene, stepVolume, toggleMusic, toggleMute, unlockAudio} from "./audio";
+import {getVolumeStep, isMusicOn, isMuted, playBuy, playFadeGone, playGain, playClick, playEvent, playPageTurn, setMusicScene, setMusicTrack, stepVolume, type MusicTrack, toggleMusic, toggleMute, unlockAudio} from "./audio";
 import {AD_SECONDS} from "./ad";
 import {makeBackgrounds} from "./background";
-import {BUY_PAGE, DAILY_PAGE, PAGER, PAGES, SHOP_PAGE, beginDrag, createBook, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, currentPage, markScore, openNextGame, pageOfMode, showPage, subPages, tabTarget, updateBook, variantOpen, MATCH_PAGES} from "./book";
+import {BUY_PAGE, CONTENTS_PAGE, DAILY_PAGE, PAGER, PAGES, SHOP_PAGE, beginDrag, createBook, dragBy, endDrag, goToPage, isUnlocked, markCleared, markProgress, currentPage, markScore, openNextGame, pageOfMode, showPage, subPages, tabTarget, updateBook, variantOpen, MATCH_PAGES} from "./book";
 import {hitTest, ui} from "./draw";
 import {type Lang, lang, setLang, t} from "./i18n";
 import {Fx} from "./fx";
-import {BUTTON_DELAY, drawGame} from "./render";
+import {BUTTON_DELAY, drawGame, tapMenuBall} from "./render";
 import {NAME_MAX, cleanName, playerName, setPlayerName} from "./profile";
 import {FEEDBACK_KINDS, FEEDBACK_MAX, type FeedbackKind, type SendResult, cleanFeedback, submitFeedback} from "./feedback";
 import {SCORE_MODES, type ScoreMode, loadBoard, submitScore} from "./scores";
 import {useUpdates} from "./updates";
-import {CLOTH_PRICE, ENDLESS_COST, ENERGY_PRICE, MAX_COPIES, VIDEO_COINS, addCoins, ownsLook, refillPrice, grantCup, buyCloth, buyCup, allOnCup, buyLook, equipLook, buyEnergyPoint, buyEnergyRefill, clearCup, buyMode, isUnlockMode, isVariant, priceOfMode, loadWallet, loadout, saucerLoadout, buySaucer, cycleSaucer, saveWallet, toggleOnCup} from "./wallet";
+import {CLOTH_PRICE, DAILY_GIFT, ERASER_PRICE, buyEraser, ENDLESS_COST, ENERGY_PRICE, MAX_COPIES, VIDEO_COINS, addCoins, ownsLook, refillPrice, grantCup, buyCloth, buyCup, allOnCup, buyLook, equipLook, buyEnergyPoint, buyEnergyRefill, clearCup, buyMode, isUnlockMode, isVariant, priceOfMode, loadWallet, loadout, saucerLoadout, buySaucer, cycleSaucer, saveWallet, toggleOnCup} from "./wallet";
 import {PAYMENTS_CONNECTED, grantPurchase, loadPremium, savePremium} from "./purchase";
-import {type DailyRecord, loadDaily, loadStreak, loadVideoDay, saveDaily, saveStreak, saveVideoDay, todaysTry} from "./dailyStore";
+import {type DailyRecord, loadDaily, loadGiftDay, loadStreak, loadVideoDay, saveDaily, saveGiftDay, saveStreak, saveVideoDay, todaysTry} from "./dailyStore";
 import {ENERGY_MAX, ENERGY_PER_AD, addEnergy, loadEnergy, refreshEnergy, saveEnergy, secondsToNext, spendEnergy} from "./energy";
 
 const BEST_KEY = "p10-best";
@@ -141,6 +141,23 @@ function saveCleared(keys: Iterable<string>): void {
   }
 }
 
+/** How many erasers there are (bought in the shop, or won with three stars). */
+function loadErasers(): number {
+  try {
+    return Math.min(ERASER_MAX, Math.max(0, Math.floor(Number(localStorage.getItem("p10-erasers")) || 0)));
+  } catch {
+    return 0;
+  }
+}
+
+function saveErasers(n: number): void {
+  try {
+    localStorage.setItem("p10-erasers", String(n));
+  } catch {
+    /* private mode */
+  }
+}
+
 /** How many pull-down screens have been collected in the levels of the book (one to start with). */
 function loadScreens(): number {
   try {
@@ -247,8 +264,16 @@ export function GameCanvas() {
     let streak: Streak | null = loadStreak();
     /** The last day the video for coins was watched: it can be watched once a day. */
     let videoDay = loadVideoDay();
+    /** The last day the gift of the day was taken (see giveGift): it comes once a day. */
+    let giftDay = loadGiftDay();
+    try {
+      ui.layout = localStorage.getItem("p10-layout") === "groups" ? "groups" : "menu";
+    } catch {
+      /* private mode */
+    }
     /** How many pull-down screens there are in the book (also kept in the browser: see loadScreens). */
     let screensHeld = loadScreens();
+    let erasersHeld = loadErasers();
     /** Premium (see purchase.ts): everything is open, new tries cost no energy, and there are no ads. */
     let premium = loadPremium();
     /** Coins earned: they are put in the wallet and counted for the card after the round. */
@@ -297,6 +322,11 @@ export function GameCanvas() {
     let fade = 0;
     // Every page that is turned in the book makes a sound.
     let turns = Math.round(book.pos);
+    /** The song of the round that is on (null in the book), and the last one that was picked (the next round gets another). */
+    let roundSong: MusicTrack | null = null;
+    let lastSong: MusicTrack | null = null;
+    /** The page the book last came to rest on (the dialog of the gift opens when it comes to the daily steps). */
+    let lastSettled: string | null = null;
     let fading: {phase: "out" | "in"; then: () => void} | null = null;
 
     const transition = (then: () => void) => {
@@ -344,6 +374,7 @@ export function GameCanvas() {
         transition(() => {
           // The levels of the book use the screens that have been collected; the endless game starts with its own.
           if (mode !== "endless") g.screens = loadScreens();
+          g.erasers = erasersHeld;
           g.loadout = loadout(wallet);
           g.saucerLoadout = saucerLoadout(wallet);
           ui.lastCoins = 0;
@@ -422,6 +453,17 @@ export function GameCanvas() {
       ui.notice = t("pkgCoins", {n: VIDEO_COINS});
       ui.noticeTime = 2.4;
     };
+    /** The gift of the day goes into the wallet (twice as much after an ad); once a day. */
+    const giveGift = (times: 1 | 2) => {
+      const dk = dayKey();
+      if (giftDay === dk) return;
+      giftDay = dk;
+      saveGiftDay(dk);
+      addCoins(wallet, DAILY_GIFT * times);
+      saveWallet(wallet);
+      ui.giftGot = DAILY_GIFT * times;
+      ui.giftAge = 0;
+    };
     /** The score so far of an endless round that is left before it ends (or when the app is closed) is kept if it is a record. */
     const saveRecord = () => {
       if (!recordBest(g)) return;
@@ -476,11 +518,12 @@ export function GameCanvas() {
           ui.bests[game] = g.best;
           // A new record in the endless game goes to the top list under the player's name (asked for the first time).
           const record = g.best;
-          window.setTimeout(() => {
-            if (g.phase !== "over") return;
-            const name = playerName();
-            if (name) void submitScore(name, record, game);
-            else
+          // (with a name the record is sent at once, so that it is kept even if the round is left right away; without one, the name is asked for in a moment)
+          const name = playerName();
+          if (name) void submitScore(name, record, game);
+          else
+            window.setTimeout(() => {
+              if (g.phase !== "over" || playerName()) return;
               setNameAsk({
                 draft: "",
                 done: (n) => {
@@ -491,6 +534,10 @@ export function GameCanvas() {
         }
         if (e.t === "introHide") saveHiddenIntros(g.hideIntros);
         // The screens collected in the levels of the book are remembered (the endless game has its own).
+        if (e.t === "erasers") {
+          erasersHeld = e.n;
+          saveErasers(e.n);
+        }
         if (e.t === "screens" && g.mode !== "endless") {
           saveScreens(e.n);
           screensHeld = e.n;
@@ -553,6 +600,7 @@ export function GameCanvas() {
       ui.premium = premium;
       ui.noticeTime = Math.max(0, ui.noticeTime - dt);
       ui.screens = screensHeld;
+      ui.erasers = erasersHeld;
       ui.owned = wallet.owned;
       ui.modes = wallet.modes;
       // (the match mode page that is settled on is remembered, for the contents)
@@ -562,6 +610,14 @@ export function GameCanvas() {
         ui.hasLastMatch = true;
         saveLastMatch(settled);
       }
+      // The gift of the day: its dialog opens when the book comes to the page of the daily steps (while it can still be taken today).
+      const atRest = Math.abs(book.pos - book.target) < 0.01;
+      if (atRest && settled === "daily" && lastSettled !== "daily" && ui.giftReady && !ui.giftOpen && g.phase === "menu" && !ui.startOpen && !ui.settingsOpen) {
+        ui.giftOpen = true;
+        ui.giftAge = 0;
+        ui.giftGot = 0;
+      }
+      if (atRest) lastSettled = settled ?? null;
       ui.saucers = wallet.saucers;
       ui.saucerSlots = wallet.saucerSlots;
       ui.slots = wallet.slots;
@@ -575,6 +631,10 @@ export function GameCanvas() {
       ui.streakToday = streak?.last === dk;
       ui.streakGift = streak?.gift ?? false;
       ui.videoReady = videoDay !== dk;
+      ui.giftReady = giftDay !== dk;
+      if (ui.giftOpen) ui.giftAge += dt;
+      // (the very first start: once the front cover has been turned, the bar at the bottom is there)
+      if (ui.coverIntro && Math.round(book.pos) !== 0) ui.coverIntro = false;
       ui.dailyRetry = ui.dailyUsed && !ui.dailyCleared; // (as many tries as you like, each for an ad, until the whole ladder has been climbed)
       if (ui.packageOpen) ui.packageAge += dt;
       // The game waits while the settings or the pause page are open.
@@ -595,6 +655,13 @@ export function GameCanvas() {
       if (!drag) untangleCups(g);
       // The music plays in a round, not in the book. It fades out for the pause page, a cleared level and game over (and the song goes on
       // silently, so the next level does not start it over).
+      // (the song of the round: picked at random when a round starts, not the same as the last one; the space chapter always has its own)
+      if (g.phase !== "menu" && !roundSong) {
+        const songs = (["music", "ambient1", "ambient2", "calm"] as const).filter((t) => t !== lastSong);
+        roundSong = g.mode === "space" && !g.variant && !g.daily ? "space" : songs[Math.floor(Math.random() * songs.length)];
+        if (roundSong !== "space") lastSong = roundSong;
+        setMusicTrack(roundSong);
+      } else if (g.phase === "menu") roundSong = null;
       setMusicScene(g.phase !== "menu", ui.pauseOpen || g.phase === "won" || g.phase === "over");
       if (fading) {
         if (fading.phase === "out") {
@@ -657,14 +724,37 @@ export function GameCanvas() {
         saveStarted();
         // The very first start: the tutorial begins at once (it costs no energy).
         startRound("tutorial", 0);
+      } else if (id === "gift:take") {
+        giveGift(1);
+      } else if (id === "gift:ad") {
+        // Twice the gift, for an ad (with Premium there is no ad).
+        if (premium) giveGift(2);
+        else {
+          ui.adFor = "gift";
+          ui.adOpen = true;
+          ui.adTime = 0;
+        }
+      } else if (id === "gift:later" || id === "gift:close") {
+        ui.giftOpen = false;
+      } else if (id === "set:layout") {
+        ui.layout = ui.layout === "groups" ? "menu" : "groups";
+        ui.barOpen = -1;
+        try {
+          localStorage.setItem("p10-layout", ui.layout);
+        } catch {
+          /* private mode */
+        }
+      } else if (id.startsWith("side:")) {
+        // A coloured tab on the edge of the book: to the page of its group.
+        goToPage(book, tabTarget(book, Number(id.slice(5))), true);
       } else if (id === "set:sound") {
         toggleMute();
       } else if (id === "set:music") {
         toggleMusic();
       } else if (id === "set:volDown") {
-        if (!isMuted()) stepVolume(-1); // (nothing to turn down while the sound is off)
+        if (!isMuted() || isMusicOn()) stepVolume(-1); // (nothing to turn down while the sound and the music are both off)
       } else if (id === "set:volUp") {
-        if (!isMuted()) stepVolume(1);
+        if (!isMuted() || isMusicOn()) stepVolume(1);
       } else if (id.startsWith("set:lang:")) {
         // The rooms have words on them (the board in the cafe), so they are drawn again in the new language.
         setLang(id.slice(9) as Lang);
@@ -683,7 +773,7 @@ export function GameCanvas() {
       } else if (id === "pauseQuit") {
         // Out of the round and back to the book.
         ui.pauseOpen = false;
-        toBook(g.daily ? DAILY_PAGE : pageOfMode(g.mode));
+        toBook(g.daily ? DAILY_PAGE : g.variant ? PAGES.indexOf(g.variant) : pageOfMode(g.mode)); // (a match mode goes back to its own page)
       } else if (id === "daily:play") {
         startDailyRound();
       } else if (id === "daily:retry") {
@@ -784,6 +874,13 @@ export function GameCanvas() {
         ui.energyOpen = false;
         ui.shopTab = 2;
         toBook(SHOP_PAGE);
+      } else if (id === "shop:eraser") {
+        const n = buyEraser(wallet, erasersHeld, ERASER_MAX);
+        if (n !== null) {
+          erasersHeld = n;
+          saveErasers(n);
+          saveWallet(wallet);
+        } else if (erasersHeld < ERASER_MAX && wallet.coins < ERASER_PRICE) toBuy();
       } else if (id === "shop:cloth") {
         const n = buyCloth(wallet, screensHeld, SCREEN_MAX);
         if (n !== null) {
@@ -881,6 +978,7 @@ export function GameCanvas() {
         if (ui.adOpen && ui.adTime >= AD_SECONDS) {
           ui.adOpen = false;
           if (ui.adFor === "coins") giveVideoCoins();
+          else if (ui.adFor === "gift") giveGift(2);
           else if (ui.adFor === "retry") retryDailyRound();
           else if (ui.adFor === "energy") {
             addEnergy(energy, ENERGY_PER_AD, Date.now());
@@ -889,12 +987,14 @@ export function GameCanvas() {
         }
       } else if (id === "screen") {
         useScreen(g);
+      } else if (id === "eraser") {
+        useEraser(g);
       } else if (id === "introOk") {
         endIntro(g);
       } else if (id === "introNever") {
         endIntro(g, true);
       } else if (id === "toBook") {
-        toBook(g.daily ? DAILY_PAGE : pageOfMode(g.phase === "won" && g.mode === "tutorial" ? "plus" : g.mode));
+        toBook(g.daily ? DAILY_PAGE : g.variant ? PAGES.indexOf(g.variant) : pageOfMode(g.phase === "won" && g.mode === "tutorial" ? "plus" : g.mode));
       }
     };
 
@@ -915,19 +1015,20 @@ export function GameCanvas() {
       }
       // Turning a page of the book has its own sound (the page turning), so the buttons for it do not click as well.
       // (the bar at the bottom makes no sound of its own, nor do its arcs: a tap that goes to a page has the sound of the page turning, and nothing else)
-      const barQuiet = id === "barBackdrop" || id.startsWith("sub:") || id.startsWith("tab:");
+      const barQuiet = id === "barBackdrop" || id.startsWith("sub:") || id.startsWith("tab:") || id.startsWith("side:");
       if (!barQuiet && id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id.startsWith("page:") && !id.startsWith("toc:")) playClick();
     };
 
+    let shieldPointer: number | null = null;
     const onDown = (e: PointerEvent) => {
       e.preventDefault();
       unlockAudio();
       if (fading) return;
       const p = point(e);
       const id = hitTest(p.x, p.y);
-      if (ui.packageOpen || ui.startOpen || ui.settingsOpen || ui.pauseOpen || ui.scoresOpen || ui.energyOpen || ui.cupsOpen || ui.adOpen) {
+      if (ui.packageOpen || ui.giftOpen || ui.startOpen || ui.settingsOpen || ui.pauseOpen || ui.scoresOpen || ui.energyOpen || ui.cupsOpen || ui.adOpen) {
         // The start page, the settings, the pause page, the energy page and the ad are over everything: only their own buttons can be pressed (and the game waits behind them).
-        if (id && (id.startsWith("set:") || id === "start:new" || id === "package:close" || id === "settingsClose" || id === "scoresClose" || id === "energyAd" || id === "energyShop" || id === "energyClose" || id.startsWith("cups:") || id === "pauseResume" || id === "pauseQuit" || id === "adClose")) {
+        if (id && (id.startsWith("set:") || id === "start:new" || id === "package:close" || id.startsWith("gift:") || id === "settingsClose" || id === "scoresClose" || id === "energyAd" || id === "energyShop" || id === "energyClose" || id.startsWith("cups:") || id === "pauseResume" || id === "pauseQuit" || id === "adClose")) {
           ui.pressed = id;
           press = {id, x: p.x, y: p.y, moved: false, pointer: e.pointerId, settings: true};
           canvas.setPointerCapture(e.pointerId);
@@ -947,10 +1048,12 @@ export function GameCanvas() {
       // The buttons after a round do not work for a moment, so that a late tap does not skip the screen.
       if ((g.phase === "over" || g.phase === "won" || g.phase === "intro" || g.phase === "perk") && g.overTimer <= BUTTON_DELAY && id !== "settings") return;
       if (id) ui.pressed = id;
+      // A number drifting behind the book: a tap makes it fall (the finger can go on to drag the book).
+      if (g.phase === "menu" && !id) tapMenuBall(g, p.x, p.y);
       if (g.phase === "menu" || id) {
         press = {id, x: p.x, y: p.y, moved: false, pointer: e.pointerId};
         // (the buttons for the next and the previous page do not start a drag: they would take hold of a page that is on its way)
-        if (g.phase === "menu" && id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id?.startsWith("page:") && !id?.startsWith("tab:") && ui.barOpen < 0) beginDrag(book);
+        if (g.phase === "menu" && id !== "next" && id !== "prev" && id !== "first" && id !== "last" && !id?.startsWith("page:") && !id?.startsWith("tab:") && !id?.startsWith("side:") && ui.barOpen < 0) beginDrag(book);
         canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -977,6 +1080,13 @@ export function GameCanvas() {
         if (drag) dropCup(g, drag.cup);
         drag = {cup, dx: cup.x - p.x, pointer: e.pointerId};
         canvas.setPointerCapture(e.pointerId);
+      } else if (craftOn(g) && shieldPointer === null) {
+        // Shield up: a finger on nothing (no 10, no cup) takes hold of the shield, a little over the finger so that it does not hide it; another finger
+        // can tap the 10s and move the cups meanwhile.
+        moveShield(g, p.x, p.wy - 40);
+        shieldPointer = e.pointerId;
+        holdCraft(g, true);
+        canvas.setPointerCapture(e.pointerId);
       } else {
         // Nothing under the finger: it can still slide over numbers and take them down.
         swipe = {pointer: e.pointerId, x: p.x, y: p.wy, skip};
@@ -985,6 +1095,11 @@ export function GameCanvas() {
     };
 
     const onMove = (e: PointerEvent) => {
+      if (shieldPointer === e.pointerId && craftOn(g) && g.phase === "play") {
+        const p = point(e);
+        moveShield(g, p.x, p.wy - 40);
+        return;
+      }
       if (scrub && scrub.pointer === e.pointerId) {
         const per = PAGER.w / (PAGES.length - 1); // (the width of the strip is every page)
         const page = Math.round(scrub.startPage + (point(e).x - scrub.startX) / per);
@@ -998,7 +1113,7 @@ export function GameCanvas() {
           const dy = p.y - press.y;
           // The first move says which way the finger is going: up or down scrolls the contents list (if it does not all fit), sideways turns the page.
           if (!press.axis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-            press.axis = ui.tocMax > 0 && Math.round(book.pos) === 0 && Math.abs(dy) > Math.abs(dx) ? "y" : "x";
+            press.axis = ui.tocMax > 0 && Math.round(book.pos) === CONTENTS_PAGE && Math.abs(dy) > Math.abs(dx) ? "y" : "x";
             press.scroll0 = ui.tocScroll;
             press.moved = true;
             ui.pressed = null;
@@ -1026,6 +1141,11 @@ export function GameCanvas() {
     };
 
     const onUp = (e: PointerEvent) => {
+      if (shieldPointer === e.pointerId) {
+        shieldPointer = null;
+        holdCraft(g, false);
+        return;
+      }
       if (scrub && scrub.pointer === e.pointerId) {
         scrub = null;
         ui.scrubbing = false;
@@ -1055,7 +1175,7 @@ export function GameCanvas() {
     resize();
     // The text of the rooms is drawn once: draw it again when the typeface has arrived.
     if (document.fonts) {
-      void Promise.all([document.fonts.load('600 20px "Fredoka"'), document.fonts.load('700 20px "Fredoka"')])
+      void Promise.all([document.fonts.load('600 20px "Fredoka"'), document.fonts.load('700 20px "Fredoka"'), document.fonts.load('400 20px "Lilita One"')])
         .then(resize)
         .catch(() => undefined);
     }
@@ -1082,7 +1202,7 @@ export function GameCanvas() {
     canvas.addEventListener("pointerup", onUp);
     // The wheel scrolls the contents list (when it does not all fit).
     const onWheel = (e: WheelEvent) => {
-      if (g.phase !== "menu" || Math.round(book.pos) !== 0 || ui.tocMax <= 0 || ui.settingsOpen || ui.scoresOpen) return;
+      if (g.phase !== "menu" || Math.round(book.pos) !== CONTENTS_PAGE || ui.tocMax <= 0 || ui.settingsOpen || ui.scoresOpen) return;
       e.preventDefault();
       ui.tocScroll = Math.min(ui.tocMax, Math.max(0, ui.tocScroll + e.deltaY));
     };

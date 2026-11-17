@@ -19,12 +19,12 @@ export const PERKS = (Object.keys(PERK_LIMIT) as PerkId[]).filter((p) => !SPECIA
 /** How much slower the numbers fall for every "slower" perk taken. */
 export const PERK_SLOWER = 0.92;
 
-/** How many cups a rung of the ladder needs: five on the first, and one more on every rung after it (5, 6, 7 ...). */
+/** How many cups a rung of the ladder needs: five on the first, and two more on every rung after it (5, 7, 9 ...). */
 export function rungGoal(rung: number): number {
-  return 4 + Math.max(1, Math.floor(rung));
+  return 3 + 2 * Math.max(1, Math.floor(rung));
 }
 
-/** How many cups it takes to climb the first `rungs` rungs (5, 11, 18 ...). */
+/** How many cups it takes to climb the first `rungs` rungs (5, 12, 21 ...). */
 export function cupsToClimb(rungs: number): number {
   let n = 0;
   for (let r = 1; r <= rungs; r++) n += rungGoal(r);

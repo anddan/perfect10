@@ -448,6 +448,9 @@ export function createGame(rng: () => number = Math.random, best = 0): GameState
     jetHeld: false,
     fuel: 1,
     fuelOut: false,
+    enemyShots: [],
+    craftTo: null,
+    craftTrail: [],
     jetFire: 0,
     jetMissileFire: 0,
     shots: [],
@@ -640,17 +643,26 @@ export function dailyMixesOf(day: string = dayKey()): Variant[] {
   return list;
 }
 
-/** The match mode an even rung of the daily ladder is played with on a day (rung 2 the first, rung 4 the second ...: each one its own). */
-export function dailyMixOf(day: string = dayKey(), rung = 2): Variant {
-  const list = dailyMixesOf(day);
-  return list[(Math.max(1, Math.floor(rung / 2)) - 1) % list.length];
+/** The rung of the daily ladder that is played as usual (with no match mode): every other rung has a match mode of its own. */
+export const DAILY_PLAIN_RUNG = 3;
+
+/** Whether a rung of the daily ladder is played with a match mode (all of them but the third). */
+export function dailyMixed(rung: number): boolean {
+  return Math.floor(rung) !== DAILY_PLAIN_RUNG;
 }
 
-/** The match mode the daily ladder is being played with right now (only on an even rung), or null. */
+/** The match mode a rung of the daily ladder is played with on a day (each rung its own, all different), or the one of the next rung for the plain rung. */
+export function dailyMixOf(day: string = dayKey(), rung = 1): Variant {
+  const list = dailyMixesOf(day);
+  const r = Math.max(1, Math.floor(rung));
+  return list[(r - 1 - (r > DAILY_PLAIN_RUNG ? 1 : 0)) % list.length];
+}
+
+/** The match mode the daily ladder is being played with right now (on every rung but the third), or null. */
 function mixNow(g: GameState): Variant | null {
   if (!g.daily || !g.dailyDay) return null;
   const rung = endlessLevel(g);
-  return rung % 2 === 0 ? dailyMixOf(g.dailyDay, rung) : null;
+  return dailyMixed(rung) ? dailyMixOf(g.dailyDay, rung) : null;
 }
 
 /** Starts the daily challenge of a day: the endless game, with random numbers that are the same for everyone on that day. */
@@ -2092,15 +2104,20 @@ function levelUp(g: GameState, c: Cup): void {
 
 // ---- Every frame ----------------------------------------------------------------------
 
-/** Comet belt: how much faster the time goes while a finger holds the ship. */
-export const COMET_HELD_PACE = 1.5;
+/** Comet belt: how much faster the time goes while a finger holds the ship (and it has fuel). */
+export const COMET_HELD_PACE = 1.6;
 /** Comet belt: how much faster than the numbers a comet of the usual size falls (a smaller one falls faster, a bigger one slower). */
 export const COMET_FAST = 1.6;
 
 /** Comet belt: how many seconds a full tank lasts while the ship is held, how many it takes to fill up again while it is let go, and how full it must be to fly again once it ran out. */
 export const FUEL_SECONDS = 6;
-export const FUEL_REFILL = 6;
+export const FUEL_REFILL = 8;
 const FUEL_AGAIN = 0.3;
+
+/** Comet belt: how many seconds a full tank lasts: more on every new level (a bigger tank), at most 15. */
+export function fuelCapacity(g: GameState): number {
+  return Math.min(15, FUEL_SECONDS + 1.5 * (endlessLevel(g) - 1));
+}
 
 /** Comet belt: whether the ship is flying (held, and with fuel): then the time goes faster and it has its big flame. */
 export function shipFlying(g: GameState): boolean {
@@ -2108,10 +2125,11 @@ export function shipFlying(g: GameState): boolean {
 }
 
 export function update(g: GameState, dt: number): void {
+  flyCraft(g, dt);
   if (g.phase === "play" && cometOn(g) && g.countdown <= 0) {
     // (the fuel: used while the ship is flown, filled up while it is let go)
     if (shipFlying(g)) {
-      g.fuel = Math.max(0, g.fuel - dt / FUEL_SECONDS);
+      g.fuel = Math.max(0, g.fuel - dt / fuelCapacity(g));
       if (g.fuel === 0) g.fuelOut = true;
     } else if (!g.jetHeld) {
       g.fuel = Math.min(1, g.fuel + dt / FUEL_REFILL);
@@ -2555,6 +2573,9 @@ function resetShield(g: GameState): void {
   g.jetHeld = false;
   g.fuel = 1;
   g.fuelOut = false;
+  g.enemyShots = [];
+  g.craftTo = null;
+  g.craftTrail = [];
   g.jetFire = 0;
   g.jetMissileFire = 0;
   g.shots = [];
@@ -2824,13 +2845,14 @@ function updateJet(g: GameState, dt: number): void {
       const y = g.shieldY - 30;
       // (from the nose; from the guns beside the body too, and from the guns on the wings at four)
       const guns = g.jetGun >= 4 ? [-16, -5.5, 0, 5.5, 16] : g.jetGun >= 2 ? [-5.5, 0, 5.5] : [0];
-      for (const dx of guns) g.shots.push({x: g.shieldX + dx, y, vx: g.jetGun >= 5 ? dx * 4 : 0, vy: -BULLET_SPEED, missile: false, age: 0, trail: []});
+      const power = shotPower(g);
+      for (const dx of guns) g.shots.push({x: g.shieldX + dx, y, vx: g.jetGun >= 5 ? dx * 4 : 0, vy: -BULLET_SPEED, missile: false, power, age: 0, trail: []});
     }
     if (g.jetMissile > 0) {
       g.jetMissileFire -= dt;
       if (g.jetMissileFire <= 0) {
         g.jetMissileFire = 1.3 - 0.25 * (g.jetMissile - 1);
-        for (const side of [-1, 1]) g.shots.push({x: g.shieldX + side * 28, y: g.shieldY, vx: side * 120, vy: -MISSILE_SPEED * 0.6, missile: true, age: 0, trail: []});
+        for (const side of [-1, 1]) g.shots.push({x: g.shieldX + side * 28, y: g.shieldY, vx: side * 120, vy: -MISSILE_SPEED * 0.6, missile: true, power: shotPower(g), age: 0, trail: []});
       }
     }
   }
@@ -2867,17 +2889,107 @@ function updateJet(g: GameState, dt: number): void {
       sh.dead = true;
       continue;
     }
+    // (a shot of the jet takes down a missile of the skulls)
+    const hit = g.enemyShots.find((e) => e.age >= 0 && Math.hypot(e.x - sh.x, e.y - sh.y) < 10);
+    if (hit) {
+      hit.age = -1;
+      sh.dead = true;
+      g.events.push({t: "pop", x: hit.x, y: hit.y});
+      continue;
+    }
     for (const n of g.numbers) {
       if (n.done || n.state !== "fall" || n.pickup || n.vx !== undefined) continue;
       if (Math.hypot(n.x - sh.x, n.y - sh.y) > ballR(n) + (sh.missile ? 6 : 3)) continue;
       sh.dead = true;
-      shoot(g, n, sh.missile ? 4 : 1);
+      shoot(g, n, (sh.missile ? 4 : 1) * (sh.power ?? 1));
       if (sh.missile) g.events.push({t: "boom", x: sh.x, y: sh.y, big: false});
       break;
     }
   }
   g.shots = g.shots.filter((sh) => !sh.dead);
+  enemyFire(g, dt);
   g.numbers = g.numbers.filter((n) => !n.done);
+}
+
+/** How hard the shots of the jet hit: half as hard again for every step of a combo (up to 3.5 times), and a tenth more for every level. */
+export function shotPower(g: GameState): number {
+  const combo = g.combo >= 2 ? 1 + 0.5 * (Math.min(6, g.combo) - 1) : 1;
+  return combo * (1 + 0.1 * (endlessLevel(g) - 1));
+}
+
+/** From which level (perfect 10) the skulls shoot back at the jet. */
+export const ENEMY_FIRE_FROM = 10;
+
+/**
+ * Fighter jet, from level 10: the skulls shoot slow missiles at the jet (more of them, faster and harder the further it gets; a boss shoots three at a time). A missile
+ * that hits the jet knocks it out (longer the further it gets) unless its shield takes the hit; the shots of the jet can take them down.
+ */
+function enemyFire(g: GameState, dt: number): void {
+  if (g.level >= ENEMY_FIRE_FROM) {
+    const over = g.level - ENEMY_FIRE_FROM;
+    const rate = Math.min(0.5, 0.1 + 0.012 * over);
+    const speed = Math.min(220, 120 + 3 * over);
+    for (const n of g.numbers) {
+      if (n.done || n.state !== "fall" || n.op !== "skull" || n.vx !== undefined || n.y < 20 || n.y > g.shieldY - 60) continue;
+      if (g.rng() >= (n.boss ? 0.9 : rate) * dt) continue;
+      const a = Math.atan2(g.shieldY - n.y, g.shieldX - n.x);
+      for (const spread of n.boss ? [-0.3, 0, 0.3] : [0]) g.enemyShots.push({x: n.x, y: n.y + ballR(n) * 0.6, vx: Math.cos(a + spread) * speed, vy: Math.sin(a + spread) * speed, age: 0});
+    }
+  }
+  for (const e of g.enemyShots) {
+    if (e.age < 0) continue;
+    e.age += dt;
+    e.x += e.vx * dt;
+    e.y += e.vy * dt;
+    if (e.y > MISS_Y + 40 || e.x < -30 || e.x > W + 30 || e.age > 8) {
+      e.age = -1;
+      continue;
+    }
+    if (JET_SHAPE.some(([dx, dy, r]) => Math.hypot(e.x - (g.shieldX + dx), e.y - (g.shieldY + dy)) < r + 4)) {
+      e.age = -1;
+      g.events.push({t: "boom", x: e.x, y: e.y, big: false});
+      g.shake = Math.max(g.shake, 0.3);
+      if (g.jetShield) g.jetShield = false;
+      else g.jetStun = JET_STUN + Math.min(1.2, 0.04 * (g.level - ENEMY_FIRE_FROM));
+    }
+  }
+  g.enemyShots = g.enemyShots.filter((e) => e.age >= 0);
+}
+
+/** How fast the jet and the ship fly on their own to where the finger was put down. */
+const CRAFT_TRAVEL = 1500;
+
+/** The finger is put down (or moved) somewhere away from the jet or the ship: it flies there, fast, instead of jumping. */
+export function flyCraftTo(g: GameState, x: number, y: number): void {
+  if (!jetOn(g) && !cometOn(g)) {
+    moveShield(g, x, y);
+    return;
+  }
+  g.craftTo = {x, y};
+}
+
+/** The jet or the ship on its way to where the finger is: a step closer (what it passes on the way is met as always), with a trail of light behind it. */
+function flyCraft(g: GameState, dt: number): void {
+  for (const p of g.craftTrail) p.age += dt;
+  g.craftTrail = g.craftTrail.filter((p) => p.age < 0.25);
+  const to = g.craftTo;
+  if (!to) return;
+  if (g.phase !== "play" || (!jetOn(g) && !cometOn(g)) || (cometOn(g) && g.fuelOut)) {
+    g.craftTo = null;
+    return;
+  }
+  const dx = to.x - g.shieldX;
+  const dy = to.y - g.shieldY;
+  const d = Math.hypot(dx, dy);
+  const step = CRAFT_TRAVEL * dt;
+  const x0 = g.shieldX;
+  const y0 = g.shieldY;
+  if (d <= step) {
+    moveShield(g, to.x, to.y);
+    g.craftTo = null;
+  } else moveShield(g, g.shieldX + (dx / d) * step, g.shieldY + (dy / d) * step);
+  if (Math.hypot(g.shieldX - x0, g.shieldY - y0) > 0.5) g.craftTrail.push({x: g.shieldX, y: g.shieldY, age: 0});
+  if (g.shieldX === x0 && g.shieldY === y0) g.craftTo = null; // (it cannot get any closer: at the edge of where it can fly)
 }
 
 /** A shot hits: a skull pops, a 10 is lost (shot to bits), and a boss loses some of its life. */

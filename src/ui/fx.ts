@@ -462,7 +462,7 @@ export class Fx {
       }
       case "pickup": {
         // The jet picks up a ball: a ring of sparks in its colour.
-        const C = e.kind === "fuel" ? ["#d8ffd0", "#5fd35f", "#ffffff"] : e.kind === "gun" ? ["#fff3b0", "#ffd54a", "#ffffff"] : e.kind === "missile" ? ["#ffd0c8", "#ff6a4a", "#ffffff"] : ["#d8f4ff", "#5cc8f5", "#ffffff"];
+        const C = e.kind === "fuel" ? ["#ffe2b8", "#ff9a3c", "#ffffff"] : e.kind === "gun" ? ["#fff3b0", "#ffd54a", "#ffffff"] : e.kind === "missile" ? ["#ffd0c8", "#ff6a4a", "#ffffff"] : ["#d8f4ff", "#5cc8f5", "#ffffff"];
         for (let i = 0; i < 24; i++) {
           const a = (i / 24) * Math.PI * 2;
           const s = 160 + rnd() * 80;

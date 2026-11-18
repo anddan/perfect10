@@ -168,6 +168,8 @@ export interface Shot {
   vx: number;
   vy: number;
   missile: boolean;
+  /** How hard it hits (more during a combo, and more on the later levels). */
+  power?: number;
   age: number;
   trail: {x: number; y: number}[];
   dead?: boolean;
@@ -237,6 +239,11 @@ export interface GameState {
   /** Comet belt: the fuel of the ship (1 is full). It is used while the ship is held, and fills up again while it is let go; when it runs out the ship cannot be flown until it has been let go and has filled up a bit. */
   fuel: number;
   fuelOut: boolean;
+  /** Fighter jet: the slow missiles the skulls shoot back at the jet (from level 10). */
+  enemyShots: {x: number; y: number; vx: number; vy: number; age: number}[];
+  /** The jet and the ship: where the craft is flying to on its own (the finger was put down somewhere else), and the trail of light it leaves on the way. */
+  craftTo: {x: number; y: number} | null;
+  craftTrail: {x: number; y: number; age: number}[];
   jetFire: number;
   jetMissileFire: number;
   shots: Shot[];

@@ -1,12 +1,12 @@
 // Draws one frame of the game, in the game's own 360 x 640 coordinates.
 import {LASER_COOLDOWN} from "../game/cups";
-import {drawFuel, drawComet, drawJet, drawJetGot, drawLinks, drawPickup, drawShip, drawShots} from "./craftArt";
+import {drawComboGlow, drawEnemyShots, drawTrail, drawFuel, drawComet, drawJet, drawJetGot, drawLinks, drawPickup, drawShip, drawShots} from "./craftArt";
 import {cupPalette, cupPattern, drawCupBadges, drawShopCup} from "./cupArt";
 import {DAILY_RUNGS, SCREEN_MAX} from "../game/constants";
 import {type Package, rungGoal, rungOfCup, rungPayout, rungsDone} from "../game/daily";
 import {type Geom, designOfDay, drawGift, drawLimitLine, drawSteps, halfWidth, stepX, stepY} from "./stepsArt";
 import {CHAIN_LENGTH, ERASER_MAX, COMBO_SECONDS, CUP_H, DIVE_GRAVITY, DIVE_HOP, H, MENU_LIFT, SWEEP_DOWN, TARGET, TUTORIAL_STEPS, W} from "../game/constants";
-import {SHIELD_BEND, SHIELD_POWER_MAX, SHIELD_W0, SHIELD_W_MAX, shieldOn, jetOn, cometOn, shipFlying, canContinue, endlessLevel, fadeOn, featureAge, ghostShow, goalFor, progressOf, starsFor, sweepBottom} from "../game/engine";
+import {SHIELD_BEND, SHIELD_POWER_MAX, SHIELD_W0, SHIELD_W_MAX, shieldOn, jetOn, cometOn, shipFlying, fuelCapacity, canContinue, endlessLevel, fadeOn, featureAge, ghostShow, goalFor, progressOf, starsFor, sweepBottom} from "../game/engine";
 import type {Cup, Feature, GameState, NumberTile, Op, PerkId} from "../game/types";
 import {type Room, roomOfMode} from "./background";
 import {drawAd} from "./ad";
@@ -847,7 +847,8 @@ function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number, boo
     if (g.daily) {
       write(ctx, t("dailyToday", {n: rungsDone(g.level - 1), m: DAILY_RUNGS}), W / 2, 296, 17, "#e8dcc2", "center", 600);
     } else if (g.mode === "endless") {
-      if (g.newBest) text(ctx, t("newBest"), W / 2, 296, 22, GOLD);
+      if (ui.topPlace !== null) drawTopPlace(ctx, g, ui.topPlace);
+      else if (g.newBest) drawTopPlace(ctx, g, null);
       else write(ctx, t("record", {n: g.best}), W / 2, 296, 17, "#e8dcc2", "center", 600);
     } else {
       write(ctx, t("cupsDone", {n: Math.floor(progressOf(g) + 1e-9), m: goalFor(g.mode, g.stage)}), W / 2, 296, 17, "#e8dcc2", "center", 600);
@@ -2418,13 +2419,17 @@ export function drawGame(
     // Fighter jet: its shots, and the jet (it blinks while it is knocked out).
     if (jetOn(g) && (g.phase === "play" || g.phase === "over")) {
       drawShots(ctx, g.shots);
+      drawEnemyShots(ctx, g.enemyShots, g.time);
+      drawTrail(ctx, g.craftTrail, "190,120,255");
+      if (g.combo >= 2 && g.phase === "play") drawComboGlow(ctx, g.shieldX, g.shieldY, g.combo, g.time);
       drawJet(ctx, g.shieldX, g.shieldY, g.time, {guns: g.jetGun, missiles: g.jetMissile, shield: g.jetShield, stun: g.jetStun});
       drawJetGot(ctx, g, t(gotWords(g)));
     }
     // Comet belt: the ship (gone in the explosion if it crashed).
     if (cometOn(g) && (g.phase === "play" || (g.phase === "over" && g.overReason !== "crash"))) {
+      drawTrail(ctx, g.craftTrail, "255,150,60");
       drawShip(ctx, g.shieldX, g.shieldY, g.time, g.jetShield, shipFlying(g));
-      drawFuel(ctx, g.shieldX, g.shieldY, g.fuel, g.fuelOut, g.time);
+      drawFuel(ctx, g.shieldX, g.shieldY, g.fuel, g.fuelOut, g.time, fuelCapacity(g));
       drawJetGot(ctx, g, t(gotWords(g)));
     }
     // The life of a boss: a red bar over it, that empties while the shield holds it up (or the jet shoots it).
@@ -2593,4 +2598,35 @@ function drawShieldGrowText(ctx: CanvasRenderingContext2D, g: GameState): void {
 /** The words over the jet or the ship when it has picked something up. */
 function gotWords(g: GameState): Key {
   return g.jetGotKind === "gun" ? "jetGotGun" : g.jetGotKind === "missile" ? "jetGotMissile" : g.jetGotKind === "fuel" ? "jetGotFuel" : "jetGotShield";
+}
+
+/** On the card of a round that got on the top list (or beat the record): the place, in gold, that pops up, glows and has a shine going over it. */
+function drawTopPlace(ctx: CanvasRenderingContext2D, g: GameState, place: number | null): void {
+  const u = Math.min(1, Math.max(0, (g.overTimer - 0.4) / 0.35));
+  if (u <= 0) return;
+  const pop = u < 0.7 ? 0.5 + (u / 0.7) * 0.7 : 1.2 - ((u - 0.7) / 0.3) * 0.2;
+  const words = place !== null ? t("topPlace", {n: place}) : t("newBest");
+  ctx.save();
+  ctx.translate(W / 2, 296);
+  ctx.scale(pop, pop);
+  // a glow behind it that breathes
+  const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 120);
+  glow.addColorStop(0, `rgba(255,213,74,${0.35 + 0.15 * Math.sin(g.time * 5)})`);
+  glow.addColorStop(1, "rgba(255,213,74,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(-130, -30, 260, 60);
+  text(ctx, words, 0, 0, 22, GOLD);
+  // a shine that goes over it every now and then
+  const sweep = ((g.time * 0.6) % 1.6) - 0.3;
+  if (sweep >= 0 && sweep <= 1) {
+    ctx.globalCompositeOperation = "lighter";
+    const sx = -110 + sweep * 220;
+    const shine = ctx.createLinearGradient(sx - 20, 0, sx + 20, 0);
+    shine.addColorStop(0, "rgba(255,255,255,0)");
+    shine.addColorStop(0.5, "rgba(255,255,255,0.45)");
+    shine.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = shine;
+    ctx.fillRect(sx - 20, -16, 40, 32);
+  }
+  ctx.restore();
 }

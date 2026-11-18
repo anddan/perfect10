@@ -3,7 +3,7 @@ import {LASER_COOLDOWN} from "./cups";
 import {PERKS, PERK_LIMIT, PERK_SLOWER, SPECIAL_PERKS, STREAK_DAYS, previousDay, recordDay, rollPackage, streakCoins, streakCount, streakDayFor, streakFactor, cupsToClimb, dailyReward, dayKey, rungEnds, rungGoal, rungOfCup, rungsDone, seedOfDay, seededRandom} from "./daily";
 import {DAILY_BONUS, DAILY_REWARD, DAILY_RUNGS} from "./constants";
 import {BOMB_RADIUS, BONUS_POINTS, PAUSE_SECONDS, COLS, CUP_H, CUP_START_Y, CUP_W, SCREEN_MAX, SLOW_SECONDS, STAGES, SWEEP_DOWN, SWEEP_EDGE, SWEEP_HOLD, SWEEP_UP, W} from "./constants";
-import {ENDLESS_PACE, FEATURES, canContinue, continueGame, createGame, cupAt, dropCup, endIntro, fallSpeed, featureAge, ghostShow, goalFor, fadeOn, fadeSeconds, saucerCount, paceOf, startVariant, variantRamp, variantRate, progressOf, starsFor, choosePerk, fireLaser, speedFactorOf, startDaily, sweepBottom, moveShield, SHIELD_AREA, useEraser, fastHover, fastWave, columnValue, findTime, helpGap, sweepEdge, useScreen, maxNumber, moveCup, nearestAliveCup, endlessLevel, recordBest, showMenu, spawnInterval, stageSpawnFactor, stageSpeedFactor, startGame, tapAt, untangleCups, update, endlessCupsBefore, holdCraft, FUEL_SECONDS, FUEL_REFILL, shipFlying, dailyMixOf, SHIELD_W_MAX, SHIELD_POWER_MAX, shieldDamage} from "./engine";
+import {ENDLESS_PACE, FEATURES, canContinue, continueGame, createGame, cupAt, dropCup, endIntro, fallSpeed, featureAge, ghostShow, goalFor, fadeOn, fadeSeconds, saucerCount, paceOf, startVariant, variantRamp, variantRate, progressOf, starsFor, choosePerk, fireLaser, speedFactorOf, startDaily, sweepBottom, moveShield, SHIELD_AREA, useEraser, fastHover, fastWave, columnValue, findTime, helpGap, sweepEdge, useScreen, maxNumber, moveCup, nearestAliveCup, endlessLevel, recordBest, showMenu, spawnInterval, stageSpawnFactor, stageSpeedFactor, startGame, tapAt, untangleCups, update, endlessCupsBefore, holdCraft, fuelCapacity, flyCraftTo, shotPower, ENEMY_FIRE_FROM, FUEL_SECONDS, FUEL_REFILL, shipFlying, dailyMixOf, dailyMixed, SHIELD_W_MAX, SHIELD_POWER_MAX, shieldDamage} from "./engine";
 import {saucerPower, type SaucerKind} from "./saucers";
 import type {GameState, Mode, NumberTile, PerkId} from "./types";
 
@@ -2988,7 +2988,7 @@ describe("the daily challenge", () => {
   }
   function daily(): GameState {
     const g = testGame(() => 0.5);
-    startDaily(g, "2026-11-24");
+    startDaily(g, "2026-05-27");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     return g;
@@ -3570,7 +3570,7 @@ describe("progress that fades with time (plus & minus, level 3 and on, and the e
 
     it("is not in the daily challenge", () => {
       const g = testGame(() => 0.5);
-      startDaily(g, "2026-11-24");
+      startDaily(g, "2026-05-27");
       g.spawnTimer = 1e9;
       g.bonusTimer = 1e9;
       g.level = 20;
@@ -3653,7 +3653,7 @@ describe("the cups of the daily challenge: two, then three, then four", () => {
   function daily(loadout: string[][] = []): GameState {
     const g = testGame(() => 0.5);
     g.loadout = loadout as GameState["loadout"];
-    startDaily(g, "2026-11-24");
+    startDaily(g, "2026-05-27");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     return g;
@@ -3711,7 +3711,7 @@ describe("the cups of the daily challenge: two, then three, then four", () => {
 describe("perks that are offered as x2 or x3 in the daily challenge", () => {
   function daily(): GameState {
     const g = testGame(() => 0.5);
-    startDaily(g, "2026-11-24");
+    startDaily(g, "2026-05-27");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     g.cups[0].value = 0;
@@ -3757,7 +3757,7 @@ describe("perks that are offered as x2 or x3 in the daily challenge", () => {
         s = (s * 1664525 + 1013904223) % 4294967296;
         return s / 4294967296;
       });
-      startDaily(g, "2026-11-24");
+      startDaily(g, "2026-05-27");
       const all: number[] = [];
       for (let i = 0; i < 80; i++) {
         g.phase = "play";
@@ -3789,7 +3789,7 @@ describe("perks that are offered as x2 or x3 in the daily challenge", () => {
 });
 
 describe("special perks in the daily challenge (the ones the saucers have)", () => {
-  function daily(day = "2026-11-24"): GameState {
+  function daily(day = "2026-05-27"): GameState {
     const g = testGame(() => 0.5);
     startDaily(g, day); // (the numbers, and the perks on offer, follow the day)
     g.spawnTimer = 1e9;
@@ -3840,7 +3840,7 @@ describe("special perks in the daily challenge (the ones the saucers have)", () 
     expect(wait(g)).toBeCloseTo(base / 0.8, 6);
     const h = daily();
     h.saucerLoadout = ["sparse", "sparse"];
-    startDaily(h, "2026-11-24");
+    startDaily(h, "2026-05-27");
     h.spawnTimer = 1e9;
     h.bonusTimer = 1e9;
     h.perks = ["sparse", "sparse"];
@@ -4149,11 +4149,12 @@ describe("the daily ladder mixes in a match mode", () => {
     expect(["save", "sixeight", "defend", "ice", "fast", "find", "shield"]).toContain(g.dailyMix);
   });
 
-  it("gives each even rung a match mode of its own, the same for everyone on the day", () => {
+  it("gives every rung but the third a match mode of its own (all different), the same for everyone on the day", () => {
     const day = "2026-11-16";
-    const modes = [2, 4, 6].map((r) => dailyMixOf(day, r));
-    expect(new Set(modes).size).toBe(3);
-    expect([2, 4, 6].map((r) => dailyMixOf(day, r))).toEqual(modes);
+    expect([1, 2, 3, 4, 5, 6].map(dailyMixed)).toEqual([true, true, false, true, true, true]);
+    const modes = [1, 2, 4, 5, 6].map((r) => dailyMixOf(day, r));
+    expect(new Set(modes).size).toBe(5);
+    expect([1, 2, 4, 5, 6].map((r) => dailyMixOf(day, r))).toEqual(modes);
     expect(["2026-11-14", "2026-11-15", "2026-11-16", "2026-11-17"].map((d) => dailyMixOf(d, 2)).some((m) => m !== modes[0])).toBe(true);
   });
 });
@@ -4555,6 +4556,41 @@ describe("Fighter jet", () => {
     update(g, 1 / 60);
     expect(g.jetStun).toBeGreaterThan(0);
   });
+  it("hits harder during a combo, and a little harder on every level", () => {
+    const g = jet();
+    const plain = shotPower(g);
+    g.combo = 3;
+    expect(shotPower(g)).toBeCloseTo(plain * 2, 5);
+    g.combo = 0;
+    g.level = endlessCupsBefore(3) + 1;
+    expect(shotPower(g)).toBeGreaterThan(plain);
+  });
+  it("from level 10 the skulls shoot back; a missile knocks out the jet, and a shot takes one down", () => {
+    const g = testGame(() => 0.0001);
+    startVariant(g, "jet");
+    g.countdown = 0;
+    g.spawnTimer = 1e9;
+    g.level = ENEMY_FIRE_FROM;
+    g.bossLevel = g.level; // (no boss now)
+    moveShield(g, 60, 450);
+    const skull = drop(g, 300, 120, 99);
+    skull.op = "skull";
+    skull.speed = 0;
+    for (let i = 0; i < 60 * 20 && g.enemyShots.length === 0; i++) {
+      skull.y = 120;
+      update(g, 1 / 60);
+    }
+    expect(g.enemyShots.length).toBeGreaterThan(0);
+    g.numbers = [];
+    g.enemyShots = [{x: 60, y: 440, vx: 0, vy: 100, age: 0}];
+    update(g, 1 / 60);
+    expect(g.jetStun).toBeGreaterThan(0);
+    const h = jet();
+    h.enemyShots = [{x: 180, y: 300, vx: 0, vy: 0, age: 0}];
+    h.shots = [{x: 180, y: 305, vx: 0, vy: -1, missile: false, age: 0, trail: []}];
+    update(h, 1 / 60);
+    expect(h.enemyShots).toHaveLength(0);
+  });
   it("a boss comes at level 10 and takes many shots", () => {
     const g = jet();
     g.level = 10;
@@ -4671,6 +4707,24 @@ describe("Comet belt", () => {
     expect(endlessLevel(g)).toBe(2);
     expect(g.numbers.some((n) => n.comet)).toBe(false);
   });
+  it("the tank gets bigger on every new level", () => {
+    const g = comet();
+    const first = fuelCapacity(g);
+    g.level = endlessCupsBefore(3) + 1;
+    expect(fuelCapacity(g)).toBeGreaterThan(first);
+  });
+  it("flies to where the finger is put down, on its way, instead of jumping", () => {
+    const g = comet();
+    moveShield(g, 40, 450);
+    flyCraftTo(g, 320, 450);
+    expect(g.shieldX).toBe(40);
+    update(g, 1 / 60);
+    expect(g.shieldX).toBeGreaterThan(40);
+    expect(g.shieldX).toBeLessThan(320);
+    expect(g.craftTrail.length).toBeGreaterThan(0);
+    for (let i = 0; i < 60 && g.craftTo; i++) update(g, 1 / 60);
+    expect(g.shieldX).toBe(320);
+  });
   it("a fuel ball fills up the tank", () => {
     const g = comet();
     moveShield(g, 180, 400);
@@ -4682,7 +4736,7 @@ describe("Comet belt", () => {
     expect(g.fuel).toBe(1);
     expect(g.fuelOut).toBe(false);
   });
-  it("goes 1.5 times as fast while the ship is held", () => {
+  it("goes 1.6 times as fast while the ship is held", () => {
     const fallen = (held: boolean): number => {
       const g = comet();
       moveShield(g, 20, 100);
@@ -4692,7 +4746,7 @@ describe("Comet belt", () => {
       update(g, 1 / 60);
       return n.y - 100;
     };
-    expect(fallen(true)).toBeCloseTo(fallen(false) * 1.5, 2);
+    expect(fallen(true)).toBeCloseTo(fallen(false) * 1.6, 2);
   });
   it("a shield ball gives the ship a shield, and the shield takes one hit", () => {
     const g = comet();

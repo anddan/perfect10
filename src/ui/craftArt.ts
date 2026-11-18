@@ -371,10 +371,12 @@ export function drawShots(ctx: CanvasRenderingContext2D, shots: readonly Shot[])
       ctx.restore();
       continue;
     }
-    ctx.shadowColor = "rgba(255,220,90,0.9)";
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = "#fff3b0";
-    ctx.lineWidth = 3;
+    // (a combo makes the shots stronger: they are bigger, and burn orange and red)
+    const strong = (s.power ?? 1) >= 1.5;
+    ctx.shadowColor = strong ? "rgba(255,90,30,0.95)" : "rgba(255,220,90,0.9)";
+    ctx.shadowBlur = strong ? 14 : 8;
+    ctx.strokeStyle = strong ? "#ffb15a" : "#fff3b0";
+    ctx.lineWidth = strong ? 5 : 3;
     ctx.beginPath();
     ctx.moveTo(s.x, s.y);
     ctx.lineTo(s.x - s.vx * 0.02, s.y - s.vy * 0.02);
@@ -383,7 +385,7 @@ export function drawShots(ctx: CanvasRenderingContext2D, shots: readonly Shot[])
   ctx.restore();
 }
 
-const PICKUP_COLOR: Record<Pickup, [string, string]> = {gun: ["#fff3b0", "#e0a21b"], missile: ["#ffd0c8", "#d1392b"], shield: ["#d8f4ff", "#3a9fd8"], fuel: ["#d8ffd0", "#3aa83a"]};
+const PICKUP_COLOR: Record<Pickup, [string, string]> = {gun: ["#fff3b0", "#e0a21b"], missile: ["#ffd0c8", "#d1392b"], shield: ["#d8f4ff", "#3a9fd8"], fuel: ["#ffe2b8", "#e8731a"]};
 
 /** A ball the jet can fly into: it glows, and shows what it gives (bullets, a missile or a shield). */
 export function drawPickup(ctx: CanvasRenderingContext2D, n: NumberTile, time: number): void {
@@ -555,8 +557,9 @@ export function drawComet(ctx: CanvasRenderingContext2D, n: NumberTile, time: nu
 }
 
 /** The fuel of the ship: a small upright bar beside it, green when there is plenty, then yellow and red; it blinks when it has run out. */
-export function drawFuel(ctx: CanvasRenderingContext2D, x: number, y: number, fuel: number, out: boolean, time: number): void {
-  const h = 40;
+export function drawFuel(ctx: CanvasRenderingContext2D, x: number, y: number, fuel: number, out: boolean, time: number, capacity = 6): void {
+  // (the tank grows on every new level: so does the bar)
+  const h = Math.min(80, 40 * (capacity / 6));
   const w = 6;
   const bx = x + 30;
   const by = y - h / 2;
@@ -568,6 +571,84 @@ export function drawFuel(ctx: CanvasRenderingContext2D, x: number, y: number, fu
   const f = Math.max(0, Math.min(1, fuel));
   ctx.fillStyle = out ? "#e0352b" : f > 0.5 ? "#5fd35f" : f > 0.25 ? "#ffd54a" : "#ff6a2a";
   roundRect(ctx, bx, by + h * (1 - f), w, h * f, 3);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** The trail of light the jet or the ship leaves when it flies on its own to where the finger is: glowing blobs that fade, and streaks between them. */
+export function drawTrail(ctx: CanvasRenderingContext2D, trail: readonly {x: number; y: number; age: number}[], rgb: string): void {
+  if (trail.length === 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  for (let i = 1; i < trail.length; i++) {
+    const a = trail[i - 1];
+    const b = trail[i];
+    const fade = 1 - b.age / 0.25;
+    ctx.strokeStyle = `rgba(${rgb},${0.5 * fade})`;
+    ctx.lineWidth = 16 * fade + 2;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  for (const p of trail) {
+    const fade = 1 - p.age / 0.25;
+    const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 22);
+    glow.addColorStop(0, `rgba(${rgb},${0.45 * fade})`);
+    glow.addColorStop(1, `rgba(${rgb},0)`);
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 22, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** The missiles the skulls shoot back at the jet: small and red, glowing, pointing the way they fly, with a puff of smoke behind. */
+export function drawEnemyShots(ctx: CanvasRenderingContext2D, shots: readonly {x: number; y: number; vx: number; vy: number}[], time: number): void {
+  for (const e of shots) {
+    const a = Math.atan2(e.vy, e.vx);
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(a - Math.PI / 2);
+    ctx.fillStyle = "rgba(200,200,210,0.35)";
+    ctx.beginPath();
+    ctx.arc(0, -11, 3.5, 0, TAU);
+    ctx.arc(0, -16, 2.5, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,160,60,${0.7 + 0.3 * Math.sin(time * 30)})`;
+    ctx.beginPath();
+    ctx.moveTo(-2, -5);
+    ctx.lineTo(0, -10);
+    ctx.lineTo(2, -5);
+    ctx.fill();
+    ctx.shadowColor = "rgba(255,40,40,0.9)";
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = "#d4261c";
+    roundRect(ctx, -2.6, -6, 5.2, 12, 2.6);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#3a1a1a";
+    ctx.beginPath();
+    ctx.arc(0, 6, 2.6, 0, Math.PI);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/** The glow round the jet while a combo makes its shots stronger. */
+export function drawComboGlow(ctx: CanvasRenderingContext2D, x: number, y: number, combo: number, time: number): void {
+  const k = Math.min(1, (combo - 1) / 5);
+  const r = 40 + 10 * k + Math.sin(time * 12) * 3;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const glow = ctx.createRadialGradient(x, y, 8, x, y, r);
+  glow.addColorStop(0, `rgba(255,140,40,${0.35 + 0.25 * k})`);
+  glow.addColorStop(1, "rgba(255,60,20,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
   ctx.fill();
   ctx.restore();
 }

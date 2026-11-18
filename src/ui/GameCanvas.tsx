@@ -5,7 +5,7 @@ import {STREAK_RUNGS, type Package, type Streak, dayKey, recordDay, rollPackage,
 import {CUP_PRICE, isShopCup} from "../game/cups";
 import {SAUCER_PRICE, isSaucer} from "../game/saucers";
 import {LOOK_KINDS, type LookKind, findLook} from "../game/looks";
-import {FEATURES, moveShield, craftOn, holdCraft, choosePerk, continueGame, createGame, cupAt, dropCup, endIntro, fireLaser, moveCup, recordBest, useEraser, showMenu, startDaily, startGame, startVariant, tapAt, untangleCups, update, useScreen} from "../game/engine";
+import {FEATURES, moveShield, craftOn, holdCraft, flyCraftTo, choosePerk, continueGame, createGame, cupAt, dropCup, endIntro, fireLaser, moveCup, recordBest, useEraser, showMenu, startDaily, startGame, startVariant, tapAt, untangleCups, update, useScreen} from "../game/engine";
 import type {Cup, Feature, Mode, Variant} from "../game/types";
 import {getVolumeStep, isMusicOn, isMuted, playBuy, playFadeGone, playGain, playClick, playEvent, playPageTurn, setMusicScene, setMusicTrack, stepVolume, type MusicTrack, toggleMusic, toggleMute, unlockAudio} from "./audio";
 import {AD_SECONDS} from "./ad";
@@ -15,9 +15,9 @@ import {hitTest, ui} from "./draw";
 import {type Lang, lang, setLang, t} from "./i18n";
 import {Fx} from "./fx";
 import {BUTTON_DELAY, drawGame, tapMenuBall} from "./render";
-import {NAME_MAX, cleanName, playerName, setPlayerName} from "./profile";
+import {NAME_MAX, cleanName, deviceId, playerName, setPlayerName} from "./profile";
 import {FEEDBACK_KINDS, FEEDBACK_MAX, type FeedbackKind, type SendResult, cleanFeedback, submitFeedback} from "./feedback";
-import {SCORE_MODES, type ScoreMode, loadBoard, submitScore} from "./scores";
+import {SCORE_MODES, TOP_ROWS, type ScoreMode, boards, loadBoard, submitScore} from "./scores";
 import {useUpdates} from "./updates";
 import {CLOTH_PRICE, DAILY_GIFT, ERASER_PRICE, buyEraser, ENDLESS_COST, ENERGY_PRICE, MAX_COPIES, VIDEO_COINS, addCoins, ownsLook, refillPrice, grantCup, buyCloth, buyCup, allOnCup, buyLook, equipLook, buyEnergyPoint, buyEnergyRefill, clearCup, buyMode, isUnlockMode, isVariant, priceOfMode, loadWallet, loadout, saucerLoadout, buySaucer, cycleSaucer, saveWallet, toggleOnCup} from "./wallet";
 import {PAYMENTS_CONNECTED, grantPurchase, loadPremium, savePremium} from "./purchase";
@@ -379,6 +379,8 @@ export function GameCanvas() {
           g.saucerLoadout = saucerLoadout(wallet);
           ui.lastCoins = 0;
           g.best = loadBest(variant ?? "endless"); // (the record of what is played: the endless game, or a match mode)
+          ui.topPlace = null;
+          if (mode === "endless") void loadBoard(variant ?? "endless"); // (so that it can be seen at the end whether the round made the top list)
           if (variant) startVariant(g, variant);
           else startGame(g, mode, stage);
           fx.clear();
@@ -511,6 +513,20 @@ export function GameCanvas() {
         } else {
           fx.react(g, e);
           playEvent(e);
+        }
+        // A round that gets on the top list (the endless game or a match mode) is lit up on the card, with a celebration.
+        if (e.t === "gameOver" && g.mode === "endless" && !g.daily) {
+          const bd = boards[g.variant ?? "endless"];
+          const me = deviceId();
+          const place = 1 + bd.rows.filter((r) => r.device !== me && r.score >= g.score).length;
+          ui.topPlace = bd.status === "ok" && g.score > 0 && place <= TOP_ROWS ? place : null;
+          if (ui.topPlace !== null || e.newBest) {
+            window.setTimeout(() => {
+              if (g.phase !== "over") return;
+              fx.react(g, {t: "won", stars: 3});
+              playGain();
+            }, 500);
+          }
         }
         if (e.t === "gameOver" && e.newBest) {
           const game: ScoreMode = g.variant ?? "endless";
@@ -1082,8 +1098,8 @@ export function GameCanvas() {
         canvas.setPointerCapture(e.pointerId);
       } else if (craftOn(g) && shieldPointer === null) {
         // Shield up: a finger on nothing (no 10, no cup) takes hold of the shield, a little over the finger so that it does not hide it; another finger
-        // can tap the 10s and move the cups meanwhile.
-        moveShield(g, p.x, p.wy - 40);
+        // can tap the 10s and move the cups meanwhile. (The jet and the ship fly there, fast, instead of jumping.)
+        flyCraftTo(g, p.x, p.wy - 40);
         shieldPointer = e.pointerId;
         holdCraft(g, true);
         canvas.setPointerCapture(e.pointerId);
@@ -1097,7 +1113,8 @@ export function GameCanvas() {
     const onMove = (e: PointerEvent) => {
       if (shieldPointer === e.pointerId && craftOn(g) && g.phase === "play") {
         const p = point(e);
-        moveShield(g, p.x, p.wy - 40);
+        if (g.craftTo) flyCraftTo(g, p.x, p.wy - 40); // (still on its way: it heads for where the finger is now)
+        else moveShield(g, p.x, p.wy - 40);
         return;
       }
       if (scrub && scrub.pointer === e.pointerId) {

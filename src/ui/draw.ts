@@ -307,6 +307,8 @@ export const ui = {
   titleDy: 0,
   /** Shield up is being played: its skulls are drawn in steel. */
   steelSkulls: false,
+  /** The place on the top list the round that just ended got (1 to 10), or null: it is lit up on the card. */
+  topPlace: null as number | null,
   /** The biggest size of the title when it has a row of its own (it follows the room there is). */
   titleMax: 44,
   /** The days in a row: which day of the week today is, how many days there are to show, whether today is counted, and whether a package is waiting. */

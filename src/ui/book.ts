@@ -12,7 +12,7 @@ import {drawSaucerPlate} from "./saucerArt";
 import {ENERGY_MAX} from "./energy";
 import {ENERGY_PILL, HEADER, coinsPillBox, drawGear} from "./settings";
 import {COIN_PACKS, CURRENCY, PREMIUM} from "./purchase";
-import {dailyMixOf, goalFor, starsFor} from "../game/engine";
+import {dailyMixOf, dailyMixed, goalFor, starsFor} from "../game/engine";
 import type {GameState, Mode, Op, Variant} from "../game/types";
 import {roomOfMode, type Room} from "./background";
 import {drawShopCup} from "./cupArt";
@@ -1888,7 +1888,7 @@ function drawDailyPage(ctx: CanvasRenderingContext2D, time: number): void {
     // On the left: the rung, and the cups it needs.
     write(ctx, t("dailyRung", {n: i + 1}), geom.cx - half - 8, y - 4, 14, reached ? "#8a5208" : INK, "right", 700);
     // (the even rungs are played as today's match mode: its name is under them, in the colour of the match pages)
-    const mix = (i + 1) % 2 === 0 ? `  ·  ${t(VARIANT_KEYS[dailyMixOf(undefined, i + 1)].name)}` : "";
+    const mix = dailyMixed(i + 1) ? `  ·  ${t(VARIANT_KEYS[dailyMixOf(undefined, i + 1)].name)}` : "";
     write(ctx, t("dailyCups", {n: rungGoal(i + 1)}) + mix, geom.cx - half - 8, y + 9, 10.5, mix ? "#1f7a8c" : "#7a6648", "right", mix ? 700 : 600);
     // On the right: what it pays today, in a small pill (gold for the top).
     const amount = rungPayout(i, ui.streakDay);

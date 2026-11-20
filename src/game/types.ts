@@ -17,7 +17,7 @@ export type Feature = "screen" | "cups" | "zero" | "ten" | "points" | "life" | "
  * The match modes, which are the endless game with rules of their own: "save" (Save the cup: one of the four cups is dead from the start, only 1s fall, and a 1
  * that gets into the dead cup is the end; it gets faster and faster) and "sixeight" (Even numbers: only 2s, 4s, 8s, times 2 and divided by 2 fall).
  */
-export type Variant = "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet";
+export type Variant = "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake";
 
 export type Mode = "tutorial" | "plus" | "minus" | "mixed" | "times" | "divide" | "space" | "endless";
 
@@ -103,10 +103,26 @@ export interface NumberTile {
   wanded?: boolean;
   /** The fighter jet: what it gets if it flies into this ball (it is no number). */
   pickup?: Pickup;
+  /** A weapon ball of the fighter jet: the weapon it gives (two of them come side by side when a way is to be chosen: the one not taken goes). */
+  weapon?: Weapon;
+  /** How much the laser or the flame of the jet has burned it so far (it pops at 1). */
+  burn?: number;
   /** The comet belt: a 1 that is a comet (it has a tail of fire). */
   comet?: boolean;
   /** Balls that hang together in a chain (a row of comets, or skulls one over the other): the same number for all of them. */
   link?: number;
+  /** The snake: how far along the track it is (it is on the track, in the train, while this is set). */
+  track?: number;
+  /** The snake: the head of the train (a skull that cannot be taken: in a cup it kills it). */
+  snakeHead?: boolean;
+  /** The snake: a golden 10 (two numbers that met and made 10): it gives extra points when it is taken. */
+  gold?: boolean;
+  /** The snake: it is sliding up to close a gap in the train (when it gets there, it may melt together with the one in front). */
+  closing?: boolean;
+  /** The snake: a bomb that another bomb has set off: the seconds until it goes off too. */
+  fuse?: number;
+  /** Comet belt: a giant planet (it is as wide as two columns, and falls slowly). */
+  planet?: boolean;
   /** Thin ice (Ice world): it looks like any ice, but one tap breaks all of it. */
   thin?: boolean;
   /** "fall": drifting down on its own. "dive": tapped, on its way into a cup. */
@@ -156,10 +172,19 @@ export type GameEvent =
   | {t: "skull"; x: number; y: number}
   | {t: "boom"; x: number; y: number; big: boolean}
   | {t: "comets"; hits: {x: number; y: number; size: number}[]}
-  | {t: "pickup"; x: number; y: number; kind: Pickup};
+  | {t: "pickup"; x: number; y: number; kind: Pickup}
+  | {t: "weaponDown"; x: number; y: number; empty: boolean}
+  | {t: "hurt"; x: number; y: number; hp: number}
+  | {t: "snakeFaster"; x: number; y: number}
+  | {t: "bombChain"; x: number; y: number; fromX: number; fromY: number};
 
 /** What the fighter jet can pick up: faster and more guns, missiles from its wings, or a shield (and the ship of the comet belt: a shield, or a full tank of fuel). */
-export type Pickup = "gun" | "missile" | "shield" | "fuel";
+export type Pickup = "weapon" | "shield" | "fuel" | "heart" | "back" | "slow";
+
+/** The three ways the weapons of the fighter jet can be made better: the gun (a), the special weapon (b) and the technique (c). In each one of two is chosen. */
+export type WeaponPath = "a" | "b" | "c";
+/** The weapons: bullets or a laser (the gun), a plasma flame or missiles (the special weapon), and ricochet or rapid fire (the technique). */
+export type Weapon = "bullet" | "laser" | "flame" | "missile" | "ricochet" | "rapid";
 
 /** A shot of the fighter jet: a bullet straight up, or a missile that steers after a skull (the last few places it was, for its smoke). */
 export interface Shot {
@@ -172,6 +197,9 @@ export interface Shot {
   power?: number;
   age: number;
   trail: {x: number; y: number}[];
+  /** Ricochet: how many more times it bounces on to another target, and what it has hit already. */
+  bounces?: number;
+  hit?: number[];
   dead?: boolean;
 }
 
@@ -229,10 +257,23 @@ export interface GameState {
   shieldGrew: number;
   /** Shield up: the power upgrades taken after the shield has reached its full size (each one hurts a boss more). */
   shieldPower: number;
-  /** The fighter jet: its guns (1 to 5), its missiles (0 to 3), whether it has a shield, the seconds it is knocked out (cannot shoot), the time to its next shots, its shots, and the last thing it picked up (and how long ago). */
-  jetGun: number;
-  jetMissile: number;
+  /**
+   * The fighter jet: the weapon chosen in each of the three ways (null: not yet), the upgrades of each (0 to 3), its basic shot (1, or 0 when the weapons have run
+   * down to nothing: then it does not shoot at all), the seconds since its weapons last went up or down (every so often they go down a step), the seconds since
+   * they last went down (for the effect), whether it has a shield, and the seconds it is knocked out (cannot shoot).
+   */
+  jetWeapons: Record<WeaponPath, Weapon | null>;
+  jetLv: Record<WeaponPath, number>;
+  jetBase: number;
+  jetDecay: number;
+  jetDown: number;
   jetShield: boolean;
+  /** What the laser and the flame reach this moment (for drawing them): the top of the beam (or null), and whether the flame is on. */
+  jetBeam: number | null;
+  jetFlame: boolean;
+  /** Comet belt: the lives of the ship (3 at most) and the seconds it cannot be hurt again after a hit. */
+  shipHp: number;
+  shipHurt: number;
   jetStun: number;
   /** Whether a finger is holding the jet: it only shoots while it is held. */
   jetHeld: boolean;
@@ -249,6 +290,23 @@ export interface GameState {
   shots: Shot[];
   jetGot: number;
   jetGotKind: Pickup;
+  jetGotWeapon: Weapon | null;
+  /** The snake: the level the train was set out for (a new train comes on every new level), the x where the track ends over the cups, and the seconds the train still goes back, or slowly. */
+  snakeBuilt: number;
+  snakeEnd: number;
+  snakeBack: number;
+  snakeSlow: number;
+  /** The snake: the seconds it still slides slowly back (every number that is taken pushes it back a little). */
+  snakeRecoil: number;
+  /** The snake: the seconds it still stands still, stunned by the laser of a cup. */
+  snakeStun: number;
+  /** The snake: how many hearts have come this round (at most SNAKE_HEARTS_MAX). */
+  snakeHearts: number;
+  /** The daily challenge: the seconds the title with the match mode of the day is still shown (it comes when the ladder starts). */
+  dailyIntro: number;
+  /** The snake: how many perfect 10s have faded off the bar on this level (each makes it faster), and the seconds since the last one did (for the effect). */
+  snakeBoost: number;
+  snakeFastT: number;
   /** The level the last boss of Shield up came at (one comes at every tenth level). */
   bossLevel: number;
   /** Seconds the reverse is on: a tapped number flies up and away instead of falling into a cup. */

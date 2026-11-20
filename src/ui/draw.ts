@@ -154,7 +154,8 @@ export function title(
   y: number,
   size: number,
   light = "#fff3b0",
-  deep = GOLD_DEEP
+  deep = GOLD_DEEP,
+  outline = 0.26
 ): void {
   ctx.save();
   ctx.textAlign = "center";
@@ -162,7 +163,7 @@ export function title(
   ctx.font = `700 ${size}px ${FONT}`;
   ctx.lineJoin = "round";
   // Shadow, then the outline.
-  ctx.lineWidth = size * 0.26;
+  ctx.lineWidth = size * outline;
   ctx.strokeStyle = "rgba(0,0,0,0.35)";
   ctx.strokeText(s, x, y + size * 0.09);
   ctx.strokeStyle = "#3a1d08";
@@ -365,7 +366,7 @@ export const ui = {
   settingsOpen: false,
   /** The top list of a game is open, and which game's it is. */
   scoresOpen: false,
-  scoresMode: "endless" as "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet",
+  scoresMode: "endless" as "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake",
   /** The match modes that have been bought, the best score of every game, and whether the match modes are open in the contents. */
   modes: [] as string[],
   bests: {endless: 0, save: 0, sixeight: 0, defend: 0, ice: 0, fast: 0, find: 0, shield: 0} as Record<string, number>,
@@ -373,6 +374,11 @@ export const ui = {
   /** The group of the bar at the bottom whose pages are popped out in an arc over it (-1 when none is), and when (performance.now in seconds) it was opened. */
   barOpen: -1,
   barOpenAt: 0,
+  /** The slider of the match modes over the bar: how far it is scrolled (game units), or -1 to put the page the book is open at in the middle when it opens. */
+  subScroll: -1,
+  /** How fast the slider still rolls on after a quick flick (game units a second), and when it was last moved (seconds). */
+  subVel: 0,
+  subT: 0,
   /** How the pages are reached (a setting): the bar along the bottom ("menu"), or the coloured tabs on the edge of the book ("groups"). */
   layout: "menu" as "menu" | "groups",
   /** The very first start: the book shows its front cover, and the bar at the bottom is hidden, until "Open the book" is pressed. */
@@ -518,30 +524,37 @@ export function drawButton(
   ctx.fillStyle = look.lip;
   roundRect(ctx, 0, DEPTH, b.w, b.h, r);
   ctx.fill();
-  // The face.
+  // The face: light at the top, its own colour through the middle, a little deeper at the bottom.
   const face = ctx.createLinearGradient(0, dy, 0, dy + b.h);
   face.addColorStop(0, look.top);
-  face.addColorStop(1, look.bottom);
+  face.addColorStop(0.55, look.bottom);
+  face.addColorStop(1, look.lip);
   ctx.fillStyle = face;
   roundRect(ctx, 0, dy, b.w, b.h, r);
   ctx.fill();
-  ctx.lineWidth = 1.6;
-  ctx.strokeStyle = look.lip;
-  ctx.stroke();
-  // An edge of light just inside, and a gloss over the top half.
-  ctx.strokeStyle = "rgba(255,255,255,0.42)";
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, 1.5, dy + 1.5, b.w - 3, b.h - 3, Math.max(2, r - 1.5));
-  ctx.stroke();
+  // (the colour of the face again over most of it, so that only the lowest edge is deeper)
+  const body = ctx.createLinearGradient(0, dy, 0, dy + b.h);
+  body.addColorStop(0, look.top);
+  body.addColorStop(0.7, look.bottom);
+  body.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = body;
+  ctx.fill();
   ctx.save();
   roundRect(ctx, 0, dy, b.w, b.h, r);
   ctx.clip();
-  const gloss = ctx.createLinearGradient(0, dy, 0, dy + b.h * 0.55);
-  gloss.addColorStop(0, "rgba(255,255,255,0.5)");
-  gloss.addColorStop(1, "rgba(255,255,255,0.02)");
+  // The gloss: a soft band of light over the top half, inset from the edges, like a lacquered surface.
+  const inset = Math.min(8, b.w * 0.06);
+  const gh = b.h * 0.42;
+  const gloss = ctx.createLinearGradient(0, dy + 3, 0, dy + 3 + gh);
+  gloss.addColorStop(0, "rgba(255,255,255,0.55)");
+  gloss.addColorStop(1, "rgba(255,255,255,0.04)");
   ctx.fillStyle = gloss;
+  roundRect(ctx, inset, dy + 3, b.w - inset * 2, gh, Math.min(gh / 2, Math.max(2, r - inset)));
+  ctx.fill();
+  // (a small bright spot near the top left)
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
   ctx.beginPath();
-  ctx.ellipse(b.w / 2, dy + b.h * 0.02, b.w * 0.5, b.h * 0.52, 0, 0, TAU);
+  ctx.ellipse(inset + Math.min(r, 14), dy + 6, Math.min(r * 0.45, 8), 2.2, 0, 0, TAU);
   ctx.fill();
   ctx.restore();
 
@@ -626,23 +639,44 @@ export function drawPanel(ctx: CanvasRenderingContext2D, x: number, y: number, w
   ctx.fillStyle = fill;
   roundRect(ctx, x, y, w, h, r);
   ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "rgba(255,225,160,0.35)";
-  ctx.stroke();
-  ctx.strokeStyle = "rgba(0,0,0,0.45)";
-  ctx.lineWidth = 1;
-  roundRect(ctx, x - 1, y - 1, w + 2, h + 2, r + 1);
-  ctx.stroke();
-  // A line of light along the top edge.
   ctx.save();
   roundRect(ctx, x, y, w, h, r);
   ctx.clip();
-  const sheen = ctx.createLinearGradient(0, y, 0, y + 26);
-  sheen.addColorStop(0, "rgba(255,255,255,0.16)");
+  // A soft light from the top middle, and a shade along the bottom, so the panel is not flat.
+  const light = ctx.createRadialGradient(x + w / 2, y - h * 0.15, 10, x + w / 2, y, Math.max(w, h) * 0.9);
+  light.addColorStop(0, "rgba(255,240,210,0.14)");
+  light.addColorStop(1, "rgba(255,240,210,0)");
+  ctx.fillStyle = light;
+  ctx.fillRect(x, y, w, h);
+  const shade = ctx.createLinearGradient(0, y + h - 30, 0, y + h);
+  shade.addColorStop(0, "rgba(0,0,0,0)");
+  shade.addColorStop(1, "rgba(0,0,0,0.22)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(x, y + h - 30, w, 30);
+  // A line of light along the top edge.
+  const sheen = ctx.createLinearGradient(0, y, 0, y + 22);
+  sheen.addColorStop(0, "rgba(255,255,255,0.18)");
   sheen.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = sheen;
-  ctx.fillRect(x, y, w, 26);
+  ctx.fillRect(x, y, w, 22);
   ctx.restore();
+  // The frame: a dark outer edge, a gold rim, and a thin gold line inset from it.
+  ctx.strokeStyle = "rgba(8,4,14,0.7)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, x - 1.5, y - 1.5, w + 3, h + 3, r + 1.5);
+  ctx.stroke();
+  const rim = ctx.createLinearGradient(0, y, 0, y + h);
+  rim.addColorStop(0, "rgba(255,230,170,0.75)");
+  rim.addColorStop(0.5, "rgba(210,160,80,0.45)");
+  rim.addColorStop(1, "rgba(160,110,50,0.55)");
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = 2;
+  roundRect(ctx, x, y, w, h, r);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,225,160,0.16)";
+  ctx.lineWidth = 1;
+  roundRect(ctx, x + 5, y + 5, w - 10, h - 10, Math.max(2, r - 5));
+  ctx.stroke();
 }
 
 /** A ribbon with a title on it, for the top of a card. */

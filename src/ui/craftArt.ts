@@ -1,7 +1,8 @@
 // The crafts that are flown by the finger in the match modes Fighter jet and Comet belt, and what goes with them: the shots of the jet, the balls it can pick up,
 // the tails of the comets and the chains that hold balls together.
-import type {GameState, NumberTile, Pickup, Shot} from "../game/types";
-import {TAU, roundRect, title, drawShieldArc} from "./draw";
+import type {GameState, NumberTile, Pickup, Shot, Weapon, WeaponPath} from "../game/types";
+import {drawSnakePickupIcon} from "./snakeArt";
+import {TAU, roundRect, title, write, drawShieldArc} from "./draw";
 
 /** The fighter jet seen from above, nose up: grey-blue steel, a glass cockpit, a flame from its engine, missiles under its wings and a bubble when it has a shield. */
 /**
@@ -385,14 +386,91 @@ export function drawShots(ctx: CanvasRenderingContext2D, shots: readonly Shot[])
   ctx.restore();
 }
 
-const PICKUP_COLOR: Record<Pickup, [string, string]> = {gun: ["#fff3b0", "#e0a21b"], missile: ["#ffd0c8", "#d1392b"], shield: ["#d8f4ff", "#3a9fd8"], fuel: ["#ffe2b8", "#e8731a"]};
+const PICKUP_COLOR: Record<Pickup, [string, string]> = {weapon: ["#fff3b0", "#e0a21b"], shield: ["#d8f4ff", "#3a9fd8"], fuel: ["#ffe2b8", "#e8731a"], heart: ["#ffd0dc", "#e0356a"], back: ["#e6d8ff", "#7a4ad8"], slow: ["#d4ffe0", "#2e9e5a"]};
+/** The colour of the balls of each way of weapons: gold for the gun, red for the special weapon, green for the technique. */
+const PATH_COLOR: Record<WeaponPath, [string, string]> = {a: ["#fff3b0", "#e0a21b"], b: ["#ffd0c8", "#d1392b"], c: ["#d4ffe0", "#1f9e6a"]};
+const PATH_OF: Record<Weapon, WeaponPath> = {bullet: "a", laser: "a", flame: "b", missile: "b", ricochet: "c", rapid: "c"};
 
-/** A ball the jet can fly into: it glows, and shows what it gives (bullets, a missile or a shield). */
-export function drawPickup(ctx: CanvasRenderingContext2D, n: NumberTile, time: number): void {
+/** The sign of a weapon, in white, about 20 across (drawn round 0, 0). */
+export function drawWeaponIcon(ctx: CanvasRenderingContext2D, w: Weapon, k = 1): void {
+  ctx.save();
+  ctx.scale(k, k);
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (w === "bullet") {
+    for (const dx of [-5, 0, 5]) {
+      roundRect(ctx, dx - 1.5, -8, 3, 13, 1.5);
+      ctx.fill();
+    }
+  } else if (w === "laser") {
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, 9);
+    ctx.lineTo(0, -9);
+    ctx.stroke();
+    ctx.lineWidth = 1.4;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(s * 4, 5);
+      ctx.lineTo(s * 7, -2);
+      ctx.stroke();
+    }
+  } else if (w === "flame") {
+    ctx.beginPath();
+    ctx.moveTo(0, -10);
+    ctx.quadraticCurveTo(8, -2, 6, 4);
+    ctx.quadraticCurveTo(4, 9, 0, 9);
+    ctx.quadraticCurveTo(-4, 9, -6, 4);
+    ctx.quadraticCurveTo(-8, -2, 0, -10);
+    ctx.fill();
+  } else if (w === "missile") {
+    ctx.rotate(-0.6);
+    roundRect(ctx, -2.5, -9, 5, 16, 2.5);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-5, 8);
+    ctx.lineTo(5, 8);
+    ctx.lineTo(0, 3);
+    ctx.fill();
+  } else if (w === "ricochet") {
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(-8, 8);
+    ctx.lineTo(-2, -4);
+    ctx.lineTo(3, 4);
+    ctx.lineTo(8, -8);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(8, -8);
+    ctx.lineTo(3, -7);
+    ctx.moveTo(8, -8);
+    ctx.lineTo(8, -3);
+    ctx.stroke();
+  } else {
+    ctx.lineWidth = 2.6;
+    for (const dy of [-3, 4]) {
+      ctx.beginPath();
+      ctx.moveTo(-7, dy + 4);
+      ctx.lineTo(0, dy - 3);
+      ctx.lineTo(7, dy + 4);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/** A ball the jet or the ship can fly into: it glows, and shows what it gives (a weapon, a shield, fuel or a life). Two weapons side by side have their names under them. */
+export function drawPickup(ctx: CanvasRenderingContext2D, n: NumberTile, time: number, label?: string): void {
   const kind = n.pickup!;
-  const [light, dark] = PICKUP_COLOR[kind];
+  const [light, dark] = kind === "weapon" && n.weapon ? PATH_COLOR[PATH_OF[n.weapon]] : PICKUP_COLOR[kind];
   ctx.save();
   ctx.translate(n.x, n.y);
+  if (label) {
+    // (a choice: the name under the ball, and a line between the two)
+    write(ctx, label, 0, 30, 11, "#ffffff", "center", 800);
+  }
   const pulse = 1 + 0.06 * Math.sin(time * 6 + n.phase);
   ctx.scale(pulse, pulse);
   ctx.shadowColor = dark;
@@ -409,19 +487,12 @@ export function drawPickup(ctx: CanvasRenderingContext2D, n: NumberTile, time: n
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.fillStyle = "#ffffff";
-  if (kind === "gun") {
-    for (const dx of [-5, 0, 5]) {
-      roundRect(ctx, dx - 1.5, -8, 3, 13, 1.5);
-      ctx.fill();
-    }
-  } else if (kind === "missile") {
-    ctx.rotate(-0.6);
-    roundRect(ctx, -2.5, -9, 5, 16, 2.5);
-    ctx.fill();
+  if (kind === "weapon" && n.weapon) drawWeaponIcon(ctx, n.weapon);
+  else if (kind === "heart") {
     ctx.beginPath();
-    ctx.moveTo(-5, 8);
-    ctx.lineTo(5, 8);
-    ctx.lineTo(0, 3);
+    ctx.moveTo(0, 8);
+    ctx.bezierCurveTo(-12, 0, -8, -10, 0, -4);
+    ctx.bezierCurveTo(8, -10, 12, 0, 0, 8);
     ctx.fill();
   } else if (kind === "fuel") {
     // a can of fuel
@@ -434,7 +505,120 @@ export function drawPickup(ctx: CanvasRenderingContext2D, n: NumberTile, time: n
     ctx.quadraticCurveTo(4, 2, 0, 5);
     ctx.quadraticCurveTo(-4, 2, 0, -3);
     ctx.fill();
-  } else drawShieldArc(ctx, 0, -2, 10, 5);
+  } else if (kind === "back" || kind === "slow") drawSnakePickupIcon(ctx, kind);
+  else drawShieldArc(ctx, 0, -2, 10, 5);
+  ctx.restore();
+}
+
+/** The laser of the jet: a hot beam straight up from its nose, wider and brighter with every upgrade, that flickers. */
+export function drawLaser(ctx: CanvasRenderingContext2D, x: number, y: number, top: number, lv: number, time: number): void {
+  const half = 3 + 2 * lv;
+  const flick = 0.85 + 0.15 * Math.sin(time * 50);
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const outer = ctx.createLinearGradient(x - half * 3, 0, x + half * 3, 0);
+  outer.addColorStop(0, "rgba(255,60,200,0)");
+  outer.addColorStop(0.5, `rgba(255,80,220,${0.5 * flick})`);
+  outer.addColorStop(1, "rgba(255,60,200,0)");
+  ctx.fillStyle = outer;
+  ctx.fillRect(x - half * 3, top, half * 6, y - top);
+  ctx.fillStyle = `rgba(255,200,250,${0.9 * flick})`;
+  ctx.fillRect(x - half * 0.5, top, half, y - top);
+  // a flash at the nose
+  const flash = ctx.createRadialGradient(x, y, 0, x, y, 14 + lv * 3);
+  flash.addColorStop(0, "rgba(255,255,255,0.95)");
+  flash.addColorStop(1, "rgba(255,80,220,0)");
+  ctx.fillStyle = flash;
+  ctx.beginPath();
+  ctx.arc(x, y, 14 + lv * 3, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** The plasma flame of the jet: a cone of fire in front of its nose, blue-white near it and violet further out, with waves of plasma rolling out along it. */
+export function drawFlame(ctx: CanvasRenderingContext2D, x: number, y: number, lv: number, time: number): void {
+  const reach = 80 + 30 * lv;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const cone = ctx.createLinearGradient(0, y, 0, y - reach);
+  cone.addColorStop(0, "rgba(220,240,255,0.9)");
+  cone.addColorStop(0.35, "rgba(120,170,255,0.6)");
+  cone.addColorStop(1, "rgba(170,80,255,0)");
+  ctx.fillStyle = cone;
+  ctx.beginPath();
+  ctx.moveTo(x - 6, y);
+  const w = 10 + reach * 0.45;
+  ctx.quadraticCurveTo(x - w, y - reach * 0.6 + Math.sin(time * 20) * 4, x - w * 0.8, y - reach);
+  ctx.lineTo(x + w * 0.8, y - reach);
+  ctx.quadraticCurveTo(x + w, y - reach * 0.6 + Math.cos(time * 23) * 4, x + 6, y);
+  ctx.closePath();
+  ctx.fill();
+  // waves of plasma rolling out
+  for (let k = 0; k < 3; k++) {
+    const u = (time * 2.2 + k / 3) % 1;
+    const wy = y - u * reach;
+    const ww = 8 + u * reach * 0.45;
+    ctx.strokeStyle = `rgba(200,220,255,${0.7 * (1 - u)})`;
+    ctx.lineWidth = 3 * (1 - u) + 1;
+    ctx.beginPath();
+    ctx.ellipse(x, wy, ww, 4 + u * 6, 0, Math.PI, 0);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Under the jet: the three ways of weapons, each a small round sign (the weapon chosen, or a question mark) with three dots for its upgrades. */
+export function drawWeaponHud(ctx: CanvasRenderingContext2D, x: number, y: number, o: {weapons: Record<WeaponPath, Weapon | null>; lv: Record<WeaponPath, number>}): void {
+  const top = y + 46;
+  ctx.save();
+  (["a", "b", "c"] as WeaponPath[]).forEach((p, i) => {
+    const cx = x + (i - 1) * 30;
+    const w = o.weapons[p];
+    const [light, dark] = PATH_COLOR[p];
+    ctx.globalAlpha = w ? 1 : 0.4;
+    const ball = ctx.createRadialGradient(cx - 2, top - 3, 1, cx, top, 10);
+    ball.addColorStop(0, light);
+    ball.addColorStop(1, dark);
+    ctx.fillStyle = w ? ball : "rgba(60,50,70,0.8)";
+    ctx.beginPath();
+    ctx.arc(cx, top, 9, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(cx, top);
+    if (w) drawWeaponIcon(ctx, w, 0.55);
+    else write(ctx, "?", 0, 1, 11, "#ffffff", "center", 800);
+    ctx.restore();
+    for (let k = 0; k < 3; k++) {
+      ctx.fillStyle = k < o.lv[p] ? "#ffe27a" : "rgba(255,255,255,0.25)";
+      ctx.beginPath();
+      ctx.arc(cx - 6 + k * 6, top + 14, 2.2, 0, TAU);
+      ctx.fill();
+    }
+  });
+  ctx.restore();
+}
+
+/** The lives of the ship of the comet belt: an upright bar to its left, one red part for each life (the lost ones dark), that shakes when one has just been lost. */
+export function drawHealth(ctx: CanvasRenderingContext2D, x: number, y: number, hp: number, max: number, hurt: number, time: number): void {
+  const h = 40;
+  const w = 7;
+  const shake = hurt > 0 ? Math.sin(time * 60) * 2 * Math.min(1, hurt) : 0;
+  const bx = x - 30 - w + shake;
+  const by = y - h / 2;
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  roundRect(ctx, bx - 2, by - 2, w + 4, h + 4, 4);
+  ctx.fill();
+  const seg = (h - (max - 1) * 2) / max;
+  for (let i = 0; i < max; i++) {
+    const sy = by + h - (i + 1) * seg - i * 2;
+    ctx.fillStyle = i < hp ? (hp === 1 ? `rgba(255,70,70,${0.6 + 0.4 * Math.sin(time * 10)})` : "#ff4a5a") : "rgba(255,255,255,0.12)";
+    roundRect(ctx, bx, sy, w, seg, 2.5);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -505,7 +689,7 @@ export function drawJetGot(ctx: CanvasRenderingContext2D, g: GameState, words: s
   ctx.globalAlpha = u > 0.7 ? (1 - u) / 0.3 : 1;
   ctx.translate(g.shieldX, g.shieldY - 44 - u * 30);
   ctx.scale(pop, pop);
-  title(ctx, words, 0, 0, 20, "#ffffff", PICKUP_COLOR[g.jetGotKind][1]);
+  title(ctx, words, 0, 0, 20, "#ffffff", g.jetGotKind === "weapon" && g.jetGotWeapon ? PATH_COLOR[PATH_OF[g.jetGotWeapon]][1] : PICKUP_COLOR[g.jetGotKind][1]);
   ctx.restore();
 }
 
@@ -650,5 +834,95 @@ export function drawComboGlow(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.beginPath();
   ctx.arc(x, y, r, 0, TAU);
   ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * Comet belt: a giant planet, as wide as two columns, that falls slowly: a big round planet in rusty reds and browns with bands across it, craters, a light
+ * on its upper left and a dark side, a thin ring tilted round it, and a soft glow of the atmosphere round its edge. It turns slowly.
+ */
+export function drawPlanet(ctx: CanvasRenderingContext2D, n: NumberTile, time: number): void {
+  const r = 15 * (n.scale || 1);
+  ctx.save();
+  ctx.translate(n.x, n.y);
+  // the glow of the atmosphere
+  const glow = ctx.createRadialGradient(0, 0, r * 0.9, 0, 0, r * 1.35);
+  glow.addColorStop(0, "rgba(255,170,110,0.35)");
+  glow.addColorStop(1, "rgba(255,170,110,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 1.35, 0, TAU);
+  ctx.fill();
+  // the back of the ring (behind the planet)
+  const ring = (front: boolean): void => {
+    ctx.save();
+    ctx.rotate(-0.35);
+    ctx.strokeStyle = "rgba(240,215,170,0.75)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.55, r * 0.38, 0, front ? 0 : Math.PI, front ? Math.PI : TAU);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(160,120,80,0.6)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.42, r * 0.33, 0, front ? 0 : Math.PI, front ? Math.PI : TAU);
+    ctx.stroke();
+    ctx.restore();
+  };
+  ring(false);
+  // the planet: a ball with its light from the upper left
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, TAU);
+  ctx.clip();
+  const body = ctx.createRadialGradient(-r * 0.4, -r * 0.45, r * 0.1, 0, 0, r * 1.1);
+  body.addColorStop(0, "#f4b27a");
+  body.addColorStop(0.5, "#c0603a");
+  body.addColorStop(1, "#5a2418");
+  ctx.fillStyle = body;
+  ctx.fillRect(-r, -r, r * 2, r * 2);
+  // bands across it, that slide slowly (it turns)
+  const turn = (time * 6) % (r * 2);
+  ctx.globalAlpha = 0.28;
+  for (const [y, h, c] of [
+    [-0.55, 0.12, "#8a3a20"],
+    [-0.2, 0.18, "#f0c090"],
+    [0.15, 0.1, "#7a2e1a"],
+    [0.45, 0.16, "#e09a6a"],
+  ] as const) {
+    ctx.fillStyle = c;
+    ctx.fillRect(-r, y * r, r * 2, h * r);
+  }
+  ctx.globalAlpha = 1;
+  // craters
+  for (const [cx, cy, cr] of [
+    [-0.3, 0.25, 0.16],
+    [0.35, -0.3, 0.12],
+    [0.1, 0.55, 0.1],
+    [-0.55, -0.2, 0.08],
+  ] as const) {
+    const x = ((cx * r + turn + r) % (r * 2)) - r;
+    ctx.fillStyle = "rgba(60,20,10,0.35)";
+    ctx.beginPath();
+    ctx.arc(x, cy * r, cr * r, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,210,170,0.25)";
+    ctx.beginPath();
+    ctx.arc(x - cr * r * 0.25, cy * r - cr * r * 0.25, cr * r * 0.6, 0, TAU);
+    ctx.fill();
+  }
+  // the dark side
+  const night = ctx.createLinearGradient(-r, -r, r, r);
+  night.addColorStop(0.45, "rgba(0,0,0,0)");
+  night.addColorStop(1, "rgba(10,4,20,0.65)");
+  ctx.fillStyle = night;
+  ctx.fillRect(-r, -r, r * 2, r * 2);
+  ctx.restore();
+  ctx.strokeStyle = "rgba(255,200,150,0.5)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, TAU);
+  ctx.stroke();
+  ring(true);
   ctx.restore();
 }

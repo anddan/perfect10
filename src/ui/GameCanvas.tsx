@@ -317,7 +317,7 @@ export function GameCanvas() {
     /** A finger that is sliding over the numbers: where it was last, and the numbers this stroke has already touched. */
     let swipe: {pointer: number; x: number; y: number; skip: Set<number>} | null = null;
     // A finger on a button, or on the book (where it can turn into a drag that turns the page).
-    let press: {id: string | null; x: number; y: number; moved: boolean; pointer: number; settings?: boolean; axis?: "x" | "y"; scroll0?: number} | null = null;
+    let press: {id: string | null; x: number; y: number; moved: boolean; pointer: number; settings?: boolean; axis?: "x" | "y"; scroll0?: number; slideAt?: number; slideVel?: number} | null = null;
     // Between two screens the picture fades to black and back: `fade` is how dark it is.
     let fade = 0;
     // Every page that is turned in the book makes a sound.
@@ -707,6 +707,7 @@ export function GameCanvas() {
       // The pages of a group of the bar at the bottom are popped out: a tap on one of them goes there, a tap on the group closes the arc again,
       // and a tap on anything else only closes it.
       if (ui.barOpen >= 0 && !id.startsWith("tab:")) {
+        if (id === "subStrip") return; // (a tap on the panel of the slider, between its buttons)
         ui.barOpen = -1;
         if (id.startsWith("sub:")) goToPage(book, Number(id.slice(4)), true);
         return;
@@ -825,6 +826,7 @@ export function GameCanvas() {
         if (subPages(group).length > 0) {
           ui.barOpen = ui.barOpen === group ? -1 : group;
           ui.barOpenAt = performance.now() / 1000;
+          ui.subScroll = -1;
         } else {
           ui.barOpen = -1;
           goToPage(book, tabTarget(book, group), true);
@@ -1125,6 +1127,26 @@ export function GameCanvas() {
       }
       if (press && press.pointer === e.pointerId) {
         const p = point(e);
+        if (g.phase === "menu" && ui.barOpen >= 0) {
+          // (the slider of the match modes: the finger scrolls it sideways; a move is not a tap)
+          const dx = p.x - press.x;
+          if (!press.moved && Math.abs(dx) > 8) {
+            press.moved = true;
+            press.scroll0 = ui.subScroll;
+            ui.pressed = null;
+          }
+          if (press.moved) {
+            // (how fast the finger goes, for the roll after it lets go)
+            const now = performance.now() / 1000;
+            const last = press.slideAt ?? now;
+            const was = ui.subScroll;
+            ui.subScroll = Math.max(0, (press.scroll0 ?? 0) - dx);
+            if (now > last) press.slideVel = 0.6 * (press.slideVel ?? 0) + 0.4 * ((ui.subScroll - was) / (now - last));
+            press.slideAt = now;
+            ui.subVel = 0;
+          }
+          return;
+        }
         if (g.phase === "menu") {
           const dx = p.x - press.x;
           const dy = p.y - press.y;
@@ -1170,6 +1192,11 @@ export function GameCanvas() {
       }
       if (press && press.pointer === e.pointerId) {
         const {id, moved, settings} = press;
+        // (the slider of the match modes: let go after a quick flick, it rolls on)
+        if (moved && ui.barOpen >= 0 && press.slideAt !== undefined && performance.now() / 1000 - press.slideAt < 0.1) {
+          ui.subVel = Math.max(-3000, Math.min(3000, press.slideVel ?? 0));
+          ui.subT = performance.now() / 1000;
+        }
         const p = point(e);
         press = null;
         ui.pressed = null;

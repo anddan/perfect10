@@ -460,9 +460,54 @@ export class Fx {
         }
         break;
       }
+      case "weaponDown": {
+        // The weapons of the jet go down a step: a puff of grey smoke and a few sparks from it (more, and red, when it has no shots left).
+        const C = e.empty ? ["#ff6a5a", "#7a6a6a", "#4a4040", "#ffffff"] : ["#c8c0c8", "#8a8090", "#ffb15a"];
+        for (let i = 0; i < (e.empty ? 30 : 14); i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 60 + rnd() * 160;
+          this.confetti.push({x: e.x, y: e.y - 10, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, rot: rnd() * 6, vr: (rnd() - 0.5) * 12, age: 0, life: 0.4 + rnd() * 0.4, color: C[Math.floor(rnd() * C.length)]});
+        }
+        break;
+      }
+      case "bombChain": {
+        // One bomb sets off another: a streak of sparks flies from the one to the other, and a hot ring swells round the one whose fuse is lit.
+        const C = ["#fff3b0", "#ffd54a", "#ff9a3c", "#ff4a2a"];
+        for (let i = 0; i < 18; i++) {
+          const u = i / 17;
+          const x = e.fromX + (e.x - e.fromX) * u;
+          const y = e.fromY + (e.y - e.fromY) * u;
+          const a = rnd() * Math.PI * 2;
+          const s = 30 + rnd() * 60;
+          this.confetti.push({x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: -u * 0.15, life: 0.35 + rnd() * 0.2, color: C[i % C.length]});
+        }
+        this.rings.push({x: e.x, y: e.y, age: 0, life: 0.3, max: 40, color: "#ffb03a"});
+        this.rings.push({x: e.x, y: e.y, age: -0.1, life: 0.3, max: 56, color: "#ff5a2a"});
+        break;
+      }
+      case "snakeFaster": {
+        // The snake gets faster: a burst of red and orange sparks from its head, and a ring.
+        const C = ["#ff4a3a", "#ff9a3c", "#ffe27a", "#ffffff"];
+        for (let i = 0; i < 28; i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 120 + rnd() * 200;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.35 + rnd() * 0.35, color: C[Math.floor(rnd() * C.length)]});
+        }
+        this.rings.push({x: e.x, y: e.y, age: 0, life: 0.5, max: 60, color: "#ff6a3a"});
+        break;
+      }
+      case "hurt": {
+        // The ship loses a life: red sparks fly off it.
+        for (let i = 0; i < 20; i++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 100 + rnd() * 180;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.3 + rnd() * 0.3, color: i % 3 === 0 ? "#ffffff" : "#ff4a5a"});
+        }
+        break;
+      }
       case "pickup": {
         // The jet picks up a ball: a ring of sparks in its colour.
-        const C = e.kind === "fuel" ? ["#ffe2b8", "#ff9a3c", "#ffffff"] : e.kind === "gun" ? ["#fff3b0", "#ffd54a", "#ffffff"] : e.kind === "missile" ? ["#ffd0c8", "#ff6a4a", "#ffffff"] : ["#d8f4ff", "#5cc8f5", "#ffffff"];
+        const C = e.kind === "fuel" ? ["#ffe2b8", "#ff9a3c", "#ffffff"] : e.kind === "weapon" ? ["#fff3b0", "#ffd54a", "#ffffff"] : e.kind === "heart" ? ["#ffd0dc", "#ff4a7a", "#ffffff"] : ["#d8f4ff", "#5cc8f5", "#ffffff"];
         for (let i = 0; i < 24; i++) {
           const a = (i / 24) * Math.PI * 2;
           const s = 160 + rnd() * 80;

@@ -187,9 +187,9 @@ describe("which levels are open", () => {
 
   it("has the match modes together after the chapters: the endless game, Save the cup, 6 or 8 and Online, before the shop", () => {
     const from = PAGES.indexOf("endless");
-    expect(PAGES.slice(from, from + 11)).toEqual(["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online"]);
-    expect(PAGES.slice(from, from + 11)).toEqual([...MATCH_PAGES]);
-    expect(PAGES[from + 11]).toBe("shop");
+    expect(PAGES.slice(from, from + 12)).toEqual(["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "online"]);
+    expect(PAGES.slice(from, from + 12)).toEqual([...MATCH_PAGES]);
+    expect(PAGES[from + 12]).toBe("shop");
   });
 
   it("opens a match mode when it has been bought, or with Premium (or the admin switch)", () => {
@@ -205,7 +205,7 @@ describe("which levels are open", () => {
   });
 
   it("opens the match modes with enough stars too: 130 for Save the cup and 140 for 6 or 8 (and Online never with stars: coins or Premium)", () => {
-    expect(STARS_FOR_VARIANT).toEqual({save: 130, sixeight: 140, defend: 150, ice: 160, fast: 170, find: 180, shield: 190, jet: 200, comet: 210});
+    expect(STARS_FOR_VARIANT).toEqual({save: 130, sixeight: 140, defend: 150, ice: 160, fast: 170, find: 180, shield: 190, jet: 200, comet: 205, snake: 210});
     const b = createBook();
     ui.modes = [];
     for (const mode of ["plus", "minus", "mixed", "times"] as const) clearWithThreeStars(b, mode); // (4 chapters of 36 stars: 144)
@@ -258,7 +258,7 @@ describe("which levels are open", () => {
   });
 
   it("pops out the match modes and the shop pages from the bar, and goes straight to the page for the others", () => {
-    expect(subPages(3).map((i) => PAGES[i])).toEqual(["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online"]);
+    expect(subPages(3).map((i) => PAGES[i])).toEqual(["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "online"]);
     expect(subPages(4).map((i) => PAGES[i])).toEqual(["shop", "looks", "buy"]);
     expect([0, 1, 2].map((g) => subPages(g).length)).toEqual([0, 0, 0]);
   });

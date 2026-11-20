@@ -555,6 +555,26 @@ export function playEvent(e: GameEvent): void {
       tone(220, 0.35, {to: 60, glide: 0.3, vol: 0.22, attack: 0.004});
       [1046.5, 1318.5, 1568].forEach((f, i) => bell(f, 0.07, 0.05 + i * 0.05, 0.4));
       break;
+    case "weaponDown":
+      // The weapons go down: a sputter that falls (lower and longer when it has no shots left).
+      tone(e.empty ? 300 : 520, e.empty ? 0.45 : 0.22, {type: "square", to: e.empty ? 60 : 200, glide: e.empty ? 0.4 : 0.2, vol: 0.08, attack: 0.003, lowpass: 1800});
+      noise(e.empty ? 0.35 : 0.15, {type: "lowpass", freq: 900, vol: 0.08, attack: 0.003});
+      break;
+    case "bombChain":
+      // A fuse is lit: a quick fizz that rises.
+      noise(0.2, {type: "highpass", freq: 3500, vol: 0.1, attack: 0.005});
+      tone(600, 0.18, {to: 1200, glide: 0.16, vol: 0.08, attack: 0.005, type: "square", lowpass: 2500});
+      break;
+    case "snakeFaster":
+      // The snake gets faster: a hiss that rises.
+      noise(0.4, {type: "highpass", freq: 2500, vol: 0.12, attack: 0.02});
+      tone(300, 0.35, {to: 700, glide: 0.3, vol: 0.12, attack: 0.01, type: "sawtooth", lowpass: 1600});
+      break;
+    case "hurt":
+      // The ship loses a life: a hard thud.
+      tone(140, 0.25, {to: 50, glide: 0.2, vol: 0.3, attack: 0.003});
+      noise(0.15, {type: "highpass", freq: 1500, vol: 0.1, attack: 0.002});
+      break;
     case "pickup":
       // The jet picks something up: a quick rising chime.
       [659.25, 987.77, 1318.5].forEach((f, i) => bell(f, 0.08, i * 0.05, 0.35));

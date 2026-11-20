@@ -12,17 +12,17 @@ import {drawSaucerPlate} from "./saucerArt";
 import {ENERGY_MAX} from "./energy";
 import {ENERGY_PILL, HEADER, coinsPillBox, drawGear} from "./settings";
 import {COIN_PACKS, CURRENCY, PREMIUM} from "./purchase";
-import {dailyMixOf, dailyMixed, goalFor, starsFor} from "../game/engine";
+import {dailyMixOf, goalFor, starsFor} from "../game/engine";
 import type {GameState, Mode, Op, Variant} from "../game/types";
 import {roomOfMode, type Room} from "./background";
 import {drawShopCup} from "./cupArt";
 import {drawComet, drawJet, drawShip} from "./craftArt";
+import {drawSnakeBody, drawSnakeHead} from "./snakeArt";
 import {applyTint} from "./tint";
 import {type Key, t} from "./i18n";
 import {playerName} from "./profile";
 import {drawKey, drawTrophy} from "./settings";
-import {
-  type Button,
+import {type Button,
   FONT,
   GOLD,
   INK,
@@ -55,10 +55,10 @@ const HOLE_R = 4.6;
 export const BOOK = {x: 14, y: 62, w: 332, h: 514};
 
 /** What each page of the book is: the games, and after them the daily challenge (the ladder) and the shop. */
-export type Page = Mode | "cover" | "contents" | "daily" | "shop" | "looks" | "buy" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "online" | "back";
-export const PAGES: Page[] = ["cover", "contents", "tutorial", "daily", "plus", "minus", "mixed", "times", "divide", "space", "endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online", "shop", "looks", "buy", "back"];
+export type Page = Mode | "cover" | "contents" | "daily" | "shop" | "looks" | "buy" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake" | "online" | "back";
+export const PAGES: Page[] = ["cover", "contents", "tutorial", "daily", "plus", "minus", "mixed", "times", "divide", "space", "endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "online", "shop", "looks", "buy", "back"];
 /** The pages of the match modes (they are kept together, under a line of their own, in the contents). */
-export const MATCH_PAGES: readonly Page[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online"];
+export const MATCH_PAGES: readonly Page[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "online"];
 /** The pages of the daily challenge and the shop. */
 /** The front cover is the first thing in the book (it has no page number); the contents is page 1. */
 export const CONTENTS_PAGE = PAGES.indexOf("contents");
@@ -161,7 +161,7 @@ export const CHAPTER_STARS = 3 * STAGES;
 /** How many stars, all chapters added together (180 at most), open the endless game. */
 export const STARS_FOR_ENDLESS = 120;
 /** The stars that open the match modes (without buying them for coins, or Premium): Save the cup and Even numbers. */
-export const STARS_FOR_VARIANT: Record<Variant, number> = {save: 130, sixeight: 140, defend: 150, ice: 160, fast: 170, find: 180, shield: 190, jet: 200, comet: 210};
+export const STARS_FOR_VARIANT: Record<Variant, number> = {save: 130, sixeight: 140, defend: 150, ice: 160, fast: 170, find: 180, shield: 190, jet: 200, comet: 205, snake: 210};
 
 /** The stars got in a level (the points of its best try): none until it has been cleared. */
 export function starsOfLevel(b: Book, mode: Mode, stage: number): number {
@@ -211,7 +211,7 @@ export function openNextGame(b: Book, mode: Mode, stage: number): {mode: Mode; s
 /** The room behind a page of the book. */
 export function roomOfPage(page: number): Room {
   const p = PAGES[Math.min(LAST, Math.max(0, page))];
-  return p === "daily" || p === "save" || p === "sixeight" || p === "defend" || p === "ice" || p === "fast" || p === "find" || p === "shield" || p === "jet" || p === "comet" || p === "online" ? "terrace" : p === "shop" ? "bakery" : p === "looks" || p === "contents" || p === "cover" ? "classroom" : p === "buy" || p === "back" ? "cafe" : roomOfMode(p);
+  return p === "daily" || p === "save" || p === "sixeight" || p === "defend" || p === "ice" || p === "fast" || p === "find" || p === "shield" || p === "jet" || p === "comet" || p === "snake" || p === "online" ? "terrace" : p === "shop" ? "bakery" : p === "looks" || p === "contents" || p === "cover" ? "classroom" : p === "buy" || p === "back" ? "cafe" : roomOfMode(p);
 }
 
 /** The game that follows another in the book: level after level, then the next page, ending in the endless game. */
@@ -1056,6 +1056,8 @@ function pageName(page: Page): string {
       return t("jetName");
     case "comet":
       return t("cometName");
+    case "snake":
+      return t("snakeName");
     case "online":
       return t("onlineName");
     case "shop":
@@ -1177,7 +1179,7 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
     registerHit(ctx, id, {x, y: y0, w: rw, h: rowH});
     const y = y0 + (ui.pressed === id ? 2 : 0);
     const chapter = isChapter(page as Mode);
-    const locked = chapter ? !isUnlocked(b, page as Mode, 1) : page === "endless" ? !isUnlocked(b, "endless", 0) : page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "online" ? !variantOpen(b, page) : false;
+    const locked = chapter ? !isUnlocked(b, page as Mode, 1) : page === "endless" ? !isUnlocked(b, "endless", 0) : page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "snake" || page === "online" ? !variantOpen(b, page) : false;
     softCard(ctx, x, y, rw, rowH, 10, "cream");
     // The left and the right edge of the line have the colour of their group (the same as the tab and the page number).
     ctx.save();
@@ -1317,6 +1319,7 @@ const VARIANT_KEYS: Record<Variant, {name: Key; sub: Key; rules: Key}> = {
   shield: {name: "shieldName", sub: "shieldSub", rules: "shieldRules"},
   jet: {name: "jetName", sub: "jetSub", rules: "jetRules"},
   comet: {name: "cometName", sub: "cometSub", rules: "cometRules"},
+  snake: {name: "snakeName", sub: "snakeSub", rules: "snakeRules"},
 };
 
 /** The picture in the middle of the page of a match mode. */
@@ -1352,10 +1355,22 @@ function drawVariantArt(ctx: CanvasRenderingContext2D, mode: Variant, cx: number
     ctx.restore();
     return;
   }
+  if (mode === "snake") {
+    // Three cups, and the snake sliding along its track over them: a row of numbers going left, the head in front, and a turn down at the left.
+    for (let i = 0; i < 3; i++) drawShopCup(ctx, [], cx + (i - 1) * 76, cy + 56, 0.66);
+    const go = (time * 18) % 40;
+    const pts: {x: number; y: number}[] = [];
+    for (let k = 0; k <= 60; k++) pts.push({x: cx + 110 - k * 3.6, y: cy - 44});
+    drawSnakeBody(ctx, [pts], false);
+    [3, 7, 2, 5].forEach((v, i) => drawBall(ctx, cx + 100 - go - i * 40 + 40, cy - 44, v, 0.7, time, i, "add"));
+    drawSnakeHead(ctx, cx - 90 - go * 0.2, cy - 44, Math.PI, time, {scale: 0.85});
+    drawBall(ctx, cx - 76, cy - 10 + ((time * 50) % 50), 5, 0.7, time, 5, "add");
+    return;
+  }
   if (mode === "comet") {
     // Three cups, steel 2s falling down into them, comets (balls of fire) falling beside them, and the ship weaving between it all.
     for (let i = 0; i < 3; i++) drawShopCup(ctx, [], cx + (i - 1) * 76, cy + 56, 0.66);
-    [-76, 76].forEach((dx, i) => drawBall(ctx, cx + dx, cy - 70 + ((time * 40 + i * 50) % 100), 2, 0.75, time, i, "steel"));
+    [-76, 76].forEach((dx, i) => drawBall(ctx, cx + dx, cy - 70 + ((time * 40 + i * 50) % 100), 10, 0.75, time, i, "ten"));
     [-38, 38].forEach((dx, i) => {
       const n = {x: cx + dx, y: cy - 80 + ((time * 55 + i * 60) % 120), phase: i * 1.7, state: "fall"} as unknown as Parameters<typeof drawComet>[1];
       drawComet(ctx, n, time);
@@ -1496,22 +1511,22 @@ function drawVariantPage(ctx: CanvasRenderingContext2D, b: Book, mode: Variant, 
   starPill(ctx, `${Math.min(totalStars(b), STARS_FOR_VARIANT[mode])}/${STARS_FOR_VARIANT[mode]}`);
   pageHead(ctx, t("matchLabel"), t(k.name), "#a86b10", t(k.sub));
   drawVariantArt(ctx, mode, w / 2, 190, time);
-  t(k.rules).split("|").forEach((line, i) => write(ctx, line, w / 2, 282 + i * 20, 15, INK, "center", 700));
+  drawRules(ctx, t(k.rules), w / 2, 282, w - 40, 3);
   drawRecordPlaque(ctx, ui.bests[mode] ?? 0, `scores:${mode}`);
   if (variantOpen(b, mode)) {
     drawButton(ctx, `variant:${mode}`, {x: w / 2 - 112, y: BOOK.h - 92, w: 224, h: 56}, t("play"), "primary", {pulse: time, size: 24});
     if (ui.premium) write(ctx, t("endFree"), w / 2, BOOK.h - 20, 13, "#2f7a3e", "center", 700);
     else {
       const [first, second] = t("variantCost").split("|");
-      write(ctx, first, w / 2, BOOK.h - 27, 13, "#5b4a36", "center", 600);
-      write(ctx, second ?? "", w / 2, BOOK.h - 11, 12.5, "#5b4a36", "center", 600);
+      write(ctx, first, w / 2, BOOK.h - 27, fitSize(ctx, first, 13, w - 36), "#5b4a36", "center", 600);
+      write(ctx, second ?? "", w / 2, BOOK.h - 11, fitSize(ctx, second ?? "", 12.5, w - 36), "#5b4a36", "center", 600);
     }
   } else {
     const afford = ui.coins >= VARIANT_PRICE;
     drawButton(ctx, `unlock:${mode}`, {x: w / 2 - 112, y: BOOK.h - 100, w: 224, h: 52}, "", afford ? "primary" : "secondary", {
       draw: (c, cx, cy, ink) => coinAmount(c, VARIANT_PRICE, cx, cy, 22, afford ? ink : "#f6efe0", afford ? "rgba(255,246,206,0.75)" : "rgba(14,8,24,0.85)"),
     });
-    t("variantLocked", {n: STARS_FOR_VARIANT[mode]}).split("|").forEach((line, i) => write(ctx, line, w / 2, BOOK.h - 32 + i * 16, 13, "#5b4a36", "center", 600));
+    t("variantLocked", {n: STARS_FOR_VARIANT[mode]}).split("|").forEach((line, i) => write(ctx, line, w / 2, BOOK.h - 32 + i * 16, fitSize(ctx, line, 13, w - 36), "#5b4a36", "center", 600));
   }
 }
 
@@ -1875,7 +1890,8 @@ function drawShopEnergy(ctx: CanvasRenderingContext2D): void {
 function drawDailyPage(ctx: CanvasRenderingContext2D, time: number): void {
   const w = BOOK.w;
   const design = designOfDay(ui.streakDay);
-  pageHead(ctx, t("dayLabel"), t(DESIGN_NAME[design]), "#b05a1c", ""); // (no line under the title: the steps start higher up)
+  // (under the title: the match mode of the day, which the whole ladder is played as)
+  pageHead(ctx, t("dayLabel"), t(DESIGN_NAME[design]), "#b05a1c", t(VARIANT_KEYS[dailyMixOf()].name));
   const geom = {cx: w / 2, y0: 312, step: 30};
   drawSteps(ctx, design, geom, (i) => i < ui.dailyRungs);
   // The red dotted goal line of the streak, with a few words at its end.
@@ -1887,9 +1903,7 @@ function drawDailyPage(ctx: CanvasRenderingContext2D, time: number): void {
     const last = i === DAILY_RUNGS - 1;
     // On the left: the rung, and the cups it needs.
     write(ctx, t("dailyRung", {n: i + 1}), geom.cx - half - 8, y - 4, 14, reached ? "#8a5208" : INK, "right", 700);
-    // (the even rungs are played as today's match mode: its name is under them, in the colour of the match pages)
-    const mix = dailyMixed(i + 1) ? `  ·  ${t(VARIANT_KEYS[dailyMixOf(undefined, i + 1)].name)}` : "";
-    write(ctx, t("dailyCups", {n: rungGoal(i + 1)}) + mix, geom.cx - half - 8, y + 9, 10.5, mix ? "#1f7a8c" : "#7a6648", "right", mix ? 700 : 600);
+    write(ctx, t("dailyCups", {n: rungGoal(i + 1)}), geom.cx - half - 8, y + 9, 10.5, "#7a6648", "right", 600);
     // On the right: what it pays today, in a small pill (gold for the top).
     const amount = rungPayout(i, ui.streakDay);
     ctx.font = `700 14px ${FONT}`;
@@ -2439,7 +2453,7 @@ function paintPage(ctx: CanvasRenderingContext2D, index: number, b: Book, _g: Ga
   else if (mode === "shop") drawShopPage(ctx);
   else if (mode === "looks") drawLooksPage(ctx);
   else if (mode === "buy") drawBuyPage(ctx);
-  else if (mode === "save" || mode === "sixeight" || mode === "defend" || mode === "ice" || mode === "fast" || mode === "find" || mode === "shield" || mode === "jet" || mode === "comet") drawVariantPage(ctx, b, mode, time);
+  else if (mode === "save" || mode === "sixeight" || mode === "defend" || mode === "ice" || mode === "fast" || mode === "find" || mode === "shield" || mode === "jet" || mode === "comet" || mode === "snake") drawVariantPage(ctx, b, mode, time);
   else if (mode === "online") drawOnlinePage(ctx, b, time);
   else if (isChapter(mode)) drawLevelsPage(ctx, b, mode);
   else drawEndlessPage(ctx, b, time);
@@ -2651,6 +2665,7 @@ const SUB_ICON: Partial<Record<Page, string>> = {
   shield: "M3 13a9 9 0 0 1 18 0M6 13a6 6 0 0 1 12 0M12 2v2M8 18l-2 3M16 18l2 3",
   jet: "M12 2l2 6v4l7 4v2l-7-2v4l2 2v1l-4-1-4 1v-1l2-2v-4l-7 2v-2l7-4V8z",
   comet: "M15 9a3 3 0 1 0 0 .1M13 11L3 21M12 8L5 15M16 12l-7 7",
+  snake: "M3 6h13a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h10M18 16l3 2-3 2",
   find: "M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM16 16l5 5M7.5 10.5h6M10.5 7.5v6",
   fast: "M9 11V5.5a1.5 1.5 0 0 1 3 0V11M12 10V4.5a1.5 1.5 0 0 1 3 0V11M15 10.5V6a1.5 1.5 0 0 1 3 0v7c0 4-2.5 7-6.5 7-3 0-4.5-1.5-6-4L4 12.5a1.5 1.5 0 0 1 2.5-1.5L9 13.5M2 4l2 2M2 9h2M5 1.5l.8 2.5",
   online: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3.2 3 3.2 15 0 18M12 3c-3.2 3-3.2 15 0 18",
@@ -2662,7 +2677,7 @@ const SUB_ICON: Partial<Record<Page, string>> = {
 /** Whether a page of the arc is shut (the match modes that have not been opened yet). */
 function subLocked(b: Book, page: Page): boolean {
   if (page === "endless") return !isUnlocked(b, "endless", 0);
-  if (page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "online") return !variantOpen(b, page);
+  if (page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "snake" || page === "online") return !variantOpen(b, page);
   return false;
 }
 
@@ -2820,6 +2835,11 @@ function drawMarker(ctx: CanvasRenderingContext2D, x: number, y: number): void {
  */
 function drawArc(ctx: CanvasRenderingContext2D, b: Book, group: number, top: number, here: number): void {
   const pages = subPages(group);
+  // (many pages (the match modes): a slider instead, that the finger scrolls sideways)
+  if (pages.length > 6) {
+    drawSlider(ctx, b, group, top, here);
+    return;
+  }
   const c = TAB_GROUPS[group].color;
   const px = W / 2;
   const py = top + 4;
@@ -3140,4 +3160,208 @@ export function drawBook(ctx: CanvasRenderingContext2D, b: Book, g: GameState, t
 
   drawNav(ctx, b);
   if (ui.layout === "groups" && !ui.coverIntro) drawTabs(ctx, b);
+}
+
+/** The biggest size (at most `size`) the words can be written in and still be no wider than `maxW`. */
+function fitSize(ctx: CanvasRenderingContext2D, s: string, size: number, maxW: number): number {
+  ctx.save();
+  ctx.font = `700 ${size}px ${FONT}`;
+  const tw = ctx.measureText(s).width;
+  ctx.restore();
+  return tw > maxW ? Math.max(8, (size * maxW) / tw) : size;
+}
+
+/**
+ * The rules of a page: each part (they are split by "|") is wrapped to the width there is, and if that makes more lines than there is room for
+ * (`maxLines`) the text is made smaller until it fits. (x, y) is the middle of the first line.
+ */
+function drawRules(ctx: CanvasRenderingContext2D, rules: string, x: number, y: number, maxW: number, maxLines: number): void {
+  let size = 15;
+  let lines: string[] = [];
+  for (;;) {
+    ctx.save();
+    ctx.font = `700 ${size}px ${FONT}`;
+    lines = rules.split("|").flatMap((part) => wrapLines(ctx, part, maxW));
+    const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    ctx.restore();
+    if ((lines.length <= maxLines && widest <= maxW) || size <= 10) break;
+    size -= 0.5;
+  }
+  const step = Math.min(20, size * 1.3);
+  lines.forEach((line, i) => write(ctx, line, x, y + i * step, size, INK, "center", 700));
+}
+
+/** How far apart the buttons of the slider are. */
+const SLIDE_PITCH = 80;
+
+/**
+ * The match modes over the bar, in a slider: a dark panel with a row of round buttons (a sign and the name under each) that the finger scrolls sideways,
+ * with the page the book is open at lit in the colour of the group and marked, soft edges where there is more to scroll to, and a row of dots under it
+ * that shows which one is chosen and how far along the row the window is. It slides up as it opens. A tap on a button goes to the page.
+ */
+function drawSlider(ctx: CanvasRenderingContext2D, b: Book, group: number, top: number, here: number): void {
+  const pages = subPages(group);
+  const c = TAB_GROUPS[group].color;
+  const age = performance.now() / 1000 - ui.barOpenAt;
+  const p = Math.min(1, Math.max(0, age / 0.24));
+  const ease = 1 - Math.pow(1 - p, 3);
+  const px = 10;
+  const pw = W - 20;
+  const ph = 132;
+  const py = top - ph - 14 + (1 - ease) * 40;
+  const viewX = px + 14;
+  const viewW = pw - 28;
+  const total = pages.length * SLIDE_PITCH;
+  const maxScroll = Math.max(0, total - viewW);
+  // (when it opens, the page the book is open at is put in the middle)
+  if (ui.subScroll < 0) {
+    const at = Math.max(0, pages.indexOf(here));
+    ui.subScroll = at * SLIDE_PITCH + SLIDE_PITCH / 2 - viewW / 2;
+  }
+  // (after a quick flick it rolls on, slower and slower, and stops at the ends)
+  const now = performance.now() / 1000;
+  const dt = Math.min(0.05, Math.max(0, now - ui.subT));
+  ui.subT = now;
+  if (ui.subVel !== 0) {
+    ui.subScroll += ui.subVel * dt;
+    ui.subVel *= Math.pow(0.04, dt);
+    if (Math.abs(ui.subVel) < 8 || ui.subScroll <= 0 || ui.subScroll >= maxScroll) ui.subVel = 0;
+  }
+  ui.subScroll = Math.min(maxScroll, Math.max(0, ui.subScroll));
+  const scroll = ui.subScroll;
+
+  ctx.save();
+  ctx.globalAlpha = ease;
+  // (no panel: the buttons stand right on the dimmed screen; a tap between them does not close it, only a tap outside the row does)
+  registerHit(ctx, "subStrip", {x: px, y: py, w: pw, h: ph});
+  // Which one of how many is chosen.
+  const chosen = pages.indexOf(here);
+  if (chosen >= 0) write(ctx, `${chosen + 1} / ${pages.length}`, px + pw - 18, py + 17, 11, "rgba(255,246,230,0.6)", "right", 700);
+
+  // The row of buttons, clipped to the window.
+  const rowY = py + 60;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(viewX, py + 26, viewW, 90);
+  ctx.clip();
+  pages.forEach((index, k) => {
+    const x = viewX + k * SLIDE_PITCH + SLIDE_PITCH / 2 - scroll;
+    if (x < viewX - SLIDE_PITCH || x > viewX + viewW + SLIDE_PITCH) return;
+    const page = PAGES[index];
+    const lit = index === here;
+    const locked = subLocked(b, page);
+    const r = lit ? 27 : 24;
+    if (x > viewX && x < viewX + viewW) registerHit(ctx, `sub:${index}`, {x: x - SLIDE_PITCH / 2, y: rowY - 34, w: SLIDE_PITCH, h: 84});
+    ctx.save();
+    ctx.globalAlpha = ease * (locked ? 0.55 : 1);
+    if (lit) {
+      // (the chosen one: a soft glow round it in the colour of the group)
+      const glow = ctx.createRadialGradient(x, rowY, r, x, rowY, r + 16);
+      glow.addColorStop(0, c.mid);
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.globalAlpha = ease * 0.55;
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(x, rowY, r + 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = ease;
+    }
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.beginPath();
+    ctx.arc(x, rowY + 3, r, 0, Math.PI * 2);
+    ctx.fill();
+    const fill = ctx.createLinearGradient(0, rowY - r, 0, rowY + r);
+    fill.addColorStop(0, lit ? c.light : "#5a3d27");
+    fill.addColorStop(1, lit ? c.deep : "#2c1c10");
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(x, rowY, r, 0, Math.PI * 2);
+    ctx.fill();
+    if (!lit) {
+      ctx.save();
+      ctx.clip();
+      applyTint(ctx, ui.look.tint, x - r, rowY - r, r * 2, r * 2);
+      ctx.restore();
+    }
+    // (a highlight over the top of the button)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, rowY, r, 0, Math.PI * 2);
+    ctx.clip();
+    const shine = ctx.createLinearGradient(0, rowY - r, 0, rowY);
+    shine.addColorStop(0, "rgba(255,255,255,0.28)");
+    shine.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = shine;
+    ctx.fillRect(x - r, rowY - r, r * 2, r);
+    ctx.restore();
+    ctx.lineWidth = lit ? 3 : 1.6;
+    ctx.strokeStyle = lit ? "#ffffff" : c.mid;
+    ctx.beginPath();
+    ctx.arc(x, rowY, r, 0, Math.PI * 2);
+    ctx.stroke();
+    const icon = SUB_ICON[page];
+    if (icon) {
+      ctx.save();
+      const k2 = r / 27;
+      ctx.translate(x - 12 * k2, rowY - 12 * k2);
+      ctx.scale(k2, k2);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = "rgba(0,0,0,0.4)";
+      ctx.translate(0, 1);
+      ctx.stroke(new Path2D(icon));
+      ctx.translate(0, -1);
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke(new Path2D(icon));
+      ctx.restore();
+    }
+    // (a padlock on the ones that are shut)
+    if (locked) {
+      ctx.fillStyle = "#1c120a";
+      ctx.beginPath();
+      ctx.arc(x + r * 0.7, rowY - r * 0.7, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#ffe27a";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(x + r * 0.7, rowY - r * 0.7 - 1.5, 2.6, Math.PI, 0);
+      ctx.stroke();
+      ctx.fillStyle = "#ffe27a";
+      ctx.fillRect(x + r * 0.7 - 3.5, rowY - r * 0.7 - 1, 7, 5);
+    }
+    ctx.restore();
+    // The name under it (smaller if it is long), and a short bar under the chosen one.
+    const name = pageName(page);
+    const size = fitSize(ctx, name, 11, SLIDE_PITCH - 8);
+    ctx.save();
+    ctx.globalAlpha = ease * (locked ? 0.7 : 1);
+    write(ctx, name, x, rowY + 38, size, "rgba(0,0,0,0.6)", "center", 700);
+    write(ctx, name, x, rowY + 37, size, lit ? c.light : "#fff6e6", "center", 700);
+    if (lit) {
+      ctx.fillStyle = c.light;
+      roundRect(ctx, x - 12, rowY + 47, 24, 3, 1.5);
+      ctx.fill();
+    }
+    ctx.restore();
+  });
+  ctx.restore();
+  // (no arrows at the sides: the dots under the row show that there is more to scroll to)
+  // The dots: one for each page, the chosen one long and in the colour of the group; the ones in the window are lighter.
+  const dotY = py + ph - 12;
+  const dw = 6;
+  const gap = 5;
+  const totalW = pages.length * (dw + gap) - gap + 8;
+  let dx = W / 2 - totalW / 2;
+  pages.forEach((index, k) => {
+    const x = viewX + k * SLIDE_PITCH + SLIDE_PITCH / 2 - scroll;
+    const seen = x > viewX && x < viewX + viewW;
+    const on = index === here;
+    const ww = on ? dw + 8 : dw;
+    ctx.fillStyle = on ? c.light : seen ? "rgba(255,246,230,0.55)" : "rgba(255,246,230,0.2)";
+    roundRect(ctx, dx, dotY - dw / 2, ww, dw, dw / 2);
+    ctx.fill();
+    dx += ww + gap;
+  });
+  ctx.restore();
 }

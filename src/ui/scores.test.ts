@@ -6,7 +6,7 @@ describe("the document of a score", () => {
   it("has the device, a clean name, a whole score that is not too big, and the time", () => {
     expect(scoreDoc("d1", "  Kalle  ", 1234.9, 99)).toEqual({device: "d1", name: "Kalle", score: 1234, at: 99});
     expect(scoreDoc("d1", "Kalle", -5, 1).score).toBe(0);
-    expect(scoreDoc("d1", "Kalle", 1e12, 1).score).toBe(SCORE_MAX);
+    expect(scoreDoc("d1", "Kalle", 1e15, 1).score).toBe(SCORE_MAX);
   });
 
   it("has only the four things the rules allow", () => {
@@ -52,8 +52,8 @@ describe("the connection to the project", () => {
 
 describe("a top list for every game", () => {
   it("has its own collection for the endless game and for each match mode, and a board for each", () => {
-    expect(COLLECTION).toEqual({endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight", defend: "highscores_defend", ice: "highscores_ice", fast: "highscores_fast", find: "highscores_find", shield: "highscores_shield", jet: "highscores_jet", comet: "highscores_comet"});
-    expect(new Set(SCORE_MODES.map((m) => COLLECTION[m])).size).toBe(10);
+    expect(COLLECTION).toEqual({endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight", defend: "highscores_defend", ice: "highscores_ice", fast: "highscores_fast", find: "highscores_find", shield: "highscores_shield", jet: "highscores_jet", comet: "highscores_comet", snake: "highscores_snake"});
+    expect(new Set(SCORE_MODES.map((m) => COLLECTION[m])).size).toBe(11);
     expect(boards.endless).toBe(board);
     expect(boards.save).not.toBe(boards.endless);
     expect(boards.save.rows).toEqual([]);

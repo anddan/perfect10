@@ -17,18 +17,18 @@ export const VARIANT_PRICE = 500;
 export const ONLINE_PRICE = 150;
 
 /** The match modes. */
-export const VARIANTS: readonly Variant[] = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet"];
+export const VARIANTS: readonly Variant[] = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake"];
 
 export function isVariant(v: unknown): v is Variant {
-  return v === "save" || v === "sixeight" || v === "defend" || v === "ice" || v === "fast" || v === "find" || v === "shield" || v === "jet" || v === "comet";
+  return v === "save" || v === "sixeight" || v === "defend" || v === "ice" || v === "fast" || v === "find" || v === "shield" || v === "jet" || v === "comet" || v === "snake";
 }
 
 /** Everything that can be bought once for coins: the two match modes, and Online. */
 export type UnlockMode = Variant | "online";
-export const UNLOCK_MODES: readonly UnlockMode[] = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "online"];
+export const UNLOCK_MODES: readonly UnlockMode[] = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "online"];
 
 export function isUnlockMode(v: unknown): v is UnlockMode {
-  return v === "save" || v === "sixeight" || v === "defend" || v === "ice" || v === "fast" || v === "find" || v === "shield" || v === "jet" || v === "comet" || v === "online";
+  return v === "save" || v === "sixeight" || v === "defend" || v === "ice" || v === "fast" || v === "find" || v === "shield" || v === "jet" || v === "comet" || v === "snake" || v === "online";
 }
 
 /** What it costs in coins. */

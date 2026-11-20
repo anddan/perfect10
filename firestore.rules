@@ -16,14 +16,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -35,14 +35,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -54,14 +54,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -73,14 +73,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -92,14 +92,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -111,14 +111,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -130,14 +130,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -149,14 +149,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -168,14 +168,14 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }
@@ -187,14 +187,33 @@ service cloud.firestore {
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= 0
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
         && request.resource.data.device == resource.data.device
         && validName(request.resource.data.name)
         && request.resource.data.score is int
         && request.resource.data.score >= resource.data.score
-        && request.resource.data.score <= 10000000
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_snake/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 1000000000000
         && request.resource.data.at is number;
       allow delete: if false;
     }

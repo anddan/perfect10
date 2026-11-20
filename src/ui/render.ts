@@ -1,13 +1,14 @@
 // Draws one frame of the game, in the game's own 360 x 640 coordinates.
 import {LASER_COOLDOWN} from "../game/cups";
-import {drawComboGlow, drawEnemyShots, drawTrail, drawFuel, drawComet, drawJet, drawJetGot, drawLinks, drawPickup, drawShip, drawShots} from "./craftArt";
+import {drawFlame, drawHealth, drawLaser, drawWeaponHud, drawComboGlow, drawEnemyShots, drawTrail, drawFuel, drawComet, drawJet, drawJetGot, drawLinks, drawPickup, drawShip, drawShots, drawPlanet} from "./craftArt";
+import {drawGoldGlow, drawSnakeBody, drawSnakeHead, drawSnakeTrack} from "./snakeArt";
 import {cupPalette, cupPattern, drawCupBadges, drawShopCup} from "./cupArt";
 import {DAILY_RUNGS, SCREEN_MAX} from "../game/constants";
 import {type Package, rungGoal, rungOfCup, rungPayout, rungsDone} from "../game/daily";
 import {type Geom, designOfDay, drawGift, drawLimitLine, drawSteps, halfWidth, stepX, stepY} from "./stepsArt";
 import {CHAIN_LENGTH, ERASER_MAX, COMBO_SECONDS, CUP_H, DIVE_GRAVITY, DIVE_HOP, H, MENU_LIFT, SWEEP_DOWN, TARGET, TUTORIAL_STEPS, W} from "../game/constants";
-import {SHIELD_BEND, SHIELD_POWER_MAX, SHIELD_W0, SHIELD_W_MAX, shieldOn, jetOn, cometOn, shipFlying, fuelCapacity, canContinue, endlessLevel, fadeOn, featureAge, ghostShow, goalFor, progressOf, starsFor, sweepBottom} from "../game/engine";
-import type {Cup, Feature, GameState, NumberTile, Op, PerkId} from "../game/types";
+import {SHIELD_BEND, SHIELD_POWER_MAX, SHIELD_W0, SHIELD_W_MAX, shieldOn, jetOn, cometOn, shipFlying, fuelCapacity, SHIP_HP, DAILY_INTRO, snakeOn, snakePoint, snakePath, snakeTrain, SNAKE_GAP, canContinue, endlessLevel, fadeOn, featureAge, ghostShow, goalFor, progressOf, starsFor, sweepBottom} from "../game/engine";
+import type {Cup, Feature, GameState, NumberTile, Op, PerkId, Weapon} from "../game/types";
 import {type Room, roomOfMode} from "./background";
 import {drawAd} from "./ad";
 import {BOOK, type Book, chapterOf, drawBook, drawMenuBar, openNextGame, roomOfPage} from "./book";
@@ -48,7 +49,7 @@ import {ENERGY_PILL, GEAR_BUTTON, PAUSE_BUTTON, drawCoinsPill, drawKey, drawStar
 import {deviceId, playerName} from "./profile";
 import {boards} from "./scores";
 import {type Key, t} from "./i18n";
-import {BAR, barFill, litSegments, segmentLayout, shownProgress} from "./progress";
+import {BAR, barFill, litSegments, segmentCount, segmentLayout, shownProgress} from "./progress";
 import {SAUCER_COLORS, drawSaucerBadge, drawSetGlow, drawSetStars} from "./saucerArt";
 import {SPECIAL_PERKS} from "../game/daily";
 import {PAUSE_SECONDS, SLOW_SECONDS} from "../game/constants";
@@ -585,15 +586,32 @@ const LANDED_KINDS: {kind: string; v: number; op: Op}[] = [
 function drawLanded(ctx: CanvasRenderingContext2D, g: GameState, y: number, time: number): void {
   const kinds = LANDED_KINDS.filter((k) => (g.landed[k.kind] ?? 0) > 0);
   if (kinds.length === 0) return;
-  const pitch = Math.min(66, 270 / kinds.length);
-  const x0 = W / 2 - (pitch * (kinds.length - 1)) / 2;
-  kinds.forEach((k, i) => {
-    const x = x0 + i * pitch - 14;
-    setBallLabel(k.kind === "plus" ? "+" : k.kind === "minus" ? "\u2212" : k.kind === "mul" ? "\u00D7" : k.kind === "div" ? "\u00F7" : null);
-    drawBall(ctx, x, y, k.v, 0.62, time, i, k.op, "classic");
-    setBallLabel(null);
-    write(ctx, String(g.landed[k.kind]), x + 15, y + 1, 14, "#ffffff", "left", 700);
-  });
+  // (no more than LANDED_PER_ROW to a row: the rest go on the next row, so that the counts always fit)
+  for (let r = 0; r * LANDED_PER_ROW < kinds.length; r++) {
+    const row = kinds.slice(r * LANDED_PER_ROW, (r + 1) * LANDED_PER_ROW);
+    const pitch = 54;
+    const x0 = W / 2 - (pitch * (row.length - 1)) / 2;
+    row.forEach((k, i) => {
+      const x = x0 + i * pitch - 12;
+      const yy = y + r * LANDED_ROW_H;
+      // (the steel of the comet belt is a 2)
+      const v = k.v;
+      setBallLabel(k.kind === "plus" ? "+" : k.kind === "minus" ? "\u2212" : k.kind === "mul" ? "\u00D7" : k.kind === "div" ? "\u00F7" : null);
+      drawBall(ctx, x, yy, v, 0.62, time, r * LANDED_PER_ROW + i, k.op, "classic");
+      setBallLabel(null);
+      write(ctx, String(g.landed[k.kind]), x + 15, yy + 1, 14, "#ffffff", "left", 700);
+    });
+  }
+}
+
+/** How many kinds of number go on one row of the card, and how far apart the rows are. */
+const LANDED_PER_ROW = 5;
+const LANDED_ROW_H = 34;
+
+/** The room the numbers that landed take on the card (one more row for every five kinds). */
+function landedRoom(g: GameState): number {
+  const n = LANDED_KINDS.filter((k) => (g.landed[k.kind] ?? 0) > 0).length;
+  return LANDED_ROOM + Math.max(0, Math.ceil(n / LANDED_PER_ROW) - 1) * LANDED_ROW_H;
 }
 const INTRO_OK: Button = {x: 70, y: 452, w: 220, h: 50};
 const INTRO_NEVER: Button = {x: 70, y: 510, w: 220, h: 36};
@@ -730,7 +748,7 @@ function drawCountdown(ctx: CanvasRenderingContext2D, g: GameState): void {
   ctx.globalAlpha = into > 0.75 ? 1 - (into - 0.75) / 0.25 : 1;
   ctx.translate(W / 2, 250);
   ctx.scale(pop, pop);
-  title(ctx, String(n), 0, 0, 110);
+  title(ctx, String(n), 0, 0, 110, undefined, undefined, 0.12); // (a thinner outline: at this size the usual one is too heavy)
   ctx.restore();
   ctx.globalAlpha = 1;
 }
@@ -813,8 +831,8 @@ function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number, boo
   const retryNew = !won && g.daily && ui.dailyRetry && !carryOn;
   // (after a lost round, a row with the numbers that landed in the cups)
   const landed = !won && g.mode !== "tutorial" && Object.keys(g.landed).length > 0;
-  const room = (reward ? REWARD_ROOM : carryOn || retryNew ? CONTINUE_ROOM : 0) + (landed ? LANDED_ROOM : 0);
-  const statsDy = landed ? LANDED_ROOM : 0;
+  const room = (reward ? REWARD_ROOM : carryOn || retryNew ? CONTINUE_ROOM : 0) + (landed ? landedRoom(g) : 0);
+  const statsDy = landed ? landedRoom(g) : 0;
   drawPanel(ctx, 30, 116, 300, 346 + room, 24);
   if (won) drawRibbon(ctx, W / 2, 86, 210, t(g.mode === "tutorial" ? "doneTutorial" : "cleared"), "#ffe27a", "#d49a14");
   else drawRibbon(ctx, W / 2, 86, 230, t("gameOver"), "#ff8f86", "#c23b30");
@@ -1747,12 +1765,14 @@ function drawProgress(ctx: CanvasRenderingContext2D, g: GameState, fx: Fx): void
   if (g.mode === "tutorial") return;
   const {x, y, w, h} = BAR;
   const cupsShown = g.level - 1 - fx.pending;
-  const lay = segmentLayout(g, cupsShown);
-  const lit = litSegments(g, cupsShown);
+  const glow = fx.pop.t;
+  // (a level that has just been gone up: when the last segment has landed and its glow is over, the bar is cleared and shows the new level)
+  const filled = g.mode === "endless" && cupsShown > 0 && glow <= 0 && litSegments(g, cupsShown) >= segmentCount(g, cupsShown);
+  const lay = segmentLayout(g, filled ? cupsShown + 1 : cupsShown);
+  const lit = filled ? 0 : litSegments(g, cupsShown);
   // (when the progress fades, the top segment is only partly filled: how much is shown by how far it has drained)
   const fading = fadeOn(g);
-  const prog = fading ? barFill(g, shownProgress(g, fx.pending, fx.drainShown)) : 0;
-  const glow = fx.pop.t;
+  const prog = fading && !filled ? barFill(g, shownProgress(g, fx.pending, fx.drainShown)) : 0;
 
   // A glow around the whole bar when a segment lands.
   if (glow > 0) {
@@ -1771,7 +1791,7 @@ function drawProgress(ctx: CanvasRenderingContext2D, g: GameState, fx: Fx): void
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = glow > 0 ? `rgba(255,226,130,${0.4 + 0.5 * glow})` : "rgba(255,225,160,0.32)";
   ctx.stroke();
-  if (g.mode === "endless") write(ctx, g.daily ? t("dailyRung", {n: rungOfCup(cupsShown).rung}) : t("level", {n: endlessLevel(g)}), x + 14, y + h / 2 + 1, 12, CHALK, "left", 700);
+  if (g.mode === "endless") write(ctx, g.daily ? t("dailyRung", {n: rungOfCup(cupsShown).rung + (filled ? 1 : 0)}) : t("level", {n: endlessLevel(g)}), x + 14, y + h / 2 + 1, 12, CHALK, "left", 700);
 
   for (let i = 0; i < lay.count; i++) {
     const sx = lay.x0 + i * (lay.segW + lay.gap);
@@ -2411,26 +2431,49 @@ export function drawGame(
     ui.steelSkulls = shieldOn(g) || jetOn(g);
     // (Comet belt: the tails of fire behind the comets; and the chains of the balls that hang together)
     drawLinks(ctx, g.numbers.filter((n) => !n.comet));
+    if (snakeOn(g)) drawSnake(ctx, g);
     for (const n of g.numbers) {
-      if (passing(n) || n.comet) continue;
-      if (n.pickup) drawPickup(ctx, n, g.time);
+      if (passing(n) || n.comet || n.snakeHead) continue;
+      if (n.gold) drawGoldGlow(ctx, n.x, n.y, g.time);
+      // (a bomb with a lit fuse flashes white and red)
+      if (n.fuse !== undefined) {
+        ctx.save();
+        ctx.globalAlpha = 0.5 + 0.5 * Math.sin(g.time * 50);
+        ctx.fillStyle = "#ff5a3a";
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, 30, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      if (n.pickup) drawPickup(ctx, n, g.time, n.link !== undefined && n.weapon ? t(WEAPON_KEY[n.weapon]) : undefined);
       else drawNumber(ctx, n, g.time);
-    }
-    // Fighter jet: its shots, and the jet (it blinks while it is knocked out).
-    if (jetOn(g) && (g.phase === "play" || g.phase === "over")) {
-      drawShots(ctx, g.shots);
-      drawEnemyShots(ctx, g.enemyShots, g.time);
-      drawTrail(ctx, g.craftTrail, "190,120,255");
-      if (g.combo >= 2 && g.phase === "play") drawComboGlow(ctx, g.shieldX, g.shieldY, g.combo, g.time);
-      drawJet(ctx, g.shieldX, g.shieldY, g.time, {guns: g.jetGun, missiles: g.jetMissile, shield: g.jetShield, stun: g.jetStun});
-      drawJetGot(ctx, g, t(gotWords(g)));
     }
     // Comet belt: the ship (gone in the explosion if it crashed).
     if (cometOn(g) && (g.phase === "play" || (g.phase === "over" && g.overReason !== "crash"))) {
       drawTrail(ctx, g.craftTrail, "255,150,60");
+      // (just hit: it blinks while it cannot be hurt again)
+      ctx.save();
+      if (g.shipHurt > 0 && Math.floor(g.time * 14) % 2 === 0) ctx.globalAlpha = 0.35;
       drawShip(ctx, g.shieldX, g.shieldY, g.time, g.jetShield, shipFlying(g));
+      ctx.restore();
+      drawHealth(ctx, g.shieldX, g.shieldY, g.shipHp, SHIP_HP, g.shipHurt, g.time);
       drawFuel(ctx, g.shieldX, g.shieldY, g.fuel, g.fuelOut, g.time, fuelCapacity(g));
       drawJetGot(ctx, g, t(gotWords(g)));
+    }
+    // The snake: its head, in front of the numbers.
+    for (const n of g.numbers) {
+      if (!n.snakeHead || n.done) continue;
+      const a = n.track !== undefined ? snakePoint(g, n.track).a : Math.PI / 2;
+      drawSnakeHead(ctx, n.x, n.y, a, g.time, {scale: n.state === "dive" ? n.scale : 1, boss: n.boss, stun: g.snakeStun, angry: g.snakeBoost > 0});
+      // (a perfect 10 faded off the bar: "Faster!" over the head)
+      if (g.snakeFastT < 1.3) {
+        const u = g.snakeFastT / 1.3;
+        ctx.save();
+        ctx.globalAlpha = u > 0.7 ? (1 - u) / 0.3 : 1;
+        const shake = u < 0.3 ? Math.sin(g.time * 70) * 4 * (1 - u / 0.3) : 0;
+        title(ctx, t("snakeFaster"), n.x + shake, n.y - 44 - u * 12, 18, "#ffffff", "#d4261c");
+        ctx.restore();
+      }
     }
     // The life of a boss: a red bar over it, that empties while the shield holds it up (or the jet shoots it).
     if ((shieldOn(g) || jetOn(g)) && (g.phase === "play" || g.phase === "over")) {
@@ -2463,7 +2506,21 @@ export function drawGame(
     for (const n of g.numbers) if (passing(n)) drawNumber(ctx, n, g.time);
     // (Comet belt: the comets fall past the cups, in front of them)
     drawLinks(ctx, g.numbers.filter((n) => n.comet));
-    for (const n of g.numbers) if (n.comet && n.state === "fall") drawComet(ctx, n, g.time);
+    for (const n of g.numbers) if (n.comet && n.state === "fall") (n.planet ? drawPlanet : drawComet)(ctx, n, g.time);
+    // Fighter jet: its shots, and the jet, in front of the cups (it blinks while it is knocked out).
+    if (jetOn(g) && (g.phase === "play" || g.phase === "over")) {
+      drawShots(ctx, g.shots);
+      drawEnemyShots(ctx, g.enemyShots, g.time);
+      drawTrail(ctx, g.craftTrail, "190,120,255");
+      if (g.combo >= 2 && g.phase === "play") drawComboGlow(ctx, g.shieldX, g.shieldY, g.combo, g.time);
+      // (the laser and the plasma flame, from its nose)
+      if (g.jetBeam !== null && g.phase === "play") drawLaser(ctx, g.shieldX, g.shieldY - 30, g.jetBeam, g.jetLv.a, g.time);
+      if (g.jetFlame && g.phase === "play") drawFlame(ctx, g.shieldX, g.shieldY - 30, g.jetLv.b, g.time);
+      drawJet(ctx, g.shieldX, g.shieldY, g.time, {guns: g.jetWeapons.a === "bullet" ? g.jetLv.a + 1 : 1, missiles: g.jetWeapons.b === "missile" ? g.jetLv.b : 0, shield: g.jetShield, stun: g.jetStun});
+      drawWeaponHud(ctx, g.shieldX, g.shieldY, {weapons: g.jetWeapons, lv: g.jetLv});
+      drawJetGot(ctx, g, t(gotWords(g)));
+      if (g.jetDown < 1.3) drawJetDown(ctx, g);
+    }
     drawZapDiamond(ctx, g);
     drawTutorialHand(ctx, g);
     fx.drawTop(ctx);
@@ -2480,7 +2537,8 @@ export function drawGame(
     if (g.phase === "play" && g.erase > 0) drawErasing(ctx, g);
     if (g.phase === "play" || (g.phase === "won" && g.overTimer < 0)) atTop(() => drawHud(ctx, g));
     drawBanner(ctx, g);
-    if (g.countdown > 0) drawCountdown(ctx, g);
+    if (g.daily && g.dailyIntro > 0 && g.dailyMix) drawDailyIntro(ctx, g);
+    if (g.countdown > 0 && !(g.daily && g.dailyIntro > 0)) drawCountdown(ctx, g);
     if (g.variant === "find" && g.phase === "play" && g.countdown <= 0 && g.findTotal > 0) atTop(() => drawFindClock(ctx, g));
     // (the dialogs stand in the middle of the screen: on a tall phone they are moved up by half of the extra room)
     ctx.save();
@@ -2597,7 +2655,8 @@ function drawShieldGrowText(ctx: CanvasRenderingContext2D, g: GameState): void {
 
 /** The words over the jet or the ship when it has picked something up. */
 function gotWords(g: GameState): Key {
-  return g.jetGotKind === "gun" ? "jetGotGun" : g.jetGotKind === "missile" ? "jetGotMissile" : g.jetGotKind === "fuel" ? "jetGotFuel" : "jetGotShield";
+  if (g.jetGotKind === "weapon" && g.jetGotWeapon) return WEAPON_KEY[g.jetGotWeapon];
+  return g.jetGotKind === "heart" ? "jetGotHeart" : g.jetGotKind === "fuel" ? "jetGotFuel" : "jetGotShield";
 }
 
 /** On the card of a round that got on the top list (or beat the record): the place, in gold, that pops up, glows and has a shine going over it. */
@@ -2627,6 +2686,133 @@ function drawTopPlace(ctx: CanvasRenderingContext2D, g: GameState, place: number
     shine.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = shine;
     ctx.fillRect(sx - 20, -16, 40, 32);
+  }
+  ctx.restore();
+}
+
+/** The names of the weapons of the jet. */
+const WEAPON_KEY: Record<Weapon, Key> = {bullet: "wBullet", laser: "wLaser", flame: "wFlame", missile: "wMissile", ricochet: "wRicochet", rapid: "wRapid"};
+
+/** The snake: its track over the desk, and the green body under the numbers of the train (from the head back, as far as they hang together without a gap). */
+function drawSnake(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const pts = snakePath(g);
+  // (the column of each cup: faint dotted lines halfway between the cups, so that it is seen which cup a number tapped over there goes into)
+  ctx.save();
+  ctx.setLineDash([3, 9]);
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 2;
+  const xs = g.cups.map((c) => c.x).sort((a, b) => a - b);
+  const bottom = Math.min(...g.cups.map((c) => c.y)) - CUP_H / 2 - 4;
+  for (let k = 1; k < xs.length; k++) {
+    const x = (xs[k - 1] + xs[k]) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x, -g.extra);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+  }
+  ctx.restore();
+  drawSnakeTrack(ctx, pts, g.time);
+  const train = snakeTrain(g);
+  if (train.length === 0) return;
+  const head = train.find((n) => n.snakeHead);
+  const pieces: {x: number; y: number}[][] = [];
+  let from = train[0].track!;
+  let to = from;
+  const flush = (): void => {
+    if (from - to < 1 && train.length > 1) return;
+    const p: {x: number; y: number}[] = [];
+    for (let s = Math.max(0, to); s <= from; s += 4) p.push(snakePoint(g, s));
+    p.push(snakePoint(g, Math.max(0, from)));
+    if (p.length > 1) pieces.push(p);
+  };
+  for (let i = 1; i < train.length; i++) {
+    const s = train[i].track!;
+    if (to - s > SNAKE_GAP + 3) {
+      flush();
+      from = s;
+    }
+    to = s;
+  }
+  flush();
+  drawSnakeBody(ctx, pieces, !!head?.boss || g.snakeBoost > 0);
+}
+
+/** Over the jet when a perfect 10 has faded off the bar and its weapons went down a step ("Weapons -1"): the words drop in, shake and fade. */
+function drawJetDown(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const u = g.jetDown / 1.3;
+  ctx.save();
+  ctx.globalAlpha = u > 0.7 ? (1 - u) / 0.3 : 1;
+  const shake = u < 0.3 ? Math.sin(g.time * 70) * 4 * (1 - u / 0.3) : 0;
+  ctx.translate(g.shieldX + shake, g.shieldY - 60 + u * 10);
+  title(ctx, t("weaponDown"), 0, 0, 18, "#ffffff", "#d4261c");
+  ctx.restore();
+}
+
+/** The names of the match modes. */
+const MIX_NAME: Record<NonNullable<GameState["dailyMix"]>, Key> = {save: "saveName", sixeight: "sixEightName", defend: "defendName", ice: "iceName", fast: "fastName", find: "findName", shield: "shieldName", jet: "jetName", comet: "cometName", snake: "snakeName"};
+
+/**
+ * The daily ladder starts: the match mode of the day is presented. A gold ribbon with "Today's mode" slides down, the name of the mode pops in under it,
+ * big, with a flash of light sweeping across it and sparkles round it, and then it all fades away.
+ */
+function drawDailyIntro(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const u = 1 - g.dailyIntro / DAILY_INTRO; // 0 -> 1
+  const fade = u > 0.8 ? (1 - u) / 0.2 : 1;
+  const cy = 170;
+  ctx.save();
+  ctx.globalAlpha = fade;
+  // (the screen darkens a little behind it)
+  ctx.fillStyle = `rgba(8,6,14,${0.45 * Math.min(1, u / 0.1)})`;
+  ctx.fillRect(0, cy - 90, W, 170);
+  // The ribbon slides down from above.
+  const drop = Math.min(1, u / 0.18);
+  const ease = 1 - Math.pow(1 - drop, 3);
+  drawRibbon(ctx, W / 2, cy - 78 - (1 - ease) * 40, 220, t("dailyModeLabel"), "#ffe27a", "#d49a14");
+  // The name pops in (it overshoots a little and settles).
+  const p = Math.min(1, Math.max(0, (u - 0.12) / 0.2));
+  const back = p - 1;
+  const pop = p >= 1 ? 1 : Math.max(0.01, 1 + 2.70158 * back * back * back + 1.70158 * back * back);
+  const name = t(MIX_NAME[g.dailyMix!]);
+  ctx.font = `700 44px ${FONT}`;
+  const size = Math.min(44, (44 * (W - 40)) / Math.max(1, ctx.measureText(name).width));
+  ctx.save();
+  ctx.translate(W / 2, cy + 6);
+  ctx.scale(pop, pop);
+  title(ctx, name, 0, 0, size);
+  ctx.restore();
+  // A flash of light sweeps across the name once it is in.
+  const sweep = (u - 0.35) / 0.25;
+  if (sweep > 0 && sweep < 1) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const sx = -60 + sweep * (W + 120);
+    const grad = ctx.createLinearGradient(sx - 40, 0, sx + 40, 0);
+    grad.addColorStop(0, "rgba(255,255,255,0)");
+    grad.addColorStop(0.5, "rgba(255,250,220,0.45)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(sx - 40, cy - size * 0.6 + 6, 80, size * 1.2);
+    ctx.restore();
+  }
+  // Sparkles round it.
+  if (p > 0) {
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + u * 2;
+      const rx = (W / 2 - 30) * (0.7 + 0.3 * p);
+      const x = W / 2 + Math.cos(a) * rx;
+      const y = cy + 6 + Math.sin(a) * 38;
+      const tw = 0.5 + 0.5 * Math.sin(g.time * 9 + k * 1.7);
+      ctx.fillStyle = `rgba(255,240,170,${0.9 * tw})`;
+      const z = 2 + 3 * tw;
+      ctx.beginPath();
+      ctx.moveTo(x, y - z);
+      ctx.quadraticCurveTo(x, y, x + z, y);
+      ctx.quadraticCurveTo(x, y, x, y + z);
+      ctx.quadraticCurveTo(x, y, x - z, y);
+      ctx.quadraticCurveTo(x, y, x, y - z);
+      ctx.fill();
+    }
   }
   ctx.restore();
 }

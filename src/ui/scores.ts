@@ -18,21 +18,21 @@ export interface Board {
 }
 
 /** The games that have a top list: the endless game and the two match modes. */
-export type ScoreMode = "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet";
-export const SCORE_MODES: readonly ScoreMode[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet"];
+export type ScoreMode = "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake";
+export const SCORE_MODES: readonly ScoreMode[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake"];
 
 /** The collection of the database that holds the list of each. */
-export const COLLECTION: Record<ScoreMode, string> = {endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight", defend: "highscores_defend", ice: "highscores_ice", fast: "highscores_fast", find: "highscores_find", shield: "highscores_shield", jet: "highscores_jet", comet: "highscores_comet"};
+export const COLLECTION: Record<ScoreMode, string> = {endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight", defend: "highscores_defend", ice: "highscores_ice", fast: "highscores_fast", find: "highscores_find", shield: "highscores_shield", jet: "highscores_jet", comet: "highscores_comet", snake: "highscores_snake"};
 
 const emptyBoard = (): Board => ({status: FIREBASE_CONFIG ? "loading" : "off", rows: []});
-export const boards: Record<ScoreMode, Board> = {endless: emptyBoard(), save: emptyBoard(), sixeight: emptyBoard(), defend: emptyBoard(), ice: emptyBoard(), fast: emptyBoard(), find: emptyBoard(), shield: emptyBoard(), jet: emptyBoard(), comet: emptyBoard()};
+export const boards: Record<ScoreMode, Board> = {endless: emptyBoard(), save: emptyBoard(), sixeight: emptyBoard(), defend: emptyBoard(), ice: emptyBoard(), fast: emptyBoard(), find: emptyBoard(), shield: emptyBoard(), jet: emptyBoard(), comet: emptyBoard(), snake: emptyBoard()};
 /** The top list of the endless game. */
 export const board: Board = boards.endless;
 
 /** The most rows the top list shows. */
 export const TOP_ROWS = 10;
 /** The highest score the rules accept. */
-export const SCORE_MAX = 10_000_000;
+export const SCORE_MAX = 1_000_000_000_000;
 
 export function scoresEnabled(): boolean {
   return FIREBASE_CONFIG !== null;

@@ -560,6 +560,114 @@ export function playEvent(e: GameEvent): void {
       tone(e.empty ? 300 : 520, e.empty ? 0.45 : 0.22, {type: "square", to: e.empty ? 60 : 200, glide: e.empty ? 0.4 : 0.2, vol: 0.08, attack: 0.003, lowpass: 1800});
       noise(e.empty ? 0.35 : 0.15, {type: "lowpass", freq: 900, vol: 0.08, attack: 0.003});
       break;
+    case "lineTick":
+      // The last seconds: a tick, higher and louder the fewer are left.
+      tone(e.s <= 3 ? 1200 : 880, 0.06, {vol: e.s <= 3 ? 0.16 : 0.1, attack: 0.002});
+      break;
+    case "lineStep":
+      // The line takes in a tile: a soft click that goes up with every tile.
+      // (a little brighter for every tile: a quarter of a tone up each time, for up to 24 tiles)
+      tone(520 * Math.pow(2, Math.min(24, e.n - 1) / 24), 0.05, {vol: 0.08, attack: 0.002});
+      break;
+    case "magnet":
+      // A magnet: a low hum that rises.
+      tone(120, 0.4, {to: 360, glide: 0.35, vol: 0.14, attack: 0.02, type: "sawtooth", lowpass: 900});
+      break;
+    case "lineChain":
+      // A chain in Draw to 10: a chord that goes higher with every step.
+      [659.25, 783.99, 1046.5].forEach((f, i) => bell(f * Math.pow(1.122, Math.min(6, e.n)), 0.09, i * 0.05, 0.5));
+      break;
+    case "ghostShift":
+      // A ghost changes: a soft wobble.
+      tone(700, 0.15, {to: 500, glide: 0.12, vol: 0.06, attack: 0.01, type: "triangle"});
+      break;
+    case "guardHit":
+      // A shot meets the shield: a soft ping.
+      tone(1400, 0.05, {to: 1000, glide: 0.04, vol: 0.06, attack: 0.002});
+      break;
+    case "guardBreak":
+      // The shield breaks: glass shatters.
+      noise(0.35, {type: "highpass", freq: 3000, vol: 0.16, attack: 0.002});
+      [1318.5, 1760, 2349.3].forEach((f, i) => bell(f, 0.05, i * 0.03, 0.25));
+      break;
+    case "mineDig":
+      // A block is dug: a dull thud and a crumble.
+      tone(160, 0.1, {to: 90, glide: 0.08, vol: 0.14, attack: 0.002});
+      noise(0.12, {type: "lowpass", freq: 1200, vol: 0.08, attack: 0.002});
+      break;
+    case "ninjaCut":
+      // A ball is cut: a swish and a juicy pop, higher for every ball of the stroke.
+      noise(0.1, {type: "highpass", freq: 3000, vol: 0.1, attack: 0.002});
+      tone(400 * Math.pow(1.12, Math.min(8, e.n - 1)), 0.12, {to: 900 * Math.pow(1.12, Math.min(8, e.n - 1)), glide: 0.1, vol: 0.12, attack: 0.002, type: "triangle"});
+      break;
+    case "ninjaToss":
+      // A throw: a soft whoosh up.
+      noise(0.18, {type: "bandpass", freq: 900, vol: 0.05, attack: 0.04});
+      break;
+    case "mineHeavy":
+      // Too heavy: a dull clonk.
+      tone(140, 0.12, {to: 110, glide: 0.1, vol: 0.14, attack: 0.002, type: "square", lowpass: 700});
+      break;
+    case "mineGate":
+      // A gate opens: a lock that clicks open, and a fanfare.
+      tone(900, 0.05, {vol: 0.1, attack: 0.002});
+      [659.25, 830.61, 987.77, 1318.5].forEach((f, i) => bell(f, 0.1, 0.06 + i * 0.06, 0.55));
+      break;
+    case "mineGem":
+      // A gem: a sparkling run up.
+      [1046.5, 1318.5, 1568, 2093].forEach((f, i) => bell(f, 0.07, i * 0.04, 0.4));
+      break;
+    case "mineErase":
+      // The numbers are wiped out: a soft whoosh of a rubber.
+      noise(0.45, {type: "bandpass", freq: 1800, vol: 0.1, attack: 0.05});
+      break;
+    case "mineRestore":
+      // The numbers come back: a light sparkle up.
+      [783.99, 1046.5, 1318.5].forEach((f, i) => bell(f, 0.06, i * 0.05, 0.35));
+      break;
+    case "mineTen":
+      // A perfect 10 in the mine: a bright chord.
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => bell(f, 0.09, i * 0.05, 0.5));
+      break;
+    case "mineTip":
+      // The basket tips over: a clatter that falls.
+      tone(300, 0.3, {to: 80, glide: 0.25, vol: 0.12, attack: 0.003, type: "square", lowpass: 900});
+      noise(0.3, {type: "lowpass", freq: 800, vol: 0.1, attack: 0.003});
+      break;
+    case "laserCross":
+      // The laser of the cannon: a bright rising zap.
+      tone(300, 0.35, {to: 1800, glide: 0.3, vol: 0.12, attack: 0.004, type: "sawtooth", lowpass: 4000});
+      noise(0.25, {type: "highpass", freq: 4000, vol: 0.08, attack: 0.002});
+      break;
+    case "lineBolt":
+      // A bolt: a crackling zap.
+      noise(0.35, {type: "highpass", freq: 2500, vol: 0.16, attack: 0.002});
+      tone(900, 0.3, {to: 120, glide: 0.28, vol: 0.1, attack: 0.002, type: "sawtooth", lowpass: 3000});
+      break;
+    case "lineTen":
+      // A line makes 10: a bright chord that goes up.
+      [659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => bell(f, 0.09, i * 0.05, 0.5));
+      break;
+    case "lineFail":
+      // A line that is not 10: a short low buzz.
+      tone(180, 0.18, {to: 120, glide: 0.15, vol: 0.12, attack: 0.003, type: "square", lowpass: 900});
+      break;
+    case "lineLevel":
+      // A new level: a fanfare.
+      [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => bell(f, 0.1, i * 0.07, 0.6));
+      break;
+    case "tenMade":
+      // Balls make 10: a bright chord that goes up (higher with every step of a chain).
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => bell(f * Math.pow(1.122, Math.min(6, e.chain - 1)), 0.1, i * 0.05, 0.5));
+      break;
+    case "bubblePop":
+      // A ball pops.
+      tone(500 + e.v * 60, 0.08, {to: 1100 + e.v * 60, glide: 0.06, vol: 0.14, attack: 0.002});
+      break;
+    case "swarmDown":
+      // The swarm comes down a row: a low thud.
+      tone(110, 0.25, {to: 70, glide: 0.2, vol: 0.18, attack: 0.004});
+      break;
     case "bombChain":
       // A fuse is lit: a quick fizz that rises.
       noise(0.2, {type: "highpass", freq: 3500, vol: 0.1, attack: 0.005});

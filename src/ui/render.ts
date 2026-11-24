@@ -1,20 +1,23 @@
 // Draws one frame of the game, in the game's own 360 x 640 coordinates.
 import {LASER_COOLDOWN} from "../game/cups";
-import {drawFlame, drawHealth, drawLaser, drawWeaponHud, drawComboGlow, drawEnemyShots, drawTrail, drawFuel, drawComet, drawJet, drawJetGot, drawLinks, drawPickup, drawShip, drawShots, drawPlanet} from "./craftArt";
+import {drawFlame, drawHealth, drawLaser, drawWeaponHud, drawComboGlow, drawEnemyShots, drawTrail, drawFuel, drawComet, drawJet, drawJetGot, drawLinks, drawPickup, drawShip, drawShots, drawPlanet, drawMoon, drawGuard} from "./craftArt";
 import {drawGoldGlow, drawSnakeBody, drawSnakeHead, drawSnakeTrack} from "./snakeArt";
+import {drawAimLine, drawCannon, drawFlyingTen, drawSwarmLimit, drawTenGlow} from "./cannonArt";
+import {drawGhostAura, drawLineClock, drawLineHelper, drawLineHint, drawLineIce, drawLinePath, drawLowTime} from "./lineArt";
+import {drawHeartBall, drawBlade, drawBomb, drawCrosses, drawDojo, drawHalf, drawIceBall} from "./ninjaArt";
+import {drawTooMuch, drawBasket, drawDust, drawEarth, drawGate, drawGateLock, drawGem, drawLava, drawMiner, drawPickHit, drawSteelPlate, drawTunnel} from "./mineArt";
 import {cupPalette, cupPattern, drawCupBadges, drawShopCup} from "./cupArt";
 import {DAILY_RUNGS, SCREEN_MAX} from "../game/constants";
 import {type Package, rungGoal, rungOfCup, rungPayout, rungsDone} from "../game/daily";
 import {type Geom, designOfDay, drawGift, drawLimitLine, drawSteps, halfWidth, stepX, stepY} from "./stepsArt";
 import {CHAIN_LENGTH, ERASER_MAX, COMBO_SECONDS, CUP_H, DIVE_GRAVITY, DIVE_HOP, H, MENU_LIFT, SWEEP_DOWN, TARGET, TUTORIAL_STEPS, W} from "../game/constants";
-import {SHIELD_BEND, SHIELD_POWER_MAX, SHIELD_W0, SHIELD_W_MAX, shieldOn, jetOn, cometOn, shipFlying, fuelCapacity, SHIP_HP, DAILY_INTRO, snakeOn, snakePoint, snakePath, snakeTrain, SNAKE_GAP, canContinue, endlessLevel, fadeOn, featureAge, ghostShow, goalFor, progressOf, starsFor, sweepBottom} from "../game/engine";
+import {SHIELD_BEND, SHIELD_POWER_MAX, SHIELD_W0, SHIELD_W_MAX, shieldOn, jetOn, cometOn, shipFlying, fuelCapacity, SHIP_HP, canDig, mineFree, nextLocks, mineOn, mineX, mineY, ninjaMult, findOn, playedAs, ninjaOn, NINJA_R, NINJA_STRIKES, NINJA_JUICE, toolsOn, MINE_COLS, MINE_CELL, GUARD_LIFE, hardTier, SUM_SHOWN, LINE_LOW, SNAKE_GHOST_EVERY, lineOn, lineValue, tileX, tileY, TILE, LINE_START_TIME, cannonOn, cannonAngle, cannonPath, bubbleX, bubbleY, BUBBLE_R, CANNON_X, CANNON_Y, SWARM_LIMIT, CANNON_GLOW, CANNON_FLY, DAILY_INTRO, snakeOn, snakePoint, snakePath, snakeTrain, SNAKE_GAP, canContinue, endlessLevel, fadeOn, ghostShow, goalFor, progressOf, starsFor, sweepBottom} from "../game/engine";
 import type {Cup, Feature, GameState, NumberTile, Op, PerkId, Weapon} from "../game/types";
 import {type Room, roomOfMode} from "./background";
 import {drawAd} from "./ad";
 import {BOOK, type Book, chapterOf, drawBook, drawMenuBar, openNextGame, roomOfPage} from "./book";
 import {DAILY_GIFT} from "./wallet";
-import {
-  type Button,
+import {type Button,
   CHALK,
   FONT,
   GOLD,
@@ -766,6 +769,8 @@ function drawBanner(ctx: CanvasRenderingContext2D, g: GameState): void {
   // The endless game walks through the book: say what is new on the levels where a new kind of number comes.
   const news = g.mode === "endless" && !g.variant ? ({2: "newMinus", 3: "newTimes", 4: "newDiv"} as Record<number, Key>)[level] : undefined;
   if (news) text(ctx, t(news), 0, 50, 19, CHALK);
+  // (a match mode on its tenth, twentieth ... level: a step harder, and it says so)
+  else if (hardTier(g) > 0 && level % 10 === 0) title(ctx, t("harder"), 0, 52, 24, "#ffffff", "#d4261c", 0.2);
   ctx.restore();
   ctx.globalAlpha = 1;
 }
@@ -857,7 +862,7 @@ function drawCard(ctx: CanvasRenderingContext2D, g: GameState, time: number, boo
       drawCardCoins(ctx, 306);
     }
   } else {
-    const why = t(g.overReason === "allDead" ? "allDead" : g.overReason === "crash" ? "crash" : "deadCup");
+    const why = t(g.overReason === "allDead" ? "allDead" : g.overReason === "crash" ? "crash" : g.overReason === "swarm" ? "swarm" : g.overReason === "time" ? "time" : g.overReason === "lava" ? "lava" : g.overReason === "stuck" ? "stuck" : g.overReason === "ninja" ? "ninjaOver" : "deadCup");
     text(ctx, why, W / 2, 176, 17, CHALK);
     write(ctx, t("score"), W / 2, 218, 12, "#cdbfa6", "center", 700);
     text(ctx, String(g.score), W / 2, 252, 46, "#ffffff");
@@ -918,6 +923,8 @@ const PERK_TEXT: Record<PerkId, {name: Key; lines: Key[]}> = {
   sparse: {name: "perkSparse", lines: ["perkSparseD"]},
   special: {name: "perkSpecial", lines: ["perkSpecialD"]},
   points: {name: "perkPoints", lines: ["perkPointsD"]},
+  time: {name: "perkTime", lines: ["perkTimeD"]},
+  helpers: {name: "perkHelpers", lines: ["perkHelpersD"]},
 };
 
 /** Breaks a text into lines that are at most `maxW` wide (in the font that is set). */
@@ -941,6 +948,8 @@ function drawPerkIcon(ctx: CanvasRenderingContext2D, perk: PerkId, x: number, y:
   else if (perk === "bonus") drawBonusBall(ctx, x, y, "points", 1.35, time);
   else if (perk === "help") drawBall(ctx, x, y, 10, 1.3, time, 0, "ten");
   else if (perk === "sparse" || perk === "special" || perk === "points") drawSaucerBadge(ctx, perk, x, y, 28);
+  else if (perk === "time") drawLineHelper(ctx, "clock", x, y, 26, time);
+  else if (perk === "helpers") drawLineHelper(ctx, "star", x, y, 26, time);
   else if (perk === "remove") {
     // A grey cup with a red cross over it.
     ctx.save();
@@ -1397,7 +1406,7 @@ const SCREEN_HANDLE: Button = {x: 306, y: 68, w: 48, h: 58};
 
 /** Whether the eraser hangs on the left (there is one, or the book has brought it in). */
 function eraserShown(g: GameState): boolean {
-  return g.mode !== "tutorial" && g.phase === "play" && (g.erase > 0 || featureAge(g, "eraser") >= 0);
+  return g.mode !== "tutorial" && g.phase === "play" && (g.erase > 0 || toolsOn(g, "eraser"));
 }
 /** How far the bars of the timed balls move to the right, so that they are clear of the eraser. */
 function barShift(g: GameState): number {
@@ -1500,7 +1509,7 @@ function drawScreenHandle(ctx: CanvasRenderingContext2D, g: GameState, time: num
   // (in the tutorial it is there on the last step only, with one cloth to try, and it hangs under the guide)
   const tutorial = g.mode === "tutorial";
   if (g.phase !== "play") return;
-  if (tutorial ? g.tutorialStep !== 4 : featureAge(g, "screen") < 0) return;
+  if (tutorial ? g.tutorialStep !== 4 : !toolsOn(g, "screen")) return;
   const screens = tutorial ? 1 : g.screens;
   ctx.save();
   if (tutorial) ctx.translate(0, TUTORIAL_HANDLE_DY);
@@ -2376,7 +2385,7 @@ export function drawGame(
   };
   drawRoom(ctx, g, rooms, book);
   drawAmbient(ctx, g);
-  if (g.variant === "ice" && g.phase !== "menu") drawSnow(ctx, g);
+  if (playedAs(g) === "ice" && g.phase !== "menu") drawSnow(ctx, g);
   if (g.phase === "menu") drawMenuBalls(ctx, g);
 
   if (g.phase === "menu") {
@@ -2435,6 +2444,8 @@ export function drawGame(
     for (const n of g.numbers) {
       if (passing(n) || n.comet || n.snakeHead) continue;
       if (n.gold) drawGoldGlow(ctx, n.x, n.y, g.time);
+      // (a ghost number of the snake: its shimmer, and the ring of its time)
+      if (n.shift !== undefined && n.track !== undefined) drawGhostAura(ctx, n.x, n.y, n.shift / SNAKE_GHOST_EVERY, g.time);
       // (a bomb with a lit fuse flashes white and red)
       if (n.fuse !== undefined) {
         ctx.save();
@@ -2460,6 +2471,12 @@ export function drawGame(
       drawFuel(ctx, g.shieldX, g.shieldY, g.fuel, g.fuelOut, g.time, fuelCapacity(g));
       drawJetGot(ctx, g, t(gotWords(g)));
     }
+    // The cannon: its swarm, the line it aims along, the cannon and the ball on its way, and the golden 10s flying down to the cups.
+    if (cannonOn(g)) drawCannonMode(ctx, g);
+    if (lineOn(g)) drawLineMode(ctx, g);
+    if (mineOn(g)) drawMineMode(ctx, g);
+    if (ninjaOn(g)) drawNinjaMode(ctx, g);
+    if (g.eqFx && (lineOn(g) || cannonOn(g) || ninjaOn(g))) drawSum(ctx, g.eqFx, t("sumCount", {n: g.eqFx.n}), g.time);
     // The snake: its head, in front of the numbers.
     for (const n of g.numbers) {
       if (!n.snakeHead || n.done) continue;
@@ -2506,7 +2523,7 @@ export function drawGame(
     for (const n of g.numbers) if (passing(n)) drawNumber(ctx, n, g.time);
     // (Comet belt: the comets fall past the cups, in front of them)
     drawLinks(ctx, g.numbers.filter((n) => n.comet));
-    for (const n of g.numbers) if (n.comet && n.state === "fall") (n.planet ? drawPlanet : drawComet)(ctx, n, g.time);
+    for (const n of g.numbers) if (n.comet && n.state === "fall") (n.planet ? drawPlanet : n.moon ? drawMoon : drawComet)(ctx, n, g.time);
     // Fighter jet: its shots, and the jet, in front of the cups (it blinks while it is knocked out).
     if (jetOn(g) && (g.phase === "play" || g.phase === "over")) {
       drawShots(ctx, g.shots);
@@ -2515,7 +2532,17 @@ export function drawGame(
       if (g.combo >= 2 && g.phase === "play") drawComboGlow(ctx, g.shieldX, g.shieldY, g.combo, g.time);
       // (the laser and the plasma flame, from its nose)
       if (g.jetBeam !== null && g.phase === "play") drawLaser(ctx, g.shieldX, g.shieldY - 30, g.jetBeam, g.jetLv.a, g.time);
-      if (g.jetFlame && g.phase === "play") drawFlame(ctx, g.shieldX, g.shieldY - 30, g.jetLv.b, g.time);
+      if (g.jetFlame && g.phase === "play") {
+        drawFlame(ctx, g.shieldX, g.shieldY - 30, g.jetLv.b, g.time);
+        // (and out at the back, a little shorter: the same flame turned round)
+        ctx.save();
+        ctx.translate(g.shieldX, g.shieldY + 30);
+        ctx.scale(1, -0.7);
+        drawFlame(ctx, 0, 0, g.jetLv.b, g.time);
+        ctx.restore();
+      }
+      // (the skulls with a shield in front: the shield under them, and their life)
+      for (const n of g.numbers) if (n.guard && n.state === "fall") drawGuard(ctx, n.x, n.y, n.guard.hp / n.guard.max, n.guard.life / GUARD_LIFE, g.time);
       drawJet(ctx, g.shieldX, g.shieldY, g.time, {guns: g.jetWeapons.a === "bullet" ? g.jetLv.a + 1 : 1, missiles: g.jetWeapons.b === "missile" ? g.jetLv.b : 0, shield: g.jetShield, stun: g.jetStun});
       drawWeaponHud(ctx, g.shieldX, g.shieldY, {weapons: g.jetWeapons, lv: g.jetLv});
       drawJetGot(ctx, g, t(gotWords(g)));
@@ -2539,7 +2566,7 @@ export function drawGame(
     drawBanner(ctx, g);
     if (g.daily && g.dailyIntro > 0 && g.dailyMix) drawDailyIntro(ctx, g);
     if (g.countdown > 0 && !(g.daily && g.dailyIntro > 0)) drawCountdown(ctx, g);
-    if (g.variant === "find" && g.phase === "play" && g.countdown <= 0 && g.findTotal > 0) atTop(() => drawFindClock(ctx, g));
+    if (findOn(g) && g.phase === "play" && g.countdown <= 0 && g.findTotal > 0) atTop(() => drawFindClock(ctx, g));
     // (the dialogs stand in the middle of the screen: on a tall phone they are moved up by half of the extra room)
     ctx.save();
     ctx.translate(0, -g.extra / 2);
@@ -2750,7 +2777,7 @@ function drawJetDown(ctx: CanvasRenderingContext2D, g: GameState): void {
 }
 
 /** The names of the match modes. */
-const MIX_NAME: Record<NonNullable<GameState["dailyMix"]>, Key> = {save: "saveName", sixeight: "sixEightName", defend: "defendName", ice: "iceName", fast: "fastName", find: "findName", shield: "shieldName", jet: "jetName", comet: "cometName", snake: "snakeName"};
+const MIX_NAME: Record<NonNullable<GameState["dailyMix"]>, Key> = {save: "saveName", sixeight: "sixEightName", defend: "defendName", ice: "iceName", fast: "fastName", find: "findName", shield: "shieldName", jet: "jetName", comet: "cometName", snake: "snakeName", cannon: "cannonName", line: "lineName", mine: "mineName", ninja: "ninjaName"};
 
 /**
  * The daily ladder starts: the match mode of the day is presented. A gold ribbon with "Today's mode" slides down, the name of the mode pops in under it,
@@ -2816,3 +2843,381 @@ function drawDailyIntro(ctx: CanvasRenderingContext2D, g: GameState): void {
   }
   ctx.restore();
 }
+
+/** The cannon: the line the swarm must not reach, the swarm (a ball of a 10 glows gold before it pops), the line it is aimed along, the cannon with its ball
+ *  and the next one beside it, the ball on its way, and the golden 10s on their way down to the cups. */
+function drawCannonMode(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const low = g.bubbles.reduce((m, b) => Math.max(m, bubbleY(b.r) + BUBBLE_R), 0);
+  drawSwarmLimit(ctx, SWARM_LIMIT, W, Math.max(0, Math.min(1, 1 - (SWARM_LIMIT - low) / 160)), g.time);
+  const scale = (BUBBLE_R * 0.98) / 17.7;
+  for (const b of g.bubbles) {
+    const x = bubbleX(b.c);
+    const y = bubbleY(b.r) + b.dy;
+    if (b.glow !== undefined) drawTenGlow(ctx, x, y, BUBBLE_R, 1 - Math.max(0, b.glow) / CANNON_GLOW, g.time);
+    drawBall(ctx, x, y, b.v, scale, g.time, b.id, "add");
+  }
+  const angle = g.cannonAim ? cannonAngle(g.cannonAim.x, g.cannonAim.y) : -Math.PI / 2;
+  if (g.cannonAim && g.phase === "play") drawAimLine(ctx, cannonPath(g, g.cannonAim.x, g.cannonAim.y), g.time);
+  if (g.cannonShot) {
+    if (g.cannonShot.kind) drawLineHelper(ctx, g.cannonShot.kind, g.cannonShot.x, g.cannonShot.y, BUBBLE_R * 0.95, g.time);
+    else drawBall(ctx, g.cannonShot.x, g.cannonShot.y, g.cannonShot.v, scale, g.time, 0, "add");
+  }
+  drawCannon(ctx, CANNON_X, CANNON_Y, angle, g.time, g.cannonShot ? 0.6 : 0);
+  // (the ball in the cannon, at its muzzle, and the next one, smaller, beside its foot)
+  if (!g.cannonShot) {
+    const mx = CANNON_X + Math.cos(angle) * 46;
+    const my = CANNON_Y + Math.sin(angle) * 46;
+    if (g.cannonNowKind) drawLineHelper(ctx, g.cannonNowKind, mx, my, BUBBLE_R * 0.9, g.time);
+    else drawBall(ctx, mx, my, g.cannonNow, scale * 0.9, g.time, 1, "add");
+  }
+  if (g.cannonNextKind) drawLineHelper(ctx, g.cannonNextKind, CANNON_X + 62, CANNON_Y + 14, BUBBLE_R * 0.6, g.time);
+  else drawBall(ctx, CANNON_X + 62, CANNON_Y + 14, g.cannonNext, scale * 0.6, g.time, 2, "add");
+  write(ctx, t("next"), CANNON_X + 62, CANNON_Y - 6, 10, CHALK, "center", 700);
+  for (const f of g.cannonFly) drawFlyingTen(ctx, f, f.age / CANNON_FLY, g.time, t("cannonChain", {n: f.chain}));
+}
+
+/** Draw to 10: the clock at the top, the board (the tiles fall into place; a tile in the line is lit, and the whole line shakes red for a moment when it did not
+ *  make 10), and the line that is being drawn with what it comes to. */
+function drawLineMode(ctx: CanvasRenderingContext2D, g: GameState): void {
+  if (g.lineTime < LINE_LOW && g.phase === "play") drawLowTime(ctx, g.lineTime, g.time, g.extra);
+  drawLineClock(ctx, g.lineTime, LINE_START_TIME, g.lineGot, g.lineGotT, g.time);
+  const scale = (TILE * 0.44) / 17.7;
+  const shake = g.lineFail < 0.3 ? Math.sin(g.time * 70) * 4 * (1 - g.lineFail / 0.3) : 0;
+  for (const tile of g.tiles) {
+    const x = tileX(tile.c) + (g.lineFail < 0.3 ? shake : 0);
+    const y = tileY(tile.r) + tile.dy;
+    if (y < 80) continue;
+    const lit = g.linePath.includes(tile.id);
+    if (lit) {
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      ctx.beginPath();
+      ctx.arc(x, y, TILE * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    if (tile.kind === "steel") {
+      setBallLabel("");
+      drawBall(ctx, x, y, 0, scale, g.time, tile.id, "steel");
+      setBallLabel(null);
+    } else if (tile.kind) drawLineHelper(ctx, tile.kind, x, y, TILE * 0.4, g.time);
+    else drawBall(ctx, x, y, tile.v, lit ? scale * 1.08 : scale, g.time, tile.id, tile.op);
+    if (tile.ice > 0) drawLineIce(ctx, x, y, TILE - 6);
+  }
+  // (the help on the first levels: the tiles of a 10 glow and a dotted line goes through them, as long as no line is being drawn)
+  if (g.lineHint.length > 0 && g.linePath.length === 0) {
+    const pts = g.lineHint.map((id) => g.tiles.find((t) => t.id === id)).filter((t) => t !== undefined).map((t) => ({x: tileX(t!.c), y: tileY(t!.r) + t!.dy}));
+    drawLineHint(ctx, pts, g.time);
+  }
+  // (a chain: "Chain x2" over where it popped, rising and fading)
+  if (g.lineChainFx) {
+    const f = g.lineChainFx;
+    ctx.save();
+    ctx.globalAlpha = f.age < 0.9 ? 1 : (1.2 - f.age) / 0.3;
+    const pop = f.age < 0.15 ? 0.6 + (f.age / 0.15) * 0.5 : 1.1 - Math.min(0.1, (f.age - 0.15) * 0.3);
+    ctx.translate(f.x, f.y - 30 - f.age * 20);
+    ctx.scale(pop, pop);
+    title(ctx, t("cannonChain", {n: f.n}), 0, 0, 22, "#ffffff", "#e0561a", 0.18);
+    ctx.restore();
+  }
+  if (g.linePath.length > 0) {
+    const pts = g.linePath.map((id) => g.tiles.find((t) => t.id === id)).filter((t) => t !== undefined).map((t) => ({x: tileX(t!.c), y: tileY(t!.r)}));
+    drawLinePath(ctx, pts, lineValue(g), g.time);
+  }
+}
+
+/** How many numbers made a 10, over where it was made: "4 combined!" in gold letters (no pill round it); it pops in, rises a little and fades. */
+function drawSum(ctx: CanvasRenderingContext2D, f: {x: number; y: number; age: number}, words: string, time: number): void {
+  const u = f.age / SUM_SHOWN;
+  const pop = f.age < 0.15 ? 0.5 + (f.age / 0.15) * 0.6 : 1.1 - Math.min(0.1, (f.age - 0.15) * 0.4);
+  ctx.save();
+  ctx.globalAlpha = u > 0.75 ? (1 - u) / 0.25 : 1;
+  ctx.translate(f.x, f.y - u * 26);
+  ctx.scale(pop, pop);
+  // (just the words: gold, with the outline of a title, so that they stand out on anything)
+  title(ctx, words, 0, 0, 22, "#fff3b0", "#e0a21b", 0.2 + 0.02 * Math.sin(time * 10));
+  ctx.restore();
+}
+
+/** The mine: the rows in view (earth with its numbers, tunnels, steel and helpers), the miner, the lava over it, and the basket at the top. */
+function drawMineMode(ctx: CanvasRenderingContext2D, g: GameState): void {
+  const first = Math.max(0, Math.floor(g.mineCam) - 1);
+  const scale = (MINE_CELL * 0.4) / 17.7;
+  const free = mineFree(g);
+  for (let r = first; r < Math.min(g.mine.length, first + 14); r++) {
+    const y = mineY(g, r);
+    if (y < 60 || y > 640 + MINE_CELL) continue;
+    for (let c = 0; c < MINE_COLS; c++) {
+      const cell = g.mine[r][c];
+      const x = mineX(c);
+      if (cell.dug) {
+        drawTunnel(ctx, x, y, MINE_CELL);
+        continue;
+      }
+      drawEarth(ctx, x, y, MINE_CELL, r, r * MINE_COLS + c);
+      if (cell.kind === "steel") drawSteelPlate(ctx, x, y, MINE_CELL);
+      else if (cell.kind === "gem") drawGem(ctx, x, y, MINE_CELL * 0.34, g.time, r * 7 + c);
+      else if (cell.kind === "gate") {
+        // (a locked door: one big padlock on it, or two; green and open when there are keys enough for it)
+        const ok = g.mineKeys >= cell.v;
+        drawGate(ctx, x, y, MINE_CELL, g.time, ok);
+        for (let k = 0; k < cell.v; k++) {
+          ctx.save();
+          ctx.translate(x + (cell.v === 1 ? 0 : (k - 0.5) * 20), y);
+          ctx.scale(cell.v === 1 ? 1.7 : 1.25, cell.v === 1 ? 1.7 : 1.25);
+          drawGateLock(ctx, -MINE_CELL * 0.24, -MINE_CELL * 0.2, MINE_CELL, g.time, ok);
+          ctx.restore();
+        }
+      } else if (cell.kind) drawLineHelper(ctx, cell.kind, x, y, MINE_CELL * 0.36, g.time);
+      // (with keys enough for the next door the numbers are wiped out: the balls are blank)
+      else if (free) {
+        setBallLabel("");
+        drawBall(ctx, x, y, 0, scale, g.time, r * 7 + c, "add");
+        setBallLabel(null);
+      } else drawBall(ctx, x, y, cell.v, scale, g.time, r * 7 + c, cell.op);
+    }
+  }
+  // (where a tap does something: a clear yellow box on every block he can dig, every tunnel beside him he can walk to, and on him when the basket can be emptied)
+  const m = g.miner;
+  const spots: [number, number][] = [];
+  if (g.phase === "play" && g.mineDaze <= 0) {
+    for (const [dc, dr] of [[-1, 0], [1, 0], [0, 1], [0, -1]]) {
+      const cell = g.mine[m.r + dr]?.[m.c + dc];
+      if (!cell) continue;
+      if (cell.dug ? dr === 0 : canDig(g, m.c + dc, m.r + dr, dr === 1)) spots.push([m.c + dc, m.r + dr]);
+    }
+  }
+  if (g.phase === "play" && g.mineSum !== 0) spots.push([m.c, m.r]);
+  const beat = 0.7 + 0.3 * Math.sin(g.time * 5);
+  // (all that cannot be reached now is a little in the dark, so that the few places beside him stand out)
+  if (g.phase === "play" && spots.length > 0) {
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.38)";
+    for (let r = first; r < Math.min(g.mine.length, first + 14); r++) {
+      for (let c = 0; c < MINE_COLS; c++) {
+        if (spots.some(([sc, sr]) => sc === c && sr === r) || (c === m.c && r === m.r)) continue;
+        ctx.fillRect(mineX(c) - MINE_CELL / 2, mineY(g, r) - MINE_CELL / 2, MINE_CELL, MINE_CELL);
+      }
+    }
+    ctx.restore();
+  }
+  for (const [c, r] of spots) {
+    // (an arrow from him into each place he can go, bobbing that way)
+    const dc = c - m.c;
+    const dr = r - m.r;
+    if (dc !== 0 || dr !== 0) {
+      const push = 3 * Math.sin(g.time * 6);
+      const ax = mineX(m.c) + dc * (MINE_CELL * 0.5 + push);
+      const ay = mineY(g, m.r) + dr * (MINE_CELL * 0.5 + push);
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(Math.atan2(dr, dc));
+      ctx.fillStyle = `rgba(255,224,90,${beat})`;
+      ctx.strokeStyle = "rgba(90,50,0,0.8)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(8, 0);
+      ctx.lineTo(-3, -7);
+      ctx.lineTo(-3, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,214,60,${beat})`;
+    ctx.shadowColor = "rgba(255,214,60,0.8)";
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 3;
+    roundRect(ctx, mineX(c) - MINE_CELL / 2 + 2, mineY(g, r) - MINE_CELL / 2 + 2, MINE_CELL - 4, MINE_CELL - 4, 7);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // (the miner: on his way from where he was, a little hop sideways and then a fall with a squash when he lands; the pick in its swing)
+  const from = g.mineFrom;
+  const WALK = 0.14;
+  const rows = Math.max(0, m.r - from.r);
+  const fallT = rows > 0 ? 0.1 + 0.06 * rows : 0;
+  const tw = Math.min(1, from.t / WALK);
+  const sideways = from.c !== m.c;
+  const ex = (u: number) => 1 - Math.pow(1 - u, 2);
+  let mx = mineX(m.c);
+  let my = mineY(g, m.r);
+  let hop = 0;
+  let squash = 0;
+  if (from.t < WALK + fallT) {
+    mx = mineX(from.c) + (mineX(m.c) - mineX(from.c)) * ex(tw);
+    if (sideways && tw < 1) hop = Math.sin(tw * Math.PI) * 6;
+    const tf = rows > 0 ? Math.max(0, Math.min(1, (from.t - (sideways ? WALK : 0)) / fallT)) : 1;
+    my = mineY(g, from.r) + (mineY(g, m.r) - mineY(g, from.r)) * tf * tf;
+    if (rows > 0 && tf > 0 && tf < 1) squash = -0.25;
+  }
+  const landAt = (sideways ? WALK : 0) + fallT;
+  const landed = from.t - landAt;
+  if (rows > 0 && landed >= 0 && landed < 0.25) squash = 0.35 * Math.sin((landed / 0.25) * Math.PI) * (1 - landed / 0.25);
+  // (dust where he steps, and a big puff where he lands)
+  if (sideways) drawDust(ctx, mineX(from.c), mineY(g, from.r) + 20, from.t, false);
+  if (rows > 0) drawDust(ctx, mx, mineY(g, m.r) + 20, landed, true);
+  const sw = g.mineSwing;
+  drawMiner(ctx, mx, my + 4, g.time, g.mineTip, g.mineDaze, {swing: sw.t / 0.3, dc: sw.dc, dr: sw.dr, face: g.mineFace, squash, hop});
+  // (the sparks where the pick hits: the block beside him, a moment into the swing)
+  drawPickHit(ctx, mineX(from.t < WALK + fallT ? from.c : m.c) + sw.dc * MINE_CELL * 0.45, mineY(g, from.t < WALK + fallT ? from.r : m.r) + sw.dr * MINE_CELL * 0.45 + (sw.dr === 0 ? 6 : 0), sw.t - 0.12, sw.dc, sw.dr);
+  drawLava(ctx, -g.extra, mineY(g, g.mineLava) - MINE_CELL / 2, W, g.time);
+  drawBasket(ctx, g.mineSum, g.mineDeep, t("mineDepth"), g.time, g.mineKeys, free ? t("mineFree") : "", nextLocks(g), g.mineKeyT);
+  // (over 10: "Too much!" over him)
+  drawTooMuch(ctx, mx, my, g.mineTip, g.mineOver, t("mineTooMuch"));
+  // ("+1 key" over the miner when a key is got)
+  if (g.mineKeyT < 1.2) {
+    const u = g.mineKeyT / 1.2;
+    ctx.save();
+    ctx.globalAlpha = u > 0.7 ? (1 - u) / 0.3 : 1;
+    const pop = g.mineKeyT < 0.15 ? 0.5 + (g.mineKeyT / 0.15) * 0.7 : 1.2 - Math.min(0.2, (g.mineKeyT - 0.15) * 0.5);
+    ctx.translate(mx, my - 40 - u * 24);
+    ctx.scale(pop, pop);
+    title(ctx, t("mineKey"), 0, 0, 22, "#fff3b0", "#e0a21b", 0.2);
+    ctx.restore();
+  }
+}
+
+
+
+/** Ninja: the dojo, the halves and the juice, the balls in the air, the trail of the blade, the sum of the stroke by the finger, the crosses, and the words. */
+function drawNinjaMode(ctx: CanvasRenderingContext2D, g: GameState): void {
+  drawDojo(ctx, 92, W, H + g.extra, g.time);
+  const scale = NINJA_R / 17.7;
+  for (const s of g.ninjaSplats) {
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = Math.max(0, 1 - s.age / 0.7);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r * (1 - s.age / 1.4), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (const h of g.ninjaHalves) {
+    const juice = h.kind === "bomb" ? "#333" : h.kind ? "#ffd54a" : NINJA_JUICE[(h.v - 1) % NINJA_JUICE.length];
+    const draw = h.must || (!h.kind && h.v === 10) ? (c: CanvasRenderingContext2D) => {
+      setBallLabel(String(h.v));
+      drawBall(c, 0, 0, h.v, scale, g.time, h.side, "ten");
+      setBallLabel(null);
+    } : h.kind === "heart" ? (c: CanvasRenderingContext2D) => drawHeartBall(c, 0, 0, NINJA_R, g.time) : h.kind === "bomb" ? (c: CanvasRenderingContext2D) => drawBomb(c, 0, 0, NINJA_R, g.time) : h.kind === "freeze" ? (c: CanvasRenderingContext2D) => drawIceBall(c, 0, 0, NINJA_R, g.time) : h.kind ? (c: CanvasRenderingContext2D) => drawLineHelper(c, h.kind as "star" | "clock", 0, 0, NINJA_R * 0.9, g.time) : undefined;
+    drawHalf(ctx, h, NINJA_R, scale, juice, g.time, draw);
+  }
+  // the crosses (behind the balls)
+  drawCrosses(ctx, W - 92, 112, g.ninjaStrikes, NINJA_STRIKES, g.time);
+  for (const b of g.ninjaBalls) {
+    if (b.kind === "bomb") drawBomb(ctx, b.x, b.y, NINJA_R, g.time);
+    else if (b.kind === "heart") drawHeartBall(ctx, b.x, b.y, NINJA_R, g.time);
+    else if (b.kind === "freeze") drawIceBall(ctx, b.x, b.y, NINJA_R, g.time);
+    else if (b.kind) drawLineHelper(ctx, b.kind, b.x, b.y, NINJA_R * 0.9, g.time);
+    // (a golden number that must not be missed: like the golden 10, with its own number on it)
+    // (a number that must not be missed, and a 10: the orange 10 ball with its rays, with its own number on it)
+    else if (b.must || b.v === 10) {
+      setBallLabel(String(b.v));
+      drawBall(ctx, b.x, b.y, b.v, scale, g.time, b.id, "ten");
+      setBallLabel(null);
+    } else if (b.shell === "steel") {
+      setBallLabel(String(b.v));
+      drawBall(ctx, b.x, b.y, b.v, scale, g.time, b.id, "steel");
+      setBallLabel(null);
+    } else {
+      drawBall(ctx, b.x, b.y, b.v, scale, g.time, b.id);
+      if (b.shell === "ice") drawLineIce(ctx, b.x, b.y, NINJA_R * 2.3);
+    }
+  }
+  // (time slowed by a step of the combo: a soft golden haze over it all, fading as time comes back)
+  if (g.ninjaComboT < 1.3 && ninjaMult(g) > 1) {
+    const u = g.ninjaComboT / 1.3;
+    const hz = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.8);
+    hz.addColorStop(0, "rgba(255,230,150,0)");
+    hz.addColorStop(1, `rgba(255,220,120,${0.4 * (1 - u)})`);
+    ctx.fillStyle = hz;
+    ctx.fillRect(0, 0, W, H + g.extra);
+  }
+  drawBlade(ctx, g.ninjaTrail, ninjaMult(g), g.time);
+  // the combo: ×2, ×3 ... under the crosses, with a bar to the next step; it pops when it goes up
+  {
+    const mult = ninjaMult(g);
+    const into = g.ninjaCombo % 3;
+    const pop = g.ninjaComboT < 0.3 ? 1 + 0.5 * Math.sin((g.ninjaComboT / 0.3) * Math.PI) : 1;
+    ctx.save();
+    ctx.translate(W - 62, 146);
+    ctx.scale(pop, pop);
+    title(ctx, `×${mult}`, 0, 0, 22, "#ffffff", mult >= 4 ? "#b03ad0" : mult === 3 ? "#d4501c" : mult === 2 ? "#e0a21b" : "#5a5a6a", 0.22);
+    ctx.restore();
+    if (mult < 5) for (let k = 0; k < 3; k++) {
+      ctx.fillStyle = k < into ? "#ffd54a" : "rgba(255,255,255,0.2)";
+      roundRect(ctx, W - 92 + k * 21, 164, 18, 6, 3);
+      ctx.fill();
+    }
+    if (g.ninjaComboT < 1.2 && mult > 1) {
+      const u = g.ninjaComboT / 1.2;
+      ctx.save();
+      ctx.globalAlpha = u > 0.7 ? (1 - u) / 0.3 : 1;
+      title(ctx, `COMBO ×${mult}!`, W / 2, 200 - u * 20, 28, "#fff3b0", "#e0a21b", 0.22);
+      ctx.restore();
+    }
+  }
+  // (the sum of the stroke so far, in a bubble by the finger)
+  if (g.ninjaLast && g.ninjaCount > 0 && g.phase === "play") {
+    const x = Math.max(40, Math.min(W - 40, g.ninjaLast.x));
+    const y = Math.max(130, g.ninjaLast.y - 70);
+    ctx.save();
+    ctx.fillStyle = "rgba(20,10,30,0.75)";
+    ctx.strokeStyle = g.ninjaSum >= 7 ? "#ff9a3c" : "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    title(ctx, String(g.ninjaSum), x, y, 24, "#ffffff", g.ninjaSum >= 7 ? "#d06a10" : "#3a6ab0", 0.2);
+  }
+  // the star rain: a gold glow at the edges, falling stars, and its word with the seconds left
+  if (g.ninjaFrenzy > 0) {
+    const a = Math.min(1, g.ninjaFrenzy) * (0.35 + 0.15 * Math.sin(g.time * 8));
+    const fg = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.8);
+    fg.addColorStop(0, "rgba(255,210,80,0)");
+    fg.addColorStop(1, `rgba(255,210,80,${a})`);
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, 0, W, H + g.extra);
+    for (let k = 0; k < 10; k++) {
+      const sx = (k * 97 + 30) % W;
+      const sy = 92 + ((g.time * 160 + k * 71) % (H - 92));
+      title(ctx, "★", sx, sy, 14 + (k % 3) * 4, "#fff3b0", "#e0a21b", 0.2);
+    }
+    const pop = 1 + 0.06 * Math.sin(g.time * 10);
+    ctx.save();
+    ctx.translate(W / 2, 140);
+    ctx.scale(pop, pop);
+    title(ctx, t("ninjaFrenzy"), 0, 0, 30, "#fff3b0", "#e0a21b", 0.22);
+    ctx.restore();
+    write(ctx, String(Math.ceil(g.ninjaFrenzy)), W / 2, 168, 16, "#ffffff", "center", 800);
+  }
+  // the clock and the ice: a tint over it all
+  if (g.ninjaSlow > 0) {
+    ctx.fillStyle = `rgba(90,180,255,${Math.min(1, g.ninjaSlow) * 0.12})`;
+    ctx.fillRect(0, 92, W, H + g.extra);
+  }
+  if (g.ninjaFreeze > 0) {
+    const a = Math.min(1, g.ninjaFreeze) * 0.5;
+    const fr = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.75);
+    fr.addColorStop(0, "rgba(200,240,255,0)");
+    fr.addColorStop(1, `rgba(200,240,255,${a})`);
+    ctx.fillStyle = fr;
+    ctx.fillRect(0, 0, W, H + g.extra);
+  }
+  // the words: "Too much!", "Bomb!"
+  const w = g.ninjaWord;
+  if (w && w.s !== "ten") {
+    const u = w.age / 1.2;
+    const pop = w.age < 0.12 ? 0.5 + (w.age / 0.12) * 0.8 : 1.3 - Math.min(0.3, (w.age - 0.12) * 0.8);
+    const shake = w.age < 0.4 ? Math.sin(w.age * 70) * 5 * (1 - w.age / 0.4) : 0;
+    ctx.save();
+    ctx.globalAlpha = u > 0.7 ? (1 - u) / 0.3 : 1;
+    ctx.translate(Math.max(90, Math.min(W - 90, w.x)) + shake, Math.max(150, w.y - 40) - w.age * 20);
+    ctx.scale(pop, pop);
+    title(ctx, t(w.s === "too" ? "ninjaToo" : w.s === "miss" ? "ninjaMiss" : w.s === "life" ? "ninjaLife" : "ninjaBomb"), 0, 0, 30, "#ffffff", w.s === "life" ? "#d0306a" : "#d4261c", 0.22);
+    ctx.restore();
+  }
+}
+

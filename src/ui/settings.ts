@@ -697,7 +697,7 @@ export function drawTrophy(ctx: CanvasRenderingContext2D, cx: number, cy: number
 }
 
 /** The top list of a game (the endless game or a match mode): the best ten with their names, or what is wrong with it. Tapping the veil, or Done, closes it. */
-export function drawScores(ctx: CanvasRenderingContext2D, bd: Board, myDevice: string, time: number, game: "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake" = "endless"): void {
+export function drawScores(ctx: CanvasRenderingContext2D, bd: Board, myDevice: string, time: number, game: "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake" | "cannon" | "line" | "mine" | "ninja" = "endless"): void {
   ctx.fillStyle = "rgba(8,6,14,0.74)";
   ctx.fillRect(0, -ui.extra, W, H + 2 * ui.extra);
   registerHit(ctx, "scoresClose", {x: 0, y: -ui.extra, w: W, h: H + 2 * ui.extra});
@@ -705,7 +705,7 @@ export function drawScores(ctx: CanvasRenderingContext2D, bd: Board, myDevice: s
   registerHit(ctx, "scoresPanel", panel);
   drawPanel(ctx, panel.x, panel.y, panel.w, panel.h, 24);
   drawRibbon(ctx, W / 2, 62, 240, t("topList"), "#ffe27a", "#d49a14");
-  write(ctx, t(game === "endless" ? "endless" : game === "save" ? "saveName" : game === "defend" ? "defendName" : game === "ice" ? "iceName" : game === "fast" ? "fastName" : game === "find" ? "findName" : game === "shield" ? "shieldName" : game === "jet" ? "jetName" : game === "comet" ? "cometName" : game === "snake" ? "snakeName" : "sixEightName"), W / 2, 122, 17, "#ffe27a", "center", 700);
+  write(ctx, t(game === "endless" ? "endless" : game === "save" ? "saveName" : game === "defend" ? "defendName" : game === "ice" ? "iceName" : game === "fast" ? "fastName" : game === "find" ? "findName" : game === "shield" ? "shieldName" : game === "jet" ? "jetName" : game === "comet" ? "cometName" : game === "snake" ? "snakeName" : game === "cannon" ? "cannonName" : game === "line" ? "lineName" : game === "mine" ? "mineName" : game === "ninja" ? "ninjaName" : "sixEightName"), W / 2, 122, 17, "#ffe27a", "center", 700);
   if (bd.status === "ok" && bd.rows.length > 0) {
     bd.rows.forEach((r, i) => {
       const y = 152 + i * 32;

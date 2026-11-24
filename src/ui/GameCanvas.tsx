@@ -5,7 +5,7 @@ import {STREAK_RUNGS, type Package, type Streak, dayKey, recordDay, rollPackage,
 import {CUP_PRICE, isShopCup} from "../game/cups";
 import {SAUCER_PRICE, isSaucer} from "../game/saucers";
 import {LOOK_KINDS, type LookKind, findLook} from "../game/looks";
-import {FEATURES, moveShield, craftOn, holdCraft, flyCraftTo, choosePerk, continueGame, createGame, cupAt, dropCup, endIntro, fireLaser, moveCup, recordBest, useEraser, showMenu, startDaily, startGame, startVariant, tapAt, untangleCups, update, useScreen} from "../game/engine";
+import {FEATURES, moveShield, craftOn, holdCraft, flyCraftTo, choosePerk, continueGame, createGame, cupAt, dropCup, endIntro, fireLaser, moveCup, recordBest, useEraser, showMenu, startDaily, startGame, startVariant, tapAt, untangleCups, update, useScreen, cannonOn, aimCannon, fireCannon, lineOn, lineStart, lineMove, lineEnd, mineOn, mineTap, ninjaOn, ninjaStart, ninjaMove, ninjaEnd} from "../game/engine";
 import type {Cup, Feature, Mode, Variant} from "../game/types";
 import {getVolumeStep, isMusicOn, isMuted, playBuy, playFadeGone, playGain, playClick, playEvent, playPageTurn, setMusicScene, setMusicTrack, stepVolume, type MusicTrack, toggleMusic, toggleMute, unlockAudio} from "./audio";
 import {AD_SECONDS} from "./ad";
@@ -1038,6 +1038,9 @@ export function GameCanvas() {
     };
 
     let shieldPointer: number | null = null;
+    let cannonPointer: number | null = null;
+    let linePointer: number | null = null;
+    let ninjaPointer: number | null = null;
     const onDown = (e: PointerEvent) => {
       e.preventDefault();
       unlockAudio();
@@ -1083,6 +1086,32 @@ export function GameCanvas() {
         canvas.setPointerCapture(e.pointerId);
         return;
       }
+      // Ninja: the finger is the blade: it cuts the balls it goes through.
+      if (ninjaOn(g)) {
+        ninjaPointer = e.pointerId;
+        ninjaStart(g, p.x, p.wy);
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+      // The mine: a tap digs (or walks).
+      if (mineOn(g)) {
+        mineTap(g, p.x, p.wy);
+        return;
+      }
+      // Draw to 10: the finger draws a line through the tiles, and letting go counts it.
+      if (lineOn(g)) {
+        linePointer = e.pointerId;
+        lineStart(g, p.x, p.wy);
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+      // The cannon: the finger aims it (anywhere on the screen), and letting go fires.
+      if (cannonOn(g)) {
+        cannonPointer = e.pointerId;
+        aimCannon(g, p.x, p.wy);
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
       const cup = cupAt(g, p.x, p.wy);
       if (cup) {
         // A double tap on a laser cup fires it (it clears its column) instead of taking hold of it.
@@ -1113,6 +1142,21 @@ export function GameCanvas() {
     };
 
     const onMove = (e: PointerEvent) => {
+      if (ninjaPointer === e.pointerId) {
+        const p = point(e);
+        ninjaMove(g, p.x, p.wy);
+        return;
+      }
+      if (linePointer === e.pointerId && g.phase === "play") {
+        const p = point(e);
+        lineMove(g, p.x, p.wy);
+        return;
+      }
+      if (cannonPointer === e.pointerId && g.phase === "play") {
+        const p = point(e);
+        aimCannon(g, p.x, p.wy);
+        return;
+      }
       if (shieldPointer === e.pointerId && craftOn(g) && g.phase === "play") {
         const p = point(e);
         if (g.craftTo) flyCraftTo(g, p.x, p.wy - 40); // (still on its way: it heads for where the finger is now)
@@ -1180,6 +1224,21 @@ export function GameCanvas() {
     };
 
     const onUp = (e: PointerEvent) => {
+      if (ninjaPointer === e.pointerId) {
+        ninjaPointer = null;
+        ninjaEnd(g);
+        return;
+      }
+      if (linePointer === e.pointerId) {
+        linePointer = null;
+        lineEnd(g);
+        return;
+      }
+      if (cannonPointer === e.pointerId) {
+        cannonPointer = null;
+        fireCannon(g);
+        return;
+      }
       if (shieldPointer === e.pointerId) {
         shieldPointer = null;
         holdCraft(g, false);

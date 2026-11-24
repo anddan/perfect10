@@ -2992,7 +2992,7 @@ describe("the daily challenge", () => {
   }
   function daily(): GameState {
     const g = testGame(() => 0.5);
-    startDaily(g, "2026-06-10");
+    startDaily(g, "2026-01-28");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     return g;
@@ -3574,7 +3574,7 @@ describe("progress that fades with time (plus & minus, level 3 and on, and the e
 
     it("is not in the daily challenge", () => {
       const g = testGame(() => 0.5);
-      startDaily(g, "2026-06-10");
+      startDaily(g, "2026-01-28");
       g.spawnTimer = 1e9;
       g.bonusTimer = 1e9;
       g.level = 20;
@@ -3657,7 +3657,7 @@ describe("the cups of the daily challenge: two, then three, then four", () => {
   function daily(loadout: string[][] = []): GameState {
     const g = testGame(() => 0.5);
     g.loadout = loadout as GameState["loadout"];
-    startDaily(g, "2026-06-10");
+    startDaily(g, "2026-01-28");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     return g;
@@ -3715,7 +3715,7 @@ describe("the cups of the daily challenge: two, then three, then four", () => {
 describe("perks that are offered as x2 or x3 in the daily challenge", () => {
   function daily(): GameState {
     const g = testGame(() => 0.5);
-    startDaily(g, "2026-06-10");
+    startDaily(g, "2026-01-28");
     g.spawnTimer = 1e9;
     g.bonusTimer = 1e9;
     g.cups[0].value = 0;
@@ -3761,7 +3761,7 @@ describe("perks that are offered as x2 or x3 in the daily challenge", () => {
         s = (s * 1664525 + 1013904223) % 4294967296;
         return s / 4294967296;
       });
-      startDaily(g, "2026-06-10");
+      startDaily(g, "2026-01-28");
       const all: number[] = [];
       for (let i = 0; i < 80; i++) {
         g.phase = "play";
@@ -3793,7 +3793,7 @@ describe("perks that are offered as x2 or x3 in the daily challenge", () => {
 });
 
 describe("special perks in the daily challenge (the ones the saucers have)", () => {
-  function daily(day = "2026-06-10"): GameState {
+  function daily(day = "2026-01-28"): GameState {
     const g = testGame(() => 0.5);
     startDaily(g, day); // (the numbers, and the perks on offer, follow the day)
     g.spawnTimer = 1e9;
@@ -3844,7 +3844,7 @@ describe("special perks in the daily challenge (the ones the saucers have)", () 
     expect(wait(g)).toBeCloseTo(base / 0.8, 6);
     const h = daily();
     h.saucerLoadout = ["sparse", "sparse"];
-    startDaily(h, "2026-06-10");
+    startDaily(h, "2026-01-28");
     h.spawnTimer = 1e9;
     h.bonusTimer = 1e9;
     h.perks = ["sparse", "sparse"];
@@ -3916,7 +3916,7 @@ describe("the match modes: Save the cup and Even numbers", () => {
       expect(c.shield).toBe(false);
     }
     expect(g.continuesLeft).toBe(0); // (no carrying on after an ad: it would bring the dead cup back)
-    expect(g.screens).toBe(0);
+    expect(g.screens).toBe(1); // (one cloth, as in the endless game)
   });
 
   it("Save the cup: only 1s fall, and no bonus balls or new kinds of number, however long it goes on", () => {
@@ -4149,7 +4149,7 @@ describe("the daily ladder mixes in a match mode", () => {
   it("plays every other rung with the numbers of today's match mode", () => {
     const g = testGame(() => 0.5);
     g.hideIntros = new Set(FEATURES);
-    startDaily(g, "2026-06-10");
+    startDaily(g, "2026-01-28");
     expect(["save", "sixeight", "defend", "ice", "fast", "find", "shield"]).toContain(g.dailyMix);
   });
 
@@ -4841,7 +4841,7 @@ describe("Comet belt", () => {
     expect(g.fuel).toBe(1);
     expect(g.fuelOut).toBe(false);
   });
-  it("goes 1.6 times as fast while the ship is held", () => {
+  it("goes twice as fast while the ship is held", () => {
     const fallen = (held: boolean): number => {
       const g = comet();
       moveShield(g, 20, 100);
@@ -4851,7 +4851,7 @@ describe("Comet belt", () => {
       update(g, 1 / 60);
       return n.y - 100;
     };
-    expect(fallen(true)).toBeCloseTo(fallen(false) * 1.6, 2);
+    expect(fallen(true)).toBeCloseTo(fallen(false) * COMET_HELD_PACE, 2);
   });
   it("a shield ball gives the ship a shield, and the shield takes one hit", () => {
     const g = comet();
@@ -5175,6 +5175,27 @@ describe("the snake", () => {
     for (let i = 0; i < 10; i++) update(g, 1 / 60);
     expect(rear.track!).toBeCloseTo(r0, 1);
   });
+  it("a ghost number turns into another number every few seconds", () => {
+    const g = snake();
+    const train = lay(g, 700);
+    const n = train[3];
+    n.v = 2;
+    n.shift = 0.1;
+    for (let i = 0; i < 12; i++) update(g, 1 / 60);
+    expect(n.v).not.toBe(2);
+    expect(n.shift).toBeGreaterThan(SNAKE_GHOST_EVERY - 0.5);
+  });
+
+  it("a snake that has gone back to the start of the track with a gap in it comes together again and goes on", () => {
+    const g = snake();
+    const train = lay(g, 200);
+    const p = snakePoint(g, train[2].track!);
+    tapAt(g, p.x, p.y);
+    g.snakeBack = 6;
+    for (let i = 0; i < 60 * 6; i++) update(g, 1 / 60);
+    for (let i = 0; i < 60 * 5; i++) update(g, 1 / 60);
+    expect(snakeTrain(g)[0].track!).toBeGreaterThan(60);
+  });
   it("two numbers that meet and make 10 melt into a golden 10", () => {
     const g = snake();
     const train = lay(g, 700);
@@ -5236,7 +5257,7 @@ describe("the snake", () => {
     expect(h.numbers.includes(head)).toBe(false);
   });
 });
-import {snakeTrain, snakeTrainLength, snakeSpeed, snakePoint, snakeLength, SNAKE_GAP, SNAKE_BOSS_HP, snakeBombChance, SNAKE_RECOIL, endlessLevel as levelOfGame} from "./engine";
+import {snakeTrain, snakeTrainLength, snakeSpeed, snakePoint, snakeLength, SNAKE_GAP, SNAKE_BOSS_HP, snakeBombChance, SNAKE_RECOIL, SNAKE_GHOST_EVERY, endlessLevel as levelOfGame} from "./engine";
 
 describe("the fighter jet loses a weapon step when a perfect 10 fades off the bar", () => {
   it("takes one upgrade off the way with the most, and the weapon when it has none left", () => {
@@ -5265,7 +5286,7 @@ import {jetWeaponDown, FADE_TICKS as FADE_STEPS} from "./engine";
 
 describe("the daily ladder, with each match mode", () => {
   it("brings no bonus balls, no new kinds of number and no presentations into any of them, and plays without trouble", () => {
-    const modes = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake"] as const;
+    const modes = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "cannon", "line"] as const;
     for (const mode of modes) {
       let day = "";
       for (let d = 0; d < 3000 && !day; d++) {
@@ -5290,5 +5311,914 @@ describe("the daily ladder, with each match mode", () => {
       }
       expect(g.showcase).toHaveLength(0);
     }
+  });
+});
+
+describe("the cannon", () => {
+  function cannon(): GameState {
+    const g = testGame(() => 0.5);
+    startVariant(g, "cannon");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    return g;
+  }
+  /** Fires the ball in the cannon at (x, y) and runs the game until it has stuck (and what it makes has popped). */
+  function shoot(g: GameState, x: number, y: number, v: number): void {
+    g.cannonNow = v;
+    aimCannon(g, x, y);
+    expect(fireCannon(g)).toBe(true);
+    for (let i = 0; i < 120 && (g.cannonShot || g.bubbles.some((b) => b.glow !== undefined) || g.cannonCheck.length > 0); i++) update(g, 1 / 60);
+  }
+  it("starts with a swarm at the top, a ball in the cannon and the next one", () => {
+    const g = cannon();
+    expect(g.bubbles.length).toBe(5 * CANNON_COLS);
+    expect(g.cannonNow).toBeGreaterThan(0);
+    expect(g.cannonNext).toBeGreaterThan(0);
+  });
+  it("a ball that makes 10 with the ball it meets pops them both: that is a perfect 10", () => {
+    const g = cannon();
+    const target = g.bubbles.find((b) => b.c === 3 && b.r === 4)!;
+    target.v = 6;
+    for (const b of g.bubbles) if (b !== target && Math.abs(b.c - 3) + Math.abs(b.r - 4) === 1) b.v = 9;
+    const before = g.level;
+    shoot(g, bubbleX(3), bubbleY(4), 4);
+    expect(g.bubbles.includes(target)).toBe(false);
+    expect(g.level).toBe(before + 1);
+  });
+  it("a ball that makes no 10 stays in the swarm", () => {
+    const g = cannon();
+    for (const b of g.bubbles) b.v = 9;
+    const count = g.bubbles.length;
+    shoot(g, bubbleX(3), bubbleY(4), 5);
+    expect(g.bubbles.length).toBe(count + 1);
+  });
+  it("after a pop the columns close up, and balls that now touch and make 10 pop too (a chain)", () => {
+    const g = cannon();
+    for (const b of g.bubbles) b.v = 9;
+    // column 3: ... 9, [r3] 2, [r4] 6 ; column 4 at row 3: 8 (2 + 8 = 10 once the 2 has moved up next to it? it is already next to it)
+    const at = (c: number, r: number) => g.bubbles.find((b) => b.c === c && b.r === r)!;
+    at(3, 4).v = 6; // (pops with the 4 that is shot)
+    at(3, 3).v = 1;
+    at(4, 3).v = 9; // (1 + 9 = 10: but they already touch, so it is not looked at until something moves)
+    const before = g.level;
+    shoot(g, bubbleX(3), bubbleY(4), 4);
+    expect(g.level).toBeGreaterThanOrEqual(before + 1);
+  });
+  it("helpers: a star becomes the number that makes 10 and pops; a bolt and a bomb blow balls away", () => {
+    const g = cannon();
+    for (const b of g.bubbles) b.v = 9;
+    const t = g.bubbles.find((b) => b.c === 3 && b.r === 4)!;
+    t.v = 3;
+    g.cannonNowKind = "star";
+    const level = g.level;
+    shoot(g, bubbleX(3), bubbleY(4), 1);
+    expect(g.bubbles.includes(t)).toBe(false);
+    expect(g.level).toBe(level + 1);
+    const h = cannon();
+    const count = h.bubbles.length;
+    h.cannonNowKind = "bolt";
+    shoot(h, bubbleX(3), bubbleY(4), 1);
+    expect(h.bubbles.length).toBeLessThanOrEqual(count - CANNON_BOLT_HITS);
+    const k = cannon();
+    for (const b of k.bubbles) b.v = 9;
+    const n = k.bubbles.length;
+    k.cannonNowKind = "bomb";
+    shoot(k, bubbleX(3), bubbleY(4), 1);
+    expect(k.bubbles.length).toBeLessThan(n - 2);
+  });
+  it("a laser clears the whole row and the whole column where it sticks", () => {
+    const g = cannon();
+    for (const b of g.bubbles) b.v = 9;
+    g.cannonNowKind = "laser";
+    shoot(g, bubbleX(3), bubbleY(4), 1);
+    // (it stuck under the ball at column 3, row 4: row 5 had nothing else, and column 3 had five balls)
+    expect(g.bubbles.filter((b) => b.c === 3)).toHaveLength(0);
+  });
+
+  it("a magnet mixes up the numbers round it and looks at them all for a 10", () => {
+    const g = cannon();
+    const before = g.bubbles.filter((b) => Math.abs(b.c - 3) <= 2).map((b) => b.v).sort().join(",");
+    g.cannonNowKind = "magnet";
+    g.events = [];
+    shoot(g, bubbleX(3), bubbleY(4), 1);
+    expect(g.events.some((e) => e.t === "magnet")).toBe(true);
+    // (no ball is lost by the magnet itself: only what makes 10 pops)
+    const after = g.bubbles.filter((b) => Math.abs(b.c - 3) <= 2).map((b) => b.v).sort().join(",");
+    expect(after.length).toBeGreaterThan(0);
+    void before;
+  });
+
+  it("the swarm comes down a row now and then, and it is over when it reaches the cannon", () => {
+    const g = cannon();
+    const rows = Math.max(...g.bubbles.map((b) => b.r));
+    g.cannonRow = 0.001;
+    update(g, 1 / 60);
+    expect(Math.max(...g.bubbles.map((b) => b.r))).toBe(rows + 1);
+    for (let i = 0; i < 20 && g.phase === "play"; i++) {
+      g.cannonRow = 0.001;
+      update(g, 1 / 60);
+    }
+    expect(g.phase).toBe("over");
+    expect(g.overReason).toBe("swarm");
+  });
+});
+import {aimCannon, fireCannon, bubbleX, bubbleY, CANNON_COLS, CANNON_BOLT_HITS} from "./engine";
+
+describe("draw to 10", () => {
+  function board(): GameState {
+    const g = testGame(() => 0.5);
+    startVariant(g, "line");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    return g;
+  }
+  const at = (g: GameState, c: number, r: number) => g.tiles.find((t) => t.c === c && t.r === r)!;
+  const set = (g: GameState, c: number, r: number, v: number, op: "add" | "mul" | "div" = "add") => {
+    const t = at(g, c, r);
+    t.v = v;
+    t.op = op;
+    t.kind = undefined;
+    t.ice = 0;
+    return t;
+  };
+  /** Draws a line through the tiles (column, row) in this order, and lets go. */
+  function draw(g: GameState, cells: [number, number][]): boolean {
+    lineStart(g, tileX(cells[0][0]), tileY(cells[0][1]));
+    for (const [c, r] of cells.slice(1)) lineMove(g, tileX(c), tileY(r));
+    return lineEnd(g);
+  }
+  it("has no cups, a full board and a clock", () => {
+    const g = board();
+    expect(g.cups).toHaveLength(0);
+    expect(g.tiles).toHaveLength(LINE_COLS * LINE_ROWS);
+    expect(g.lineTime).toBeGreaterThan(50);
+  });
+  it("counts in the order the line is drawn: 3, times 2, plus 4 is 10, but 4, times 2, plus 3 is 11", () => {
+    const g = board();
+    set(g, 0, 7, 3);
+    set(g, 1, 7, 2, "mul");
+    set(g, 2, 7, 4);
+    lineStart(g, tileX(0), tileY(7));
+    lineMove(g, tileX(1), tileY(7));
+    lineMove(g, tileX(2), tileY(7));
+    expect(lineValue(g)).toBe(10);
+    g.linePath = [at(g, 2, 7).id, at(g, 1, 7).id, at(g, 0, 7).id];
+    expect(lineValue(g)).toBe(11);
+  });
+  it("a line that makes 10 pops (a perfect 10, points and time back), the tiles fall and new ones come; one that does not, does nothing", () => {
+    const g = board();
+    set(g, 0, 7, 9);
+    set(g, 1, 7, 2);
+    expect(draw(g, [[0, 7], [1, 7]])).toBe(false);
+    expect(g.tiles).toHaveLength(LINE_COLS * LINE_ROWS);
+    set(g, 1, 7, 1);
+    g.lineTime = 30;
+    const level = g.level;
+    expect(draw(g, [[0, 7], [1, 7]])).toBe(true);
+    expect(g.level).toBe(level + 1);
+    expect(g.score).toBeGreaterThan(0);
+    expect(g.lineTime).toBeGreaterThan(30);
+    expect(g.tiles).toHaveLength(LINE_COLS * LINE_ROWS);
+  });
+  it("goes across too, and back onto the tile before takes the last one off", () => {
+    const g = board();
+    set(g, 0, 0, 4);
+    set(g, 1, 1, 6);
+    lineStart(g, tileX(0), tileY(0));
+    lineMove(g, tileX(1), tileY(1));
+    expect(g.linePath).toHaveLength(2);
+    lineMove(g, tileX(0), tileY(0));
+    expect(g.linePath).toHaveLength(1);
+  });
+  it("steel cannot be drawn through, and a 10 next to it breaks it; a bomb in the line blows up the tiles round it", () => {
+    const g = board();
+    set(g, 0, 7, 4);
+    set(g, 1, 7, 6);
+    const steel = at(g, 0, 6);
+    steel.kind = "steel";
+    lineStart(g, tileX(0), tileY(6));
+    expect(g.linePath).toHaveLength(0);
+    const id = steel.id;
+    expect(draw(g, [[0, 7], [1, 7]])).toBe(true);
+    expect(g.tiles.some((t) => t.id === id)).toBe(false);
+    const h = board();
+    set(h, 2, 4, 3);
+    const bomb = at(h, 3, 4);
+    bomb.kind = "bomb";
+    set(h, 4, 4, 7);
+    const near = at(h, 3, 3).id;
+    expect(draw(h, [[2, 4], [3, 4], [4, 4]])).toBe(true);
+    expect(h.tiles.some((t) => t.id === near)).toBe(false);
+  });
+  it("a bolt in a line that makes 10 electrifies some tiles of the board: they are gone too", () => {
+    const g = board();
+    set(g, 0, 7, 4);
+    const bolt = at(g, 1, 7);
+    bolt.kind = "bolt";
+    set(g, 2, 7, 6);
+    const helpersBefore = g.tiles.filter((t) => t.kind && t !== bolt).map((t) => ({x: tileX(t.c), y: tileY(t.r)}));
+    g.events = [];
+    expect(draw(g, [[0, 7], [1, 7], [2, 7]])).toBe(true);
+    const zap = g.events.find((e) => e.t === "lineBolt");
+    expect(zap && zap.t === "lineBolt" && zap.hits.length).toBe(LINE_BOLT_HITS);
+    // (the helpers of the board are not electrified)
+    expect(zap && zap.t === "lineBolt" && zap.hits.every((h) => !helpersBefore.some((p) => p.x === h.x && p.y === h.y))).toBe(true);
+    expect(g.tiles).toHaveLength(LINE_COLS * LINE_ROWS);
+  });
+  it("on the first levels, when the time is low, a line that makes 10 is shown (and it really makes 10); later it is not", () => {
+    const g = board();
+    set(g, 0, 7, 3);
+    set(g, 1, 7, 7);
+    g.lineTime = 9;
+    update(g, 1 / 60);
+    expect(g.lineHint.length).toBeGreaterThanOrEqual(2);
+    expect(lineValue(g, g.lineHint)).toBe(10);
+    g.lineTime = 30;
+    update(g, 1 / 60);
+    expect(g.lineHint).toHaveLength(0);
+    while (levelOfGame(g) <= 3) g.level++;
+    g.lineTime = 9;
+    update(g, 1 / 60);
+    expect(g.lineHint).toHaveLength(0);
+  });
+  it("a line that comes to minus 10 counts as a 10 too", () => {
+    const g = board();
+    set(g, 0, 7, -4);
+    set(g, 1, 7, -6);
+    const level = g.level;
+    expect(draw(g, [[0, 7], [1, 7]])).toBe(true);
+    expect(g.level).toBe(level + 1);
+  });
+  it("a laser in a line that makes 10 clears its whole row and column", () => {
+    const g = board();
+    set(g, 0, 7, 4);
+    const laser = at(g, 1, 7);
+    laser.kind = "laser";
+    set(g, 2, 7, 6);
+    for (const t of g.tiles) if (t !== laser && (t.c === 1 || t.r === 7) && t.kind && t.kind !== "steel") t.kind = undefined;
+    const ids = g.tiles.filter((t) => t.c === 1 || t.r === 7).map((t) => t.id);
+    expect(draw(g, [[0, 7], [1, 7], [2, 7]])).toBe(true);
+    expect(g.tiles.some((t) => ids.includes(t.id))).toBe(false);
+    expect(g.tiles).toHaveLength(LINE_COLS * LINE_ROWS);
+  });
+  it("a star last in the line makes it 10", () => {
+    const g = board();
+    set(g, 0, 7, 3);
+    const star = at(g, 1, 7);
+    star.kind = "star";
+    g.linePath = [at(g, 0, 7).id, star.id];
+    expect(lineValue(g)).toBe(10);
+    g.linePath = [star.id, at(g, 0, 7).id]; // (first in the line: worth nothing)
+    expect(lineValue(g)).toBe(3);
+  });
+
+  it("after a long line, tiles that fall into a 10 next to each other pop on their own: a chain", () => {
+    const g = board();
+    for (const t of g.tiles) {
+      t.kind = undefined;
+      t.ice = 0;
+      t.op = "add";
+      t.v = 9;
+    }
+    // (a line of four along the bottom row: 1 + 2 + 3 + 4; over it, in the first two columns, a 4 and a 6 that will fall into the bottom row side by side)
+    [1, 2, 3, 4].forEach((v, c) => (at(g, c, 7).v = v));
+    at(g, 0, 6).v = 4;
+    at(g, 1, 6).v = 6;
+    const level = g.level;
+    expect(draw(g, [[0, 7], [1, 7], [2, 7], [3, 7]])).toBe(true);
+    for (let i = 0; i < 60; i++) update(g, 1 / 60);
+    expect(g.level).toBeGreaterThanOrEqual(level + 2);
+  });
+
+  it("a tap on a tile in ice cracks the ice, and then it can be drawn through", () => {
+    const g = board();
+    const t = set(g, 2, 3, 5);
+    t.ice = 1;
+    lineStart(g, tileX(2), tileY(3));
+    expect(t.ice).toBe(0);
+    expect(g.linePath).toHaveLength(0);
+    lineEnd(g);
+    lineStart(g, tileX(2), tileY(3));
+    expect(g.linePath).toEqual([t.id]);
+  });
+  it("shows how many numbers made the 10 (from three on)", () => {
+    const g = board();
+    set(g, 0, 7, 3);
+    set(g, 1, 7, 2, "mul");
+    set(g, 2, 7, 4);
+    expect(draw(g, [[0, 7], [1, 7], [2, 7]])).toBe(true);
+    expect(g.eqFx?.n).toBe(3);
+  });
+
+  it("is over when the time runs out", () => {
+    const g = board();
+    g.lineTime = 0.5;
+    for (let i = 0; i < 60 && g.phase === "play"; i++) update(g, 1 / 60);
+    expect(g.phase).toBe("over");
+    expect(g.overReason).toBe("time");
+  });
+});
+import {lineStart, lineMove, lineEnd, lineValue, tileX, tileY, LINE_COLS, LINE_ROWS, LINE_BOLT_HITS} from "./engine";
+
+describe("carrying on after the ad, in the modes that are not lost through a cup", () => {
+  it("Draw to 10 gets time again, the cannon a swarm clear of it, and the comet belt its lives: none of them is over again at once", () => {
+    for (const mode of ["line", "cannon", "comet"] as const) {
+      const g = testGame(() => 0.5);
+      startVariant(g, mode);
+      g.countdown = 0;
+      update(g, 1 / 60);
+      if (mode === "line") g.lineTime = 0.01;
+      if (mode === "cannon") for (let i = 0; i < 20 && g.phase === "play"; i++) {
+        g.cannonRow = 0.001;
+        update(g, 1 / 60);
+      }
+      if (mode === "comet") {
+        g.shipHp = 1;
+        moveShield(g, 100, 400);
+        const n = drop(g, 100, 380, 0);
+        n.comet = true;
+      }
+      for (let i = 0; i < 30 && g.phase === "play"; i++) update(g, 1 / 60);
+      expect(g.phase).toBe("over");
+      expect(continueGame(g)).toBe(true);
+      for (let i = 0; i < 60; i++) update(g, 1 / 60);
+      expect(`${mode}:${g.phase}`).toBe(`${mode}:play`);
+    }
+  });
+});
+
+describe("the perks of the daily ladder, in each match mode", () => {
+  it("offers only perks that do something in the match mode of the day", () => {
+    const modes = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "cannon", "line"] as const;
+    for (const mode of modes) {
+      let day = "";
+      for (let d = 0; d < 3000 && !day; d++) {
+        const k = new Date(Date.UTC(2026, 0, 1) + d * 864e5).toISOString().slice(0, 10);
+        if (dailyMixOf(k) === mode) day = k;
+      }
+      const g = testGame(() => 0.5);
+      startDaily(g, day);
+      const fits = (p: string) => perkFits(g, p as never);
+      for (const p of ["bonus", "special", "help"]) expect(`${mode}:${p}:${fits(p)}`).toBe(`${mode}:${p}:false`);
+      expect(fits("points") && fits("slow")).toBe(true);
+      expect(fits("time")).toBe(mode === "line");
+      expect(fits("helpers")).toBe(mode === "cannon" || mode === "line");
+      const cupless = mode === "cannon" || mode === "line";
+      for (const p of ["shield", "gold", "thermos", "magnet", "big", "laser"]) expect(`${mode}:${p}:${fits(p)}`).toBe(`${mode}:${p}:${!cupless && (p === "shield" || mode !== "find")}`);
+    }
+  });
+});
+import {perkFits} from "./engine";
+
+describe("the comet belt: moons", () => {
+  it("now and then sends a moon, smaller than a planet; and holding the ship makes the time go twice as fast", () => {
+    let a = 3;
+    const g = testGame(() => ((a = (a * 1664525 + 1013904223) % 4294967296) / 4294967296));
+    startVariant(g, "comet");
+    g.countdown = 0;
+    while (levelOfGame(g) < 2) g.level++;
+    moveShield(g, 20, 100);
+    const seen: NumberTile[] = [];
+    for (let i = 0; i < 60 * 60 && g.phase === "play"; i++) {
+      g.jetShield = true;
+      g.shipHp = 3;
+      update(g, 1 / 60);
+      for (const n of g.numbers) if (n.moon && !seen.includes(n)) seen.push(n);
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((n) => (n.scale ?? 1) < PLANET_SCALE)).toBe(true);
+    expect(COMET_HELD_PACE).toBe(2);
+  });
+});
+import {PLANET_SCALE, COMET_HELD_PACE} from "./engine";
+
+describe("fighter jet: skulls with a shield in front", () => {
+  function guarded(): {g: GameState; n: NumberTile} {
+    const g = testGame(() => 0.5);
+    startVariant(g, "jet");
+    g.countdown = 0;
+    g.spawnTimer = 1e9;
+    g.level = GUARD_FROM;
+    update(g, 1 / 60);
+    const n = drop(g, 180, 200, 99);
+    n.op = "skull";
+    n.guard = {hp: GUARD_HP, max: GUARD_HP, life: GUARD_LIFE};
+    return {g, n};
+  }
+  it("the shield takes the shots from the front, and breaks; then the skull goes quickly", () => {
+    const {g, n} = guarded();
+    for (let k = 0; k < 4; k++) g.shots.push({x: 180, y: 240, vx: 0, vy: -620, missile: false, power: 1, age: 0, trail: [], bounces: 0, hit: []});
+    for (let i = 0; i < 10; i++) update(g, 1 / 60);
+    expect(g.numbers.includes(n)).toBe(true);
+    expect(n.guard!.hp).toBeLessThan(GUARD_HP);
+    expect(n.guard!.life).toBe(GUARD_LIFE);
+    n.guard!.hp = 0;
+    for (let k = 0; k < 2; k++) g.shots.push({x: 180, y: 240, vx: 0, vy: -620, missile: false, power: 1, age: 0, trail: [], bounces: 0, hit: []});
+    for (let i = 0; i < 10; i++) update(g, 1 / 60);
+    expect(g.numbers.includes(n)).toBe(false);
+  });
+  it("a missile gets round the shield", () => {
+    const {g, n} = guarded();
+    g.shots.push({x: 180, y: 240, vx: 0, vy: -400, missile: true, power: 1, age: 0, trail: []});
+    for (let i = 0; i < 20 && g.numbers.includes(n); i++) update(g, 1 / 60);
+    expect(g.numbers.includes(n)).toBe(false);
+    expect(n.guard!.hp).toBe(GUARD_HP);
+  });
+  it("comes now and then from the tenth perfect 10 on, and falls slowly", () => {
+    const g = testGame(() => 0.01);
+    startVariant(g, "jet");
+    g.countdown = 0;
+    g.level = GUARD_FROM;
+    // (all the weapons, and a shield: no weapon balls or shield balls come instead)
+    g.jetWeapons = {a: "bullet", b: "missile", c: "rapid"};
+    g.jetLv = {a: 3, b: 3, c: 3};
+    g.jetShield = true;
+    let found: NumberTile | undefined;
+    for (let i = 0; i < 60 * 20 && !found; i++) {
+      update(g, 1 / 60);
+      found = g.numbers.find((n) => n.guard);
+    }
+    expect(found).toBeDefined();
+  });
+});
+import {GUARD_FROM, GUARD_HP, GUARD_LIFE} from "./engine";
+
+describe("fighter jet: flying to a new place", () => {
+  it("does not shoot while it flies on its own to where the finger was put down, and shoots again once it is there", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "jet");
+    g.countdown = 0;
+    g.spawnTimer = 1e9;
+    update(g, 1 / 60);
+    holdCraft(g, true);
+    flyCraftTo(g, 60, 300);
+    g.shots = [];
+    let flying = 0;
+    for (let i = 0; i < 120 && g.craftTo; i++) {
+      update(g, 1 / 60);
+      flying++;
+      if (g.craftTo) expect(g.shots).toHaveLength(0); // (on its way: no shots; the frame it gets there it may shoot)
+    }
+    expect(flying).toBeGreaterThan(0);
+    for (let i = 0; i < 40; i++) update(g, 1 / 60);
+    expect(g.shots.length).toBeGreaterThan(0);
+  });
+});
+describe("fighter jet: heavy missiles", () => {
+  it("from the fifteenth perfect 10 some missiles are heavy: they cannot be shot down", () => {
+    const g = testGame(() => 0.0001);
+    startVariant(g, "jet");
+    g.countdown = 0;
+    g.spawnTimer = 1e9;
+    g.level = HEAVY_FROM;
+    update(g, 1 / 60);
+    const n = drop(g, 180, 200, 99);
+    n.op = "skull";
+    for (let i = 0; i < 60 && !g.enemyShots.some((e) => e.heavy); i++) update(g, 1 / 60);
+    const heavy = g.enemyShots.find((e) => e.heavy)!;
+    expect(heavy).toBeDefined();
+    heavy.x = 180;
+    heavy.y = 300;
+    heavy.vx = 0;
+    heavy.vy = 0;
+    g.shots = [{x: 180, y: 330, vx: 0, vy: -620, missile: false, power: 1, age: 0, trail: [], bounces: 0, hit: []}];
+    for (let i = 0; i < 6; i++) update(g, 1 / 60);
+    expect(g.enemyShots.includes(heavy)).toBe(true);
+  });
+});
+import {HEAVY_FROM} from "./engine";
+
+describe("the match modes get harder every tenth level", () => {
+  it("a step on level 10, another on 20; not in the endless game", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "save");
+    expect(hardTier(g)).toBe(0);
+    const ramp = variantRamp(g);
+    while (levelOfGame(g) < 10) g.level++;
+    expect(hardTier(g)).toBe(1);
+    while (levelOfGame(g) < 20) g.level++;
+    expect(hardTier(g)).toBe(2);
+    g.level = 1;
+    expect(variantRamp(g)).toBeCloseTo(ramp, 5);
+    const e = testGame(() => 0.5);
+    startGame(e, "endless");
+    while (levelOfGame(e) < 10) e.level++;
+    expect(hardTier(e)).toBe(0);
+  });
+});
+import {hardTier} from "./engine";
+
+describe("the mine", () => {
+  function mine(): GameState {
+    const g = testGame(() => 0.5);
+    startVariant(g, "mine");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    // (the view where it is going to be, so that the taps land on the right blocks)
+    for (let i = 0; i < 120; i++) update(g, 1 / 600);
+    g.mineLava = -50;
+    return g;
+  }
+  const tapCell = (g: GameState, c: number, r: number) => mineTap(g, mineX(c), mineY(g, r));
+  const set = (g: GameState, c: number, r: number, v: number) => {
+    g.mine[r][c] = {v, op: "add", dug: false};
+  };
+  it("has no cups; the miner starts on top, with an empty basket", () => {
+    const g = mine();
+    expect(g.cups).toHaveLength(0);
+    expect(g.miner.r).toBe(0);
+    expect(g.mineSum).toBe(0);
+  });
+  it("digs only next to him (to a side, or under him); the number goes into the basket and he steps in", () => {
+    const g = mine();
+    const {c} = g.miner;
+    set(g, c, 2, 5);
+    expect(tapCell(g, c, 2)).toBe(false);
+    set(g, c, 1, 4);
+    set(g, c, 2, 9);
+    expect(tapCell(g, c, 1)).toBe(true);
+    expect(g.mineSum).toBe(4);
+    expect(g.miner.r).toBe(1);
+  });
+  it("exactly 10 in the basket is a perfect 10 (and the lava is pushed back); over 10 it tips over", () => {
+    const g = mine();
+    const {c} = g.miner;
+    set(g, c, 1, 4);
+    set(g, c, 2, 6);
+    set(g, c, 3, 9);
+    set(g, c, 4, 9);
+    const level = g.level;
+    const lava = g.mineLava;
+    tapCell(g, c, 1);
+    tapCell(g, c, 2);
+    expect(g.level).toBe(level + 1);
+    expect(g.mineSum).toBe(0);
+    expect(g.mineLava).toBeLessThan(lava);
+    expect(g.mineKeys).toBe(1); // (a perfect 10 gives a key)
+    g.mineKeys = 0; // (as if the door had been opened: the numbers count again)
+    // (9 and then 9: over 10, the basket tips over, the same every way)
+    tapCell(g, c, 3);
+    expect(g.mineSum).toBe(9);
+    tapCell(g, c, 4);
+    expect(g.mineSum).toBe(0);
+    expect(g.level).toBe(level + 1);
+    expect(g.mineDaze).toBeGreaterThan(0);
+  });
+  it("walls of steel with a locked door every few rows: a door opens with as many keys as it has locks (one for every perfect 10)", () => {
+    const g = mine();
+    const wall = Array.from({length: 40}, (_, r) => r).find((r) => gateRow(r))!;
+    digOutTo(g, wall);
+    const gates = g.mine[wall].map((cell, c) => ({cell, c})).filter((x) => x.cell.kind === "gate");
+    expect(gates).toHaveLength(1);
+    expect(g.mine[wall].filter((cell) => cell.kind === "steel")).toHaveLength(MINE_COLS - 1);
+    expect(gates[0].cell.v).toBe(1); // (one lock on the first level)
+    const {cell, c} = gates[0];
+    g.miner = {c, r: wall - 1};
+    g.mine[wall - 1][c].dug = true;
+    for (let i = 0; i < 120; i++) update(g, 1 / 600);
+    void cell;
+    g.mineKeys = 0;
+    expect(tapCell(g, c, wall)).toBe(false);
+    g.mineKeys = 1;
+    expect(tapCell(g, c, wall)).toBe(true);
+    expect(g.mineKeys).toBe(0);
+  });
+  it("falls down through what is dug out under him; steel cannot be dug; a bomb blows up the blocks round it", () => {
+    const g = mine();
+    const {c} = g.miner;
+    g.mine[2][c].dug = true;
+    g.mine[3][c].dug = true;
+    set(g, c, 1, 1);
+    tapCell(g, c, 1);
+    expect(g.miner.r).toBe(3);
+    g.mine[4][c] = {v: 0, op: "add", kind: "steel", dug: false};
+    expect(tapCell(g, c, 4)).toBe(false);
+    g.mine[3][c + 1] = {v: 0, op: "add", kind: "bomb", dug: false};
+    tapCell(g, c + 1, 3);
+    expect(g.mine[4][c].dug).toBe(true);
+  });
+  it("a tap on the miner empties the basket; a block over him can be dug", () => {
+    const g = mine();
+    const {c} = g.miner;
+    set(g, c, 1, 4);
+    tapCell(g, c, 1);
+    expect(g.mineSum).toBe(4);
+    const lava = g.mineLava;
+    expect(tapCell(g, g.miner.c, g.miner.r)).toBe(true);
+    expect(g.mineSum).toBe(0);
+    expect(g.mineLava).toBeGreaterThan(lava);
+    // (over him: the earth next to the hole he came down by)
+    set(g, c + 1, 0, 3);
+    g.miner = {c: c + 1, r: 1};
+    g.mine[1][c + 1].dug = true;
+    expect(tapCell(g, c + 1, 0)).toBe(true);
+    expect(g.mineSum).toBe(3);
+    expect(g.miner.r).toBe(1);
+  });
+  it("with no way on at all it is over: no way down", () => {
+    const g = mine();
+    // (a row of tunnel, with steel all round it and under it, and an empty basket)
+    const r = 3;
+    for (let c = 0; c < MINE_COLS; c++) {
+      g.mine[r][c].dug = true;
+      g.mine[r - 1][c] = {v: 0, op: "add", kind: "steel", dug: false};
+      g.mine[r + 1][c] = {v: 0, op: "add", kind: "steel", dug: false};
+    }
+    g.miner = {c: 3, r};
+    g.mineSum = 0;
+    expect(mineStuck(g)).toBe(true);
+    g.mine[r + 1][5] = {v: 4, op: "add", dug: false};
+    expect(mineStuck(g)).toBe(false);
+  });
+
+  it("with keys enough for the next door the numbers are blank: digging them puts nothing in the basket, until the door is opened", () => {
+    const g = mine();
+    const {c} = g.miner;
+    g.mineKeys = 1;
+    set(g, c, 1, 7);
+    tapCell(g, c, 1);
+    expect(g.mineSum).toBe(0);
+    g.mineKeys = 0;
+    set(g, c, 2, 7);
+    tapCell(g, c, 2);
+    expect(g.mineSum).toBe(7);
+  });
+
+  it("is over when the lava reaches the miner", () => {
+    const g = mine();
+    g.mineLava = g.miner.r + 0.3;
+    for (let i = 0; i < 60 && g.phase === "play"; i++) update(g, 1 / 60);
+    expect(g.phase).toBe("over");
+    expect(g.overReason).toBe("lava");
+  });
+});
+import {mineTap, mineX, mineY, gateRow, MINE_COLS, mineStuck} from "./engine";
+/** The rows of the mine made as far down as row r (as the miner going down would). */
+function digOutTo(g: GameState, r: number): void {
+  const keep = g.miner.r;
+  g.miner.r = r;
+  mineTap(g, -1000, -1000);
+  g.miner.r = keep;
+}
+
+describe("the mine: doors with two locks", () => {
+  it("a door with two locks needs two keys, and the numbers stay until there are two", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "mine");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    const wall = Array.from({length: 40}, (_, r) => r).find((r) => gateRow(r))!;
+    const door = g.mine[wall].find((cell) => cell.kind === "gate")!;
+    door.v = 2;
+    expect(nextLocks(g)).toBe(2);
+    g.mineKeys = 1;
+    expect(mineFree(g)).toBe(false);
+    g.mineKeys = 2;
+    expect(mineFree(g)).toBe(true);
+  });
+});
+import {nextLocks, mineFree} from "./engine";
+
+
+import {toolsOn} from "./engine";
+
+describe("the cloth and the eraser in every match mode and the daily ladder", () => {
+  const modes = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "cannon", "line", "mine", "ninja"] as const;
+  it("both can be used in every match mode, and the match modes start with a cloth", () => {
+    for (const v of modes) {
+      const g = testGame(() => 0.5);
+      startVariant(g, v);
+      g.countdown = 0;
+      g.phase = "play";
+      g.intro = [];
+      update(g, 1 / 60);
+      expect(toolsOn(g, "screen")).toBe(true);
+      expect(toolsOn(g, "eraser")).toBe(true);
+      expect(g.screens).toBe(1);
+      expect(useScreen(g)).toBe(true);
+      g.erasers = 1;
+      expect(useEraser(g)).toBe(true);
+    }
+  });
+  it("in the daily ladder too", () => {
+    const g = testGame(() => 0.5);
+    startDaily(g, "2026-01-28");
+    expect(toolsOn(g, "screen")).toBe(true);
+    expect(toolsOn(g, "eraser")).toBe(true);
+  });
+  it("the cloth wipes the low rows of the cannon", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "cannon");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    const rows = new Set(g.bubbles.map((b) => b.r)).size;
+    useScreen(g);
+    expect(new Set(g.bubbles.map((b) => b.r)).size).toBe(Math.max(0, rows - 3));
+  });
+});
+
+describe("the mine: steel blown away", () => {
+  it("can be walked on like any tunnel", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "mine");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    for (let i = 0; i < 120; i++) update(g, 1 / 600);
+    g.mineLava = -50;
+    const {c, r} = g.miner;
+    g.mine[r][c + 1] = {v: 0, op: "add", kind: "steel", dug: true};
+    g.mine[r + 1][c + 1] = {v: 0, op: "add", kind: "steel", dug: false};
+    expect(mineTap(g, mineX(c + 1), mineY(g, r))).toBe(true);
+    expect(g.miner.c).toBe(c + 1);
+  });
+});
+
+import {ninjaStart, ninjaMove, ninjaEnd, NINJA_STRIKES} from "./engine";
+
+describe("the ninja", () => {
+  function ninja(): GameState {
+    const g = testGame(() => 0.5);
+    startVariant(g, "ninja");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    g.ninjaBalls = [];
+    g.ninjaTimer = 99;
+    return g;
+  }
+  const ball = (g: GameState, x: number, v: number, kind?: "bomb" | "star" | "clock" | "freeze") => {
+    g.ninjaBalls.push({id: ++g.ninjaId, x, y: 300, vx: 0, vy: 0, v, kind, cut: false, spin: 0});
+  };
+  const swipe = (g: GameState, x1: number, x2: number) => {
+    ninjaStart(g, x1, 300);
+    for (let k = 1; k <= 20; k++) ninjaMove(g, x1 + ((x2 - x1) * k) / 20, 300);
+    ninjaEnd(g);
+  };
+  it("has no cups; numbers cut in one swipe that make exactly 10 are a perfect 10", () => {
+    const g = ninja();
+    expect(g.cups).toHaveLength(0);
+    ball(g, 100, 4);
+    ball(g, 200, 6);
+    const level = g.level;
+    swipe(g, 50, 260);
+    expect(g.ninjaBalls).toHaveLength(0);
+    expect(g.level).toBe(level + 1);
+    expect(g.ninjaStrikes).toBe(0);
+  });
+  it("over 10 is a cross, and so is a bomb; three crosses and it is over", () => {
+    const g = ninja();
+    ball(g, 100, 7);
+    ball(g, 200, 8);
+    swipe(g, 50, 260);
+    expect(g.ninjaStrikes).toBe(1);
+    ball(g, 150, 0, "bomb");
+    swipe(g, 50, 260);
+    expect(g.ninjaStrikes).toBe(2);
+    ball(g, 150, 0, "bomb");
+    swipe(g, 50, 260);
+    expect(g.ninjaStrikes).toBe(NINJA_STRIKES);
+    expect(g.phase).toBe("over");
+    expect(g.overReason).toBe("ninja");
+  });
+  it("a stroke under 10 counts nothing; a star starts the star rain: numbers that make 10 come thick and fast, and no bombs", () => {
+    const g = ninja();
+    ball(g, 100, 3);
+    const level = g.level;
+    swipe(g, 50, 160);
+    expect(g.level).toBe(level);
+    expect(g.ninjaStrikes).toBe(0);
+    ball(g, 200, 0, "star");
+    swipe(g, 150, 260);
+    expect(g.ninjaFrenzy).toBeGreaterThan(0);
+    for (let i = 0; i < 120; i++) update(g, 1 / 60);
+    expect(g.ninjaBalls.length).toBeGreaterThanOrEqual(6);
+    expect(g.ninjaBalls.some((b) => b.kind === "bomb")).toBe(false);
+  });
+  it("throws balls up from the bottom, and the clock slows them", () => {
+    const g = ninja();
+    g.ninjaTimer = 0;
+    update(g, 1 / 60);
+    expect(g.ninjaBalls.length).toBeGreaterThan(0);
+    const b = g.ninjaBalls[0];
+    const y = b.y;
+    update(g, 0.1);
+    expect(b.y).toBeLessThan(y);
+  });
+});
+
+
+import {dailyMixOf as mixOfDay, findOn as findPlayed, playedAs} from "./engine";
+
+describe("the daily ladder played as Sequence 10, and the others", () => {
+  const dayOf = (v: string) => {
+    for (let d = 1; d < 400; d++) {
+      const day = `2027-${String(1 + Math.floor((d - 1) / 28)).padStart(2, "0")}-${String(1 + ((d - 1) % 28)).padStart(2, "0")}`;
+      if (mixOfDay(day) === v) return day;
+    }
+    throw new Error("no day for " + v);
+  };
+  it("Sequence 10 in the daily ladder: plain cups (nothing from the shop), and its clock runs", () => {
+    const g = testGame(() => 0.5);
+    g.loadout = [["big"], ["magnet"], [], []] as typeof g.loadout;
+    startDaily(g, dayOf("find"));
+    expect(findPlayed(g)).toBe(true);
+    expect(g.cups.every((c) => c.kinds.length === 0 && !c.saucer)).toBe(true);
+    for (let i = 0; i < 60 * 6; i++) update(g, 1 / 60);
+    expect(g.findTotal).toBeGreaterThan(0);
+    expect(g.findTimer).toBeLessThan(g.findTotal);
+  });
+  it("every match mode of the daily ladder is played as itself", () => {
+    for (const v of ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "cannon", "line", "ninja"]) {
+      const g = testGame(() => 0.5);
+      startDaily(g, dayOf(v));
+      expect(playedAs(g)).toBe(v);
+      for (let i = 0; i < 60 * 8; i++) update(g, 1 / 60);
+      expect(["play", "over", "intro"]).toContain(g.phase);
+    }
+  });
+});
+
+describe("the ninja: golden numbers", () => {
+  it("a golden number that falls out uncut is a cross; a plain one is not", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "ninja");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    g.ninjaTimer = 99;
+    g.ninjaBalls = [
+      {id: 1, x: 100, y: 690, vx: 0, vy: 50, v: 3, cut: false, spin: 0},
+      {id: 2, x: 200, y: 690, vx: 0, vy: 50, v: 4, cut: false, spin: 0, must: true},
+    ];
+    update(g, 0.2);
+    expect(g.ninjaBalls).toHaveLength(0);
+    expect(g.ninjaStrikes).toBe(1);
+  });
+});
+
+describe("the ninja: shells", () => {
+  it("a number in steel or ice takes two swipes: the first takes the shell off, the second cuts it", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "ninja");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    g.ninjaTimer = 99;
+    for (const shell of ["steel", "ice"] as const) {
+      g.ninjaBalls = [{id: 50, x: 150, y: 300, vx: 0, vy: 0, v: 3, cut: false, spin: 0, shell}];
+      ninjaStart(g, 50, 300);
+      for (let k = 1; k <= 20; k++) ninjaMove(g, 50 + k * 10, 300);
+      ninjaEnd(g);
+      expect(g.ninjaBalls).toHaveLength(1);
+      expect(g.ninjaBalls[0].shell).toBeUndefined();
+      const b = g.ninjaBalls[0];
+      b.x = 150;
+      b.y = 300;
+      ninjaStart(g, 50, 300);
+      for (let k = 1; k <= 20; k++) ninjaMove(g, 50 + k * 10, 300);
+      ninjaEnd(g);
+      expect(g.ninjaBalls).toHaveLength(0);
+    }
+  });
+});
+
+describe("the ninja: hearts", () => {
+  it("a heart cut takes a cross away", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "ninja");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    g.ninjaTimer = 99;
+    g.ninjaStrikes = 2;
+    g.ninjaBalls = [{id: 60, x: 150, y: 300, vx: 0, vy: 0, v: 0, kind: "heart", cut: false, spin: 0}];
+    ninjaStart(g, 50, 300);
+    for (let k = 1; k <= 20; k++) ninjaMove(g, 50 + k * 10, 300);
+    ninjaEnd(g);
+    expect(g.ninjaStrikes).toBe(1);
+  });
+});
+
+import {ninjaMult} from "./engine";
+
+describe("the ninja: combo", () => {
+  it("three perfect 10s in a row make the points ×2, six ×3; a cross starts it over", () => {
+    const g = testGame(() => 0.5);
+    startVariant(g, "ninja");
+    g.countdown = 0;
+    update(g, 1 / 60);
+    g.ninjaTimer = 99;
+    const ten = () => {
+      g.ninjaBalls = [{id: ++g.ninjaId, x: 150, y: 300, vx: 0, vy: 0, v: 10, cut: false, spin: 0}];
+      ninjaStart(g, 50, 300);
+      for (let k = 1; k <= 20; k++) ninjaMove(g, 50 + k * 10, 300);
+      ninjaEnd(g);
+    };
+    expect(ninjaMult(g)).toBe(1);
+    for (let k = 0; k < 3; k++) ten();
+    expect(ninjaMult(g)).toBe(2);
+    for (let k = 0; k < 3; k++) ten();
+    expect(ninjaMult(g)).toBe(3);
+    g.ninjaBalls = [{id: ++g.ninjaId, x: 150, y: 300, vx: 0, vy: 0, v: 0, kind: "bomb", cut: false, spin: 0}];
+    ninjaStart(g, 50, 300);
+    for (let k = 1; k <= 20; k++) ninjaMove(g, 50 + k * 10, 300);
+    ninjaEnd(g);
+    expect(ninjaMult(g)).toBe(1);
   });
 });

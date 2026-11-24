@@ -18,14 +18,14 @@ export interface Board {
 }
 
 /** The games that have a top list: the endless game and the two match modes. */
-export type ScoreMode = "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake";
-export const SCORE_MODES: readonly ScoreMode[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake"];
+export type ScoreMode = "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake" | "cannon" | "line" | "mine" | "ninja";
+export const SCORE_MODES: readonly ScoreMode[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "cannon", "line", "mine", "ninja"];
 
 /** The collection of the database that holds the list of each. */
-export const COLLECTION: Record<ScoreMode, string> = {endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight", defend: "highscores_defend", ice: "highscores_ice", fast: "highscores_fast", find: "highscores_find", shield: "highscores_shield", jet: "highscores_jet", comet: "highscores_comet", snake: "highscores_snake"};
+export const COLLECTION: Record<ScoreMode, string> = {endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight", defend: "highscores_defend", ice: "highscores_ice", fast: "highscores_fast", find: "highscores_find", shield: "highscores_shield", jet: "highscores_jet", comet: "highscores_comet", snake: "highscores_snake", cannon: "highscores_cannon", line: "highscores_line", mine: "highscores_mine", ninja: "highscores_ninja"};
 
 const emptyBoard = (): Board => ({status: FIREBASE_CONFIG ? "loading" : "off", rows: []});
-export const boards: Record<ScoreMode, Board> = {endless: emptyBoard(), save: emptyBoard(), sixeight: emptyBoard(), defend: emptyBoard(), ice: emptyBoard(), fast: emptyBoard(), find: emptyBoard(), shield: emptyBoard(), jet: emptyBoard(), comet: emptyBoard(), snake: emptyBoard()};
+export const boards: Record<ScoreMode, Board> = {endless: emptyBoard(), save: emptyBoard(), sixeight: emptyBoard(), defend: emptyBoard(), ice: emptyBoard(), fast: emptyBoard(), find: emptyBoard(), shield: emptyBoard(), jet: emptyBoard(), comet: emptyBoard(), snake: emptyBoard(), cannon: emptyBoard(), line: emptyBoard(), mine: emptyBoard(), ninja: emptyBoard()};
 /** The top list of the endless game. */
 export const board: Board = boards.endless;
 

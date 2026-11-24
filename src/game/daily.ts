@@ -5,7 +5,7 @@ import type {CupKind, PerkId} from "./types";
 // The daily challenge: everyone gets the same numbers on the same day, and one try.
 
 /** The perks, and how many times each can be taken in one round (the ones that are cups can be taken once each: there is only one of each). */
-export const PERK_LIMIT: Record<PerkId, number> = {slow: 4, shield: 99, cloth: 99, life: 99, remove: 2, bonus: 3, help: 3, gold: 1, thermos: 1, magnet: 1, big: 1, laser: 1, sparse: 3, special: 3, points: 3};
+export const PERK_LIMIT: Record<PerkId, number> = {slow: 4, shield: 99, cloth: 99, life: 99, remove: 2, bonus: 3, help: 3, gold: 1, thermos: 1, magnet: 1, big: 1, laser: 1, sparse: 3, special: 3, points: 3, time: 4, helpers: 3};
 
 /**
  * The special perks, the ones the saucers of the shop have too (10% fewer numbers, 10% more special numbers, 50% more points): they are not in the

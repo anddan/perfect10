@@ -3,7 +3,7 @@ import {BIG_LIMIT, GOLD_FACTOR, LASER_COOLDOWN, LASER_HALF_WIDTH, MAGNET_REACH} 
 import {SAUCER_EFFECT, type SaucerKind, saucerPower} from "./saucers";
 import {DAILY_RUNGS, DIAMOND_TEN_CHANCE} from "./constants";
 import {BONUS_POINTS, BOMB_RADIUS, PAUSE_SECONDS, CHAIN_LENGTH, GHOST_PERIOD, ICE_HITS, COLS, PLUS_COLS, TWO_COLS, WIN_DELAY, COMBO_SECONDS, COMBO_BONUS, SCREEN_MAX, SWEEP_DOWN, SWEEP_HOLD, SWEEP_UP, SWEEP_EDGE, CUP_H, CUP_START_Y, SLOW_FACTOR, SLOW_SECONDS, ERASER_MAX, DIVE_GRAVITY, DIVE_HOP, CUP_W, MISS_Y, STAGES, TAP_RADIUS, TARGET, TUTORIAL_STEPS, W} from "./constants";
-import type {Bonus, Cup, Feature, GameOverReason, GameState, Mode, NumberTile, Op, PerkId, Pickup, Variant, Weapon, WeaponPath} from "./types";
+import type {Bonus, Cup, Feature, GameOverReason, GameState, Mode, NumberTile, Op, PerkId, Pickup, Variant, Weapon, WeaponPath, Bubble, LineTile, CannonHelp, MineCell, NinjaBall} from "./types";
 
 // ---- Difficulty -----------------------------------------------------------------------
 
@@ -40,22 +40,30 @@ const LEVEL_2_UP_SLOWER = 0.9;
 
 /** In Save the cup the numbers fall faster and faster: from a bit faster than the endless game at the start, and more with the seconds of the round (up to five and a half times as fast). */
 export function variantRamp(g: GameState): number {
+  return variantRampBase(g) * (1 + HARD_SPEED * hardTier(g));
+}
+
+function variantRampBase(g: GameState): number {
   if (g.variant === "jet") return Math.min(4, 1.2 + g.variantTime / 45); // (Fighter jet: faster and faster)
   if (g.variant === "comet") return Math.min(4, 1.5 + g.variantTime / 45); // (Comet belt: the comets come fast)
   if (g.variant === "shield") return Math.min(5, 1.3 + g.variantTime / 40); // (Shield up: faster and faster, and on for long)
   if (g.variant === "defend") return Math.min(3.5, 1.25 + g.variantTime / 60); // (Defend the cups: a bit faster from the start)
-  if (g.variant === "ice") return 0.85; // (Ice world: a little slower, since every number takes two taps)
-  if (g.variant === "fast") return 1.8; // (Fast fingers: a skull that falls falls fast)
+  if (playedAs(g) === "ice") return 0.85; // (Ice world: a little slower, since every number takes two taps)
+  if (playedAs(g) === "fast") return 1.8; // (Fast fingers: a skull that falls falls fast)
   return g.variant === "save" ? Math.min(5.5, 1.15 + g.variantTime / 36) : 1;
 }
 
 /** And more and more of them come (up to seven times as often): the time between the numbers is divided by this. */
 export function variantRate(g: GameState): number {
+  return variantRateBase(g) * (1 + HARD_RATE * hardTier(g));
+}
+
+function variantRateBase(g: GameState): number {
   if (g.variant === "jet") return Math.min(5, 1.2 + g.variantTime / 35);
   if (g.variant === "comet") return Math.min(5, 1.3 + g.variantTime / 30);
   if (g.variant === "shield") return Math.min(6, 1.1 + g.variantTime / 35);
   if (g.variant === "defend") return Math.min(4, 1.3 + g.variantTime / 50); // (and a few more numbers)
-  if (g.variant === "ice") return 0.8; // (and a few fewer numbers)
+  if (playedAs(g) === "ice") return 0.8; // (and a few fewer numbers)
   if (g.variant === "fast") return Math.min(3, 1 + g.variantTime / 40); // (more and more of them)
   return g.variant === "save" ? Math.min(7, 1.3 + g.variantTime / 30) : 1;
 }
@@ -478,6 +486,62 @@ export function createGame(rng: () => number = Math.random, best = 0): GameState
     snakeRecoil: 0,
     snakeStun: 0,
     snakeHearts: 0,
+    bubbles: [],
+    cannonShot: null,
+    cannonNow: 1,
+    cannonNext: 1,
+    cannonNowKind: null,
+    cannonNextKind: null,
+    cannonAim: null,
+    cannonRow: 0,
+    cannonCheck: [],
+    cannonWait: 0,
+    cannonFly: [],
+    cannonChain: 0,
+    tiles: [],
+    linePath: [],
+    lineTime: 0,
+    lineGot: 0,
+    lineGotT: 99,
+    lineFail: 99,
+    lineHint: [],
+    eqFx: null,
+    mine: [],
+    miner: {c: 3, r: 0},
+    mineSum: 0,
+    mineLava: -6,
+    mineCam: 0,
+    mineDeep: 0,
+    mineTip: 99,
+    mineDaze: 0,
+    mineKeys: 0,
+    ninjaBalls: [],
+    ninjaHalves: [],
+    ninjaSplats: [],
+    ninjaTrail: [],
+    ninjaLast: null,
+    ninjaSum: 0,
+    ninjaCount: 0,
+    ninjaPts: [],
+    ninjaStrikes: 0,
+    ninjaSlow: 0,
+    ninjaFreeze: 0,
+    ninjaFrenzy: 0,
+    ninjaStroke: 0,
+    ninjaCombo: 0,
+    ninjaComboT: 99,
+    ninjaTimer: 0,
+    ninjaId: 0,
+    ninjaWord: null,
+    mineSwing: {dc: 1, dr: 0, t: 99},
+    mineFrom: {c: 3, r: 0, t: 99},
+    mineFace: 1,
+    mineOver: 0,
+    mineKeyT: 99,
+    lineFell: [],
+    lineWait: 0,
+    lineChain: 0,
+    lineChainFx: null,
     snakeBoost: 0,
     snakeFastT: 99,
     reverse: 0,
@@ -566,8 +630,10 @@ function dressCups(g: GameState): void {
 }
 
 function dressCup(g: GameState, c: Cup, index: number): void {
-  c.kinds = [...(g.loadout[index] ?? [])];
-  c.saucer = g.saucerLoadout[index] ?? undefined;
+  // (Sequence 10 is plain cups only, in the daily ladder too: a big cup, a magnet or a saucer would make other sums count)
+  const plain = findOn(g);
+  c.kinds = plain ? [] : [...(g.loadout[index] ?? [])];
+  c.saucer = plain ? undefined : (g.saucerLoadout[index] ?? undefined);
   c.charge = 0;
   if (c.kinds.includes("thermos")) c.shield = true;
 }
@@ -659,7 +725,7 @@ export function startGame(g: GameState, mode: Mode = g.mode, stage: number = g.s
 
 /** The match modes in the order the even rungs of the daily ladder play them on a day (a random order, the same for everyone that day). */
 export function dailyMixesOf(day: string = dayKey()): Variant[] {
-  const list: Variant[] = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake"];
+  const list: Variant[] = ["save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "cannon", "line", "ninja"];
   const rng = seededRandom(seedOfDay(day) ^ 0x5bd1e995);
   for (let i = list.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
@@ -716,11 +782,12 @@ export function startDaily(g: GameState, day: string = dayKey()): void {
 export function startVariant(g: GameState, variant: Variant): void {
   startGame(g, "endless");
   g.variant = variant;
-  g.screens = 0;
   g.bonusTimer = nextBonusIn(g);
   // (Defend the cups starts with the presentation of the skull, unless it has been hidden)
   // (Fast fingers starts with a count down: 3, 2, 1, 0.6 seconds each)
-  if (variant === "fast" || variant === "find" || variant === "jet" || variant === "comet" || variant === "snake") g.countdown = FAST_COUNT * 3;
+  if (variant === "fast" || variant === "find" || variant === "jet" || variant === "comet" || variant === "snake" || variant === "cannon" || variant === "line" || variant === "mine" || variant === "ninja") g.countdown = FAST_COUNT * 3;
+  // (Draw to 10 has no cups: it goes on time)
+  if (variant === "line" || variant === "mine" || variant === "ninja") g.cups = [];
   if (variant === "defend" && !g.hideIntros.has("skull")) {
     g.intro = ["skull"];
     g.phase = "intro";
@@ -759,6 +826,7 @@ export function dailyColumns(rung: number): readonly number[] {
  * right (with what it is to have from the shop, and the saucer). The numbers in the air go to the columns that are there now.
  */
 function growCups(g: GameState): void {
+  if (cannonOn(g) || lineOn(g) || mineOn(g) || ninjaOn(g)) return; // (these have no cups)
   const cols = dailyColumns(endlessLevel(g));
   if (cols.length <= g.cols.length) return;
   const added = cols.length - g.cols.length;
@@ -788,6 +856,7 @@ function growCups(g: GameState): void {
 function perkOptions(g: GameState): PerkId[] {
   const living = g.cups.filter((c) => !c.dead);
   return PERKS.filter((p) => {
+    if (!perkFits(g, p)) return false;
     if (g.perks.filter((q) => q === p).length >= PERK_LIMIT[p]) return false;
     if (p === "shield") return living.some((c) => !c.shield);
     if (p === "cloth") return g.screens < SCREEN_MAX;
@@ -816,6 +885,7 @@ export function choosePerk(g: GameState, index: number): boolean {
 /** What a perk does, once. */
 function applyPerk(g: GameState, perk: PerkId): void {
   if (perk === "slow") g.speedMul *= PERK_SLOWER;
+  else if (perk === "time") g.lineTime = Math.min(LINE_MAX_TIME + 30, g.lineTime + LINE_PERK_TIME);
   else if (perk === "cloth") giveScreens(g, 1);
   else if (perk === "shield") {
     const cup = g.cups.find((c) => !c.dead && !c.shield);
@@ -876,7 +946,7 @@ function offerPerks(g: GameState): void {
   if (choices.length === 0) return;
   // With a bit of luck one of them is a special perk (the ones the saucers have): it takes the place of one of the others.
   if (g.rng() < SPECIAL_PERK_CHANCE) {
-    const special = SPECIAL_PERKS.filter((p) => perkMax(g, p) > 0);
+    const special = SPECIAL_PERKS.filter((p) => perkFits(g, p) && perkMax(g, p) > 0);
     if (special.length > 0) choices[Math.floor(g.rng() * choices.length)] = special[Math.floor(g.rng() * special.length)];
   }
   g.perkChoices = choices;
@@ -992,9 +1062,10 @@ export function useScreen(g: GameState): boolean {
     g.events.push({t: "sweep"});
     return true;
   }
-  if (g.phase !== "play" || g.zap || g.screens <= 0 || g.sweep >= 0 || featureAge(g, "screen") < 0) return false;
+  if (g.phase !== "play" || g.zap || g.screens <= 0 || g.sweep >= 0 || !toolsOn(g, "screen")) return false;
   g.screens -= 1;
   g.sweep = 0;
+  clothWipe(g);
   g.events.push({t: "sweep"});
   g.events.push({t: "screens", n: g.screens});
   return true;
@@ -1090,8 +1161,46 @@ export function continueGame(g: GameState): boolean {
     c.ripple = 1;
     g.events.push({t: "revive", cupId: c.id});
   }
+  // (the match modes that are not lost through a cup are given a fresh start where they were lost)
+  if (lineOn(g)) {
+    // Draw to 10: half a clock again
+    g.lineTime = LINE_START_TIME / 2;
+    g.linePath = [];
+  }
+  if (cannonOn(g)) {
+    // the cannon: the lowest rows of the swarm are gone, so that it is well clear of the cannon again, and its clock to the next row starts over
+    g.cannonShot = null;
+    for (const b of g.bubbles) b.glow = undefined;
+    while (g.bubbles.length > 0 && Math.max(...g.bubbles.map((b) => bubbleY(b.r) + BUBBLE_R)) > SWARM_LIMIT - CANNON_CONTINUE_ROOM) {
+      const low = Math.max(...g.bubbles.map((b) => b.r));
+      g.bubbles = g.bubbles.filter((b) => b.r !== low);
+    }
+    g.cannonCheck = [];
+    g.cannonRow = swarmEvery(g);
+  }
+  if (ninjaOn(g)) {
+    // ninja: the crosses are gone, and the air is clear
+    g.ninjaStrikes = 0;
+    g.ninjaBalls = [];
+    g.ninjaSum = 0;
+    g.ninjaCount = 0;
+    g.ninjaTimer = 1.5;
+  }
+  if (mineOn(g)) {
+    // the mine: the lava is pushed well back up
+    g.mineLava = g.miner.r - 6;
+    g.mineSum = 0;
+  }
+  if (cometOn(g)) {
+    // the comet belt: the ship has all its lives again (and the comets that were falling are gone with the numbers)
+    g.shipHp = SHIP_HP;
+    g.shipHurt = 2;
+  }
   return true;
 }
+
+/** The cannon: how far clear of the red line the swarm is after a round is carried on. */
+const CANNON_CONTINUE_ROOM = 160; // (four rows of the swarm)
 
 // ---- Cups -----------------------------------------------------------------------------
 
@@ -1361,6 +1470,10 @@ function spawnVariant(g: GameState, free: number[], variant: Variant): void {
     return;
   }
   if (variant === "snake") return; // (the snake sets out its own train: see updateSnake)
+  if (variant === "cannon") return; // (the cannon has its swarm: see updateCannon)
+  if (variant === "line") return; // (the board of Draw to 10 lies still: see updateLine)
+  if (variant === "mine") return; // (the mine is dug: see updateMine)
+  if (variant === "ninja") return; // (the balls are thrown up: see updateNinja)
   if (variant === "ice") {
     // Ice world: every number is frozen in ice (it has to be cracked free before it can be sent down): plus numbers at first, minus numbers too from the
     // third level, and blue "times" numbers too from the fifth.
@@ -1597,8 +1710,13 @@ function collectBonus(g: GameState, n: NumberTile): void {
  */
 export function tapAt(g: GameState, x: number, y: number, skip?: Set<number>): boolean {
   if (g.phase !== "play" || g.zap) return false; // (nothing can be tapped while the diamond is at work)
+  if (g.erase > 0 && eraseTap(g, x, y)) return true; // (the eraser in the modes where nothing falls to be tapped)
   if (jetOn(g) || cometOn(g)) return false; // (the jet and the ship are flown: nothing falling is tapped)
   if (snakeOn(g)) return tapSnake(g, x, y, skip);
+  if (cannonOn(g)) return false; // (the cannon is aimed and fired: nothing falls to be tapped)
+  if (lineOn(g)) return false; // (in Draw to 10 lines are drawn, nothing is tapped)
+  if (mineOn(g)) return false; // (the mine is dug with mineTap)
+  if (ninjaOn(g)) return false; // (the balls are cut with a swipe: see ninjaMove)
   // Sequence 10: a tap on a number makes it fall into the cup under its column (the order the numbers are tapped in is the sequence).
   if (findOn(g)) {
     let best: NumberTile | undefined;
@@ -1844,8 +1962,13 @@ function failFind(g: GameState): void {
   if (findOn(g)) newFindPuzzle(g);
 }
 
+/** The match mode being played: the one chosen, or the daily ladder's of the day (null for neither). */
+export function playedAs(g: GameState): Variant | null {
+  return g.variant ?? mixNow(g);
+}
+
 /** Find the Perfect 10 is being played: the match mode, or an even rung of the daily ladder on a day of it. */
-function findOn(g: GameState): boolean {
+export function findOn(g: GameState): boolean {
   return g.variant === "find" || mixNow(g) === "find";
 }
 
@@ -2157,7 +2280,7 @@ function levelUp(g: GameState, c: Cup): void {
 // ---- Every frame ----------------------------------------------------------------------
 
 /** Comet belt: how much faster the time goes while a finger holds the ship (and it has fuel). */
-export const COMET_HELD_PACE = 1.6;
+export const COMET_HELD_PACE = 2;
 /** Comet belt: how much faster than the numbers a comet of the usual size falls (a smaller one falls faster, a bigger one slower). */
 export const COMET_FAST = 1.6;
 
@@ -2292,11 +2415,12 @@ export function update(g: GameState, dt: number): void {
 
   // The daily ladder: an even rung of Fast fingers or Sequence 10 starts with the count down (3, 2, 1).
   const mixed = mixNow(g);
-  if ((mixed === "fast" || mixed === "find" || mixed === "jet" || mixed === "comet" || mixed === "snake") && g.phase === "play") {
+  if ((mixed === "fast" || mixed === "find" || mixed === "jet" || mixed === "comet" || mixed === "snake" || mixed === "cannon" || mixed === "line" || mixed === "ninja") && g.phase === "play") {
     const rung = endlessLevel(g);
     if (rung !== g.mixRung) {
       g.mixRung = rung;
       g.countdown = FAST_COUNT * 3;
+      if (lineOn(g)) g.lineTime = LINE_START_TIME + LINE_PERK_TIME * perkCount(g, "time"); // (Draw to 10: every rung starts with a full clock, and the time perks on top)
     }
   }
 
@@ -2357,6 +2481,11 @@ export function update(g: GameState, dt: number): void {
 
   // The snake: the train slides along its track.
   if (snakeOn(g) && g.phase === "play" && g.countdown <= 0) updateSnake(g, sdt);
+  // The cannon: its swarm comes down, its ball flies, and what makes 10 pops.
+  if (cannonOn(g) && g.phase === "play") updateCannon(g, sdt, g.countdown <= 0 && !(g.daily && g.dailyIntro > 0));
+  if (lineOn(g) && g.phase === "play") updateLine(g, sdt, g.countdown <= 0 && !(g.daily && g.dailyIntro > 0));
+  if (mineOn(g) && g.phase === "play") updateMine(g, sdt, g.countdown <= 0);
+  if (ninjaOn(g) && g.phase === "play") updateNinja(g, sdt, g.countdown <= 0 && !(g.daily && g.dailyIntro > 0));
   for (const n of g.numbers) {
     if (g.phase !== "play") break;
     if (n.state === "fall") fall(g, n, sdt);
@@ -2393,7 +2522,7 @@ function fall(g: GameState, n: NumberTile, dt: number): void {
     return;
   }
   n.prevY = n.y;
-  n.y += fallSpeed(paceOf(g)) * speedFactorOf(g) * (n.comet ? COMET_FAST / (n.scale || 1) : 1) * dt;
+  n.y += fallSpeed(paceOf(g)) * speedFactorOf(g) * (n.comet ? COMET_FAST / (n.scale || 1) : 1) * (n.guard ? GUARD_SLOW : 1) * dt;
   if (shieldOn(g) && hitShield(g, n)) return;
   if (jetOn(g) && touchJet(g, n)) return;
   if (cometOn(g) && n.pickup) {
@@ -2659,6 +2788,57 @@ function resetShield(g: GameState): void {
   g.snakeBoost = 0;
   g.snakeFastT = 99;
   g.snakeHearts = 0;
+  g.bubbles = [];
+  g.cannonShot = null;
+  g.cannonAim = null;
+  g.cannonNowKind = null;
+  g.cannonNextKind = null;
+  g.cannonRow = 0;
+  g.cannonCheck = [];
+  g.cannonWait = 0;
+  g.cannonFly = [];
+  g.cannonChain = 0;
+  g.tiles = [];
+  g.linePath = [];
+  g.lineTime = 0;
+  g.lineGot = 0;
+  g.lineGotT = 99;
+  g.lineFail = 99;
+  g.lineHint = [];
+  g.eqFx = null;
+  g.mine = [];
+  g.miner = {c: 3, r: 0};
+  g.mineSum = 0;
+  g.mineLava = -6;
+  g.mineCam = 0;
+  g.mineDeep = 0;
+  g.mineTip = 99;
+  g.mineDaze = 0;
+  g.mineKeys = 0;
+  g.mineKeyT = 99;
+  g.ninjaBalls = [];
+  g.ninjaHalves = [];
+  g.ninjaSplats = [];
+  g.ninjaTrail = [];
+  g.ninjaLast = null;
+  g.ninjaSum = 0;
+  g.ninjaCount = 0;
+  g.ninjaPts = [];
+  g.ninjaStrikes = 0;
+  g.ninjaSlow = 0;
+  g.ninjaFreeze = 0;
+  g.ninjaFrenzy = 0;
+  g.ninjaCombo = 0;
+  g.ninjaComboT = 99;
+  g.ninjaTimer = 1;
+  g.ninjaWord = null;
+  g.mineSwing = {dc: 1, dr: 0, t: 99};
+  g.mineFrom = {c: 3, r: 0, t: 99};
+  g.mineFace = 1;
+  g.lineFell = [];
+  g.lineWait = 0;
+  g.lineChain = 0;
+  g.lineChainFx = null;
   // (the cups keep what they have from the shop)
 }
 
@@ -2954,6 +3134,13 @@ function spawnJet(g: GameState, col: number): void {
     }
     return;
   }
+  if (g.level >= GUARD_FROM && !g.numbers.some((n) => n.guard) && g.rng() < GUARD_CHANCE) {
+    const n = newNumber(g, col, g.cols[col], 99, "skull");
+    const hp = GUARD_HP + 1.5 * (g.level - GUARD_FROM);
+    n.guard = {hp, max: hp, life: GUARD_LIFE};
+    g.numbers.push(n);
+    return;
+  }
   const skull = g.rng() < Math.min(0.72, 0.55 + g.variantTime / 300);
   g.numbers.push(skull ? newNumber(g, col, x, 99, "skull") : newNumber(g, col, x, TARGET, "ten"));
 }
@@ -2983,18 +3170,18 @@ function burnDamage(g: GameState, base: number): number {
 }
 
 /** Whatever the laser or the flame reaches is hurt (a bit every moment) and the missiles of the skulls in it are burned away. */
-function burn(g: GameState, inside: (x: number, y: number, r: number) => boolean, damage: number): void {
+function burn(g: GameState, inside: (x: number, y: number, r: number) => boolean, damage: number, via: "around" | "laser" = "around"): void {
   for (const n of g.numbers) {
     if (n.done || n.state !== "fall" || n.pickup || n.vx !== undefined) continue;
     if (!inside(n.x, n.y, ballR(n))) continue;
-    if (n.boss) shoot(g, n, damage);
+    if (n.boss || n.guard) shoot(g, n, damage, via);
     else {
       // (a number takes a moment to burn: it has a little life too)
       n.burn = (n.burn ?? 0) + damage;
       if (n.burn >= 1) shoot(g, n, 1);
     }
   }
-  for (const e of g.enemyShots) if (e.age >= 0 && inside(e.x, e.y, 4)) e.age = -1;
+  for (const e of g.enemyShots) if (e.age >= 0 && !e.heavy && inside(e.x, e.y, 4)) e.age = -1;
 }
 
 /** The jet: while a finger holds it, it shoots with what it has (bullets or the laser, the flame or missiles), and its shots fly and hit. */
@@ -3004,7 +3191,8 @@ function updateJet(g: GameState, dt: number): void {
   g.jetStun = Math.max(0, g.jetStun - dt);
   g.jetBeam = null;
   g.jetFlame = false;
-  const firing = g.jetStun <= 0 && g.jetHeld && g.jetBase > 0;
+  // (it does not shoot while it is flying on its own to where the finger was put down)
+  const firing = g.jetStun <= 0 && g.jetHeld && g.jetBase > 0 && !g.craftTo;
   if (firing) {
     const gun = armed(g, "a");
     const lvA = g.jetLv.a;
@@ -3012,7 +3200,7 @@ function updateJet(g: GameState, dt: number): void {
       // (a beam straight up: it burns everything over the jet, wider and hotter with every upgrade)
       const half = 3 + 2 * lvA;
       g.jetBeam = spawnY(g) - 40;
-      burn(g, (x, y, r) => y < g.shieldY - 20 && Math.abs(x - g.shieldX) < half + r * 0.7, burnDamage(g, 3 + 2.5 * lvA) * dt);
+      burn(g, (x, y, r) => y < g.shieldY - 20 && Math.abs(x - g.shieldX) < half + r * 0.7, burnDamage(g, 3 + 2.5 * lvA) * dt, "laser");
     } else {
       g.jetFire -= dt;
       if (g.jetFire <= 0) {
@@ -3037,6 +3225,17 @@ function updateJet(g: GameState, dt: number): void {
         (x, y, r) => {
           const dy = g.shieldY - 30 - y;
           if (dy < -r || dy > reach + r) return false;
+          return Math.abs(x - g.shieldX) < 10 + Math.max(0, dy) * 0.45 + r * 0.6;
+        },
+        burnDamage(g, 2.5 + 2 * lvB) * dt,
+      );
+      // (and out at the back, a little shorter: it burns what comes from behind)
+      const back = reach * FLAME_BACK;
+      burn(
+        g,
+        (x, y, r) => {
+          const dy = y - (g.shieldY + 30);
+          if (dy < -r || dy > back + r) return false;
           return Math.abs(x - g.shieldX) < 10 + Math.max(0, dy) * 0.45 + r * 0.6;
         },
         burnDamage(g, 2.5 + 2 * lvB) * dt,
@@ -3085,7 +3284,7 @@ function updateJet(g: GameState, dt: number): void {
     }
     // (a shot of the jet takes down a missile of the skulls)
     // (checked along the whole way the shot went in this frame, so that a fast shot does not fly through a missile between two frames)
-    const hit = g.enemyShots.find((e) => e.age >= 0 && segDist(e.x, e.y, sh.x - sh.vx * dt, sh.y - sh.vy * dt, sh.x, sh.y) < 14);
+    const hit = g.enemyShots.find((e) => e.age >= 0 && !e.heavy && segDist(e.x, e.y, sh.x - sh.vx * dt, sh.y - sh.vy * dt, sh.x, sh.y) < 14);
     if (hit) {
       hit.age = -1;
       sh.dead = true;
@@ -3095,12 +3294,13 @@ function updateJet(g: GameState, dt: number): void {
     for (const n of g.numbers) {
       if (n.done || n.state !== "fall" || n.pickup || n.vx !== undefined || sh.hit?.includes(n.id)) continue;
       if (Math.hypot(n.x - sh.x, n.y - sh.y) > ballR(n) + (sh.missile ? 6 : 3)) continue;
-      shoot(g, n, (sh.missile ? 4 : 1) * (sh.power ?? 1));
+      // (a missile curves round, and a bullet that has bounced comes from the side: both get past a shield)
+      shoot(g, n, (sh.missile ? 4 : 1) * (sh.power ?? 1), sh.missile || (sh.hit?.length ?? 0) > 0 ? "around" : "front");
       if (sh.missile) {
         g.events.push({t: "boom", x: sh.x, y: sh.y, big: false});
         // (ricochet: a missile blows up the skulls round it too)
         const splash = armed(g, "c") === "ricochet" ? 20 + 15 * g.jetLv.c : 0;
-        if (splash > 0) for (const m of g.numbers) if (m !== n && !m.done && m.op === "skull" && m.state === "fall" && Math.hypot(m.x - sh.x, m.y - sh.y) < splash + ballR(m)) shoot(g, m, 2 * (sh.power ?? 1));
+        if (splash > 0) for (const m of g.numbers) if (m !== n && !m.done && m.op === "skull" && m.state === "fall" && Math.hypot(m.x - sh.x, m.y - sh.y) < splash + ballR(m)) shoot(g, m, 2 * (sh.power ?? 1), "around");
         sh.dead = true;
       } else if ((sh.bounces ?? 0) > 0) {
         // (ricochet: the bullet bounces off to the nearest skull it has not hit yet)
@@ -3162,7 +3362,10 @@ function enemyFire(g: GameState, dt: number): void {
       if (n.done || n.state !== "fall" || n.op !== "skull" || n.vx !== undefined || n.y < 20 || n.y > g.shieldY - 60) continue;
       if (g.rng() >= (n.boss ? 0.9 : rate) * dt) continue;
       const a = Math.atan2(g.shieldY - n.y, g.shieldX - n.x);
-      for (const spread of n.boss ? [-0.3, 0, 0.3] : [0]) g.enemyShots.push({x: n.x, y: n.y + ballR(n) * 0.6, vx: Math.cos(a + spread) * speed, vy: Math.sin(a + spread) * speed, age: 0});
+      // (from the fifteenth perfect 10 some are heavy black ones: bigger and slower, and they cannot be shot down: they have to be flown away from)
+      const heavy = !n.boss && g.level >= HEAVY_FROM && g.rng() < HEAVY_CHANCE;
+      const sp = heavy ? speed * HEAVY_SLOW : speed;
+      for (const spread of n.boss ? [-0.3, 0, 0.3] : [0]) g.enemyShots.push({x: n.x, y: n.y + ballR(n) * 0.6, vx: Math.cos(a + spread) * sp, vy: Math.sin(a + spread) * sp, age: 0, heavy});
     }
   }
   for (const e of g.enemyShots) {
@@ -3174,7 +3377,7 @@ function enemyFire(g: GameState, dt: number): void {
       e.age = -1;
       continue;
     }
-    if (JET_SHAPE.some(([dx, dy, r]) => Math.hypot(e.x - (g.shieldX + dx), e.y - (g.shieldY + dy)) < r + 4)) {
+    if (JET_SHAPE.some(([dx, dy, r]) => Math.hypot(e.x - (g.shieldX + dx), e.y - (g.shieldY + dy)) < r + (e.heavy ? 8 : 4))) {
       e.age = -1;
       g.events.push({t: "boom", x: e.x, y: e.y, big: false});
       g.shake = Math.max(g.shake, 0.3);
@@ -3227,7 +3430,28 @@ export function jetKillPoints(g: GameState): number {
 }
 
 /** A shot hits: a skull pops, a 10 is lost (shot to bits), and a boss loses some of its life. */
-function shoot(g: GameState, n: NumberTile, damage: number): void {
+function shoot(g: GameState, n: NumberTile, damage: number, via: "front" | "around" | "laser" = "front"): void {
+  if (n.guard) {
+    const s = n.guard;
+    // (the shield in front takes what comes from the front, and the laser at a little less; what comes round it goes to the skull)
+    if (s.hp > 0 && via !== "around") {
+      s.hp -= via === "laser" ? damage * GUARD_LASER : damage;
+      if (s.hp <= 0) {
+        s.hp = 0;
+        g.shake = Math.max(g.shake, 0.35);
+        g.events.push({t: "guardBreak", x: n.x, y: n.y + 10});
+      } else if (via === "front") g.events.push({t: "guardHit", x: n.x, y: n.y + 14});
+      return;
+    }
+    s.life -= damage;
+    if (s.life > 0) return;
+    n.done = true;
+    g.score += scaled(g, GUARD_POINTS * g.level * endlessLevel(g));
+    g.shake = Math.max(g.shake, 0.5);
+    g.events.push({t: "boom", x: n.x, y: n.y, big: true});
+    g.events.push({t: "skull", x: n.x, y: n.y});
+    return;
+  }
   if (n.boss) {
     n.boss.hp -= damage;
     if (n.boss.hp <= 0) burstBoss(g, n);
@@ -3295,6 +3519,19 @@ function spawnComet(g: GameState): void {
     return;
   }
   // (from the second level, now and then a giant planet: as wide as two columns, slow, between them)
+  // (and now and then a moon: smaller than a planet, in a column of its own)
+  if (endlessLevel(g) >= 2 && g.rng() < 0.08) {
+    const spots = besideCols(g);
+    const x = spots[Math.floor(g.rng() * spots.length)];
+    const n = newNumber(g, colNear(g, x), x, 0, "add");
+    n.comet = true;
+    n.moon = true;
+    n.scale = MOON_SCALE;
+    n.y -= 25;
+    n.prevY = n.y;
+    g.numbers.push(n);
+    return;
+  }
   if (endlessLevel(g) >= 2 && g.cols.length >= 2 && g.rng() < 0.08) {
     const k = 1 + Math.floor(g.rng() * (g.cols.length - 1));
     const x = (g.cols[k - 1] + g.cols[k]) / 2;
@@ -3466,7 +3703,7 @@ export function snakePoint(g: GameState, s: number): {x: number; y: number; a: n
 
 /** How fast the train goes: faster on every level. */
 export function snakeSpeed(g: GameState): number {
-  return Math.min(95, 36 + 4 * (endlessLevel(g) - 1)) * (1 + SNAKE_BOOST * g.snakeBoost);
+  return Math.min(115, 42 + 5.5 * (endlessLevel(g) - 1)) * (1 + SNAKE_BOOST * g.snakeBoost) * g.speedMul * (1 + HARD_SPEED * hardTier(g));
 }
 
 /** How much faster the snake gets for every perfect 10 that fades off the bar (until the next level). */
@@ -3525,6 +3762,8 @@ function snakeTile(g: GameState, s: number): NumberTile {
     n = newNumber(g, 0, W + 40, level >= 4 && g.rng() < 0.25 ? -v : v, "add");
     // (from the third level some are frozen in ice: a tap cracks it, the next tap takes the number)
     if (level >= 3 && g.rng() < 0.12) n.ice = 1;
+    // (and from the third level some are ghosts: they turn into another number every few seconds)
+    else if (level >= 3 && g.rng() < 0.1) n.shift = SNAKE_GHOST_EVERY * (0.5 + g.rng() * 0.5);
   }
   n.track = s;
   return n;
@@ -3585,6 +3824,19 @@ function updateSnake(g: GameState, dt: number): void {
   g.snakeStun = Math.max(0, g.snakeStun - dt);
   g.snakeFastT += dt;
   for (const n of g.numbers) {
+    if (n.shift === undefined || n.done || n.track === undefined) continue;
+    n.shift -= dt;
+    if (n.shift <= 0) {
+      n.shift = SNAKE_GHOST_EVERY;
+      const max = Math.min(7, 3 + endlessLevel(g));
+      let v = n.v;
+      for (let k = 0; k < 5 && v === n.v; k++) v = (1 + Math.floor(g.rng() * max)) * (n.v < 0 ? -1 : 1);
+      if (v === n.v) v = ((Math.abs(n.v) % max) + 1) * (n.v < 0 ? -1 : 1); // (it always turns into another one)
+      n.v = v;
+      g.events.push({t: "ghostShift", x: n.x, y: n.y});
+    }
+  }
+  for (const n of g.numbers) {
     if (n.fuse === undefined || n.done) continue;
     n.fuse -= dt;
     if (n.fuse <= 0) snakeBlast(g, n);
@@ -3609,12 +3861,14 @@ function updateSnake(g: GameState, dt: number): void {
       if (want - n.track! > 2) n.closing = true;
       // (off the screen, before the start of the track, a number that has come in behind a gap slides up fast)
       // (behind the gap the rest of the train stays where it is, until the head has come back to it)
-      const step = gap && i >= at ? (g.snakeBack > 0 ? v : 0) : v;
+      // (but if the front is back at the start of the track and cannot go back any more, the rest comes up to it instead, so that they always meet)
+      const stuck = gap && train[0].track! <= 0.5;
+      const step = gap && i >= at ? (stuck ? Math.max(0, v) + SNAKE_CATCH : g.snakeBack > 0 ? v : 0) : v;
       n.track = Math.min(want, n.track! + (step + (n.track! < 0 && !gap ? SNAKE_CATCH : 0)) * dt);
       if (n.closing && n.track >= want - 0.01) {
         n.closing = false;
         // (two plain numbers that meet and make 10: they melt together into a golden 10)
-        if (!ahead.snakeHead && !ahead.pickup && !n.pickup && !ahead.bonus && !n.bonus && ahead.ice === 0 && n.ice === 0 && ahead.chain === null && n.chain === null && ahead.op === "add" && n.op === "add" && ahead.v + n.v === TARGET) {
+        if (!ahead.snakeHead && !ahead.pickup && !n.pickup && !ahead.bonus && !n.bonus && ahead.ice === 0 && n.ice === 0 && ahead.shift === undefined && n.shift === undefined && ahead.chain === null && n.chain === null && ahead.op === "add" && n.op === "add" && ahead.v + n.v === TARGET) {
           ahead.op = "ten";
           ahead.v = TARGET;
           ahead.gold = true;
@@ -3632,7 +3886,7 @@ function updateSnake(g: GameState, dt: number): void {
   const rest = g.numbers.filter((n) => n.track !== undefined && !n.done);
   const last = rest.reduce((m, n) => Math.min(m, n.track!), Infinity);
   if (last === Infinity || last > -SNAKE_GAP) {
-    const n = snakeTile(g, Math.min(last === Infinity ? 0 : last - SNAKE_GAP, -SNAKE_GAP));
+    const n = snakeTile(g, last === Infinity ? 0 : last - SNAKE_GAP); // (right behind the last one: no gap)
     n.closing = false;
     // (from the fourth level two plain numbers next to each other are sometimes chained: a tap on one takes both)
     const tail = rest.find((m) => m.track === last);
@@ -3731,6 +3985,7 @@ function tapSnake(g: GameState, x: number, y: number, skip?: Set<number>): boole
   if (hit.gold) g.score += scaled(g, SNAKE_GOLD_POINTS * g.level);
   hit.track = undefined;
   hit.closing = false;
+  hit.shift = undefined;
   // (taking a number pushes the snake slowly back a little)
   g.snakeRecoil = Math.min(SNAKE_RECOIL_MAX, g.snakeRecoil + SNAKE_RECOIL);
   sendDown(g, hit, null);
@@ -3799,3 +4054,1576 @@ const SNAKE_FUSE = 0.22;
 
 /** Comet belt: how big a giant planet is, next to a comet of the usual size (it is as wide as two columns). */
 export const PLANET_SCALE = 3.2;
+
+// ---- The cannon ---------------------------------------------------------------------------
+
+/** Whether the cannon is played (as the match mode, or on the daily ladder). */
+export function cannonOn(g: GameState): boolean {
+  return g.variant === "cannon" || mixNow(g) === "cannon";
+}
+
+/** The swarm: how many columns it has, how big a ball is, where the top row is, and how many rows it starts with. */
+export const CANNON_COLS = 8;
+export const BUBBLE_R = 20;
+export const SWARM_TOP = 56;
+const SWARM_START_ROWS = 5;
+/** Where the cannon stands (the middle of its barrel's foot), and the line the swarm must not reach. */
+export const CANNON_X = W / 2;
+export const CANNON_Y = 540;
+export const SWARM_LIMIT = CANNON_Y - 44;
+/** How fast a ball flies out of the cannon. */
+const CANNON_SPEED = 980;
+/** How long the balls of a 10 glow before they pop, and how long a golden 10 takes to fly down to its cup. */
+export const CANNON_GLOW = 0.32;
+export const CANNON_FLY = 0.55;
+
+/** Where a place of the swarm is on the screen. */
+export function bubbleX(c: number): number {
+  return (W - CANNON_COLS * 2 * BUBBLE_R) / 2 + BUBBLE_R + c * 2 * BUBBLE_R;
+}
+export function bubbleY(r: number): number {
+  return SWARM_TOP + BUBBLE_R + r * 2 * BUBBLE_R;
+}
+
+/** The biggest number in the swarm: it grows with the levels. */
+function swarmMax(g: GameState): number {
+  return Math.min(9, 5 + Math.floor((endlessLevel(g) - 1) / 2));
+}
+
+/** A new number for the swarm. */
+function swarmNumber(g: GameState): number {
+  return 1 + Math.floor(g.rng() * swarmMax(g));
+}
+
+/** The next ball for the cannon: half the time one that makes 10 with a ball at the bottom of the swarm (so there is always something to aim for), else any number. */
+function cannonNumber(g: GameState): number {
+  const low = g.bubbles.filter((b) => !b.glow && !g.bubbles.some((o) => o.c === b.c && o.r === b.r + 1));
+  if (low.length > 0 && g.rng() < 0.5) {
+    const b = low[Math.floor(g.rng() * low.length)];
+    if (b.v < TARGET) return TARGET - b.v;
+  }
+  return 1 + Math.floor(g.rng() * Math.min(9, swarmMax(g) + 1));
+}
+
+/** How many seconds until the swarm comes down a row: fewer on every level. */
+export function swarmEvery(g: GameState): number {
+  return Math.max(4.5, 11 - 0.6 * (endlessLevel(g) - 1)) / g.speedMul / (1 + HARD_SPEED * hardTier(g));
+}
+
+/** The swarm and the cannon at the start: a few rows, full across, and a ball in the cannon and the next. */
+function setUpCannon(g: GameState): void {
+  g.bubbles = [];
+  for (let r = 0; r < SWARM_START_ROWS; r++) for (let c = 0; c < CANNON_COLS; c++) g.bubbles.push({id: g.nextId++, c, r, v: swarmNumber(g), dy: 0});
+  g.cannonNow = cannonNumber(g);
+  g.cannonNext = cannonNumber(g);
+  g.cannonNowKind = null;
+  g.cannonNextKind = cannonHelp(g);
+  g.cannonRow = swarmEvery(g);
+}
+
+/** The finger aims the cannon (it shoots up, never down: a point too low is aimed at just over the side). */
+export function aimCannon(g: GameState, x: number, y: number): void {
+  if (!cannonOn(g)) return;
+  g.cannonAim = {x, y: Math.min(y, CANNON_Y - 30)};
+}
+
+/** The finger is let go: the ball is fired where it was aimed (if no ball is on its way), and the next one comes into the cannon. */
+export function fireCannon(g: GameState): boolean {
+  const aim = g.cannonAim;
+  g.cannonAim = null;
+  if (!cannonOn(g) || !aim || g.cannonShot || g.phase !== "play" || g.countdown > 0) return false;
+  const a = cannonAngle(aim.x, aim.y);
+  g.cannonShot = {x: CANNON_X, y: CANNON_Y - 30, vx: Math.cos(a) * CANNON_SPEED, vy: Math.sin(a) * CANNON_SPEED, v: g.cannonNow, kind: g.cannonNowKind ?? undefined};
+  g.cannonNow = g.cannonNext;
+  g.cannonNowKind = g.cannonNextKind;
+  g.cannonNext = cannonNumber(g);
+  g.cannonNextKind = cannonHelp(g);
+  g.events.push({t: "tap"});
+  return true;
+}
+
+/** Which way the cannon points to aim at (x, y): up, at most 80 degrees to either side. */
+export function cannonAngle(x: number, y: number): number {
+  const a = Math.atan2(y - CANNON_Y, x - CANNON_X);
+  const lim = (80 * Math.PI) / 180;
+  return Math.max(-Math.PI / 2 - lim, Math.min(-Math.PI / 2 + lim, a));
+}
+
+/** The way a ball fired at (x, y) goes, with its bounces off the sides, until it would meet the swarm or the top (for the aiming line). */
+export function cannonPath(g: GameState, x: number, y: number): {x: number; y: number}[] {
+  const a = cannonAngle(x, y);
+  let px = CANNON_X;
+  let py = CANNON_Y - 30;
+  let vx = Math.cos(a);
+  const vy = Math.sin(a);
+  const pts = [{x: px, y: py}];
+  for (let i = 0; i < 400; i++) {
+    px += vx * 6;
+    py += vy * 6;
+    if (px < BUBBLE_R || px > W - BUBBLE_R) {
+      px = Math.max(BUBBLE_R, Math.min(W - BUBBLE_R, px));
+      vx = -vx;
+      pts.push({x: px, y: py});
+    }
+    if (py <= SWARM_TOP + BUBBLE_R || g.bubbles.some((b) => Math.hypot(bubbleX(b.c) - px, bubbleY(b.r) - py) < BUBBLE_R * 1.7)) break;
+  }
+  pts.push({x: px, y: py});
+  return pts;
+}
+
+/** Whether there is a ball at a place of the swarm. */
+function bubbleAt(g: GameState, c: number, r: number): Bubble | undefined {
+  return g.bubbles.find((b) => b.c === c && b.r === r);
+}
+
+/**
+ * The cannon, every frame: the swarm comes down a row now and then (a new row comes in at the top); the ball that was fired flies, bounces off the sides,
+ * and sticks where it meets the swarm (or the top); then the balls of a 10 glow and pop, a golden 10 flies down to a cup (a perfect 10), the columns close
+ * up, and the balls that moved are looked at again (a chain). If the swarm reaches down to the cannon, it is over.
+ */
+function updateCannon(g: GameState, dt: number, running: boolean): void {
+  if (g.cups.length > 0) g.cups = []; // (the cannon has no cups: its perfect 10s go straight on the bar)
+  if (g.bubbles.length === 0 && g.cannonRow === 0) setUpCannon(g);
+  for (const b of g.bubbles) b.dy = Math.abs(b.dy) < 0.5 ? 0 : b.dy * Math.pow(0.0005, dt);
+  for (const f of g.cannonFly) f.age += dt;
+  ageSum(g, dt);
+  g.cannonFly = g.cannonFly.filter((f) => f.age < CANNON_FLY);
+  if (!running) return;
+  // the swarm comes down a row
+  g.cannonRow -= dt;
+  if (g.cannonRow <= 0) {
+    g.cannonRow = swarmEvery(g);
+    for (const b of g.bubbles) {
+      b.r += 1;
+      b.dy -= 2 * BUBBLE_R;
+    }
+    for (let c = 0; c < CANNON_COLS; c++) g.bubbles.push({id: g.nextId++, c, r: 0, v: swarmNumber(g), dy: -2 * BUBBLE_R});
+    g.shake = Math.max(g.shake, 0.15);
+    g.events.push({t: "swarmDown"});
+  }
+  // the ball on its way
+  const s = g.cannonShot;
+  if (s) {
+    const steps = Math.ceil((Math.hypot(s.vx, s.vy) * dt) / 8);
+    for (let k = 0; k < steps && g.cannonShot; k++) {
+      s.x += (s.vx * dt) / steps;
+      s.y += (s.vy * dt) / steps;
+      if (s.x < BUBBLE_R || s.x > W - BUBBLE_R) {
+        s.x = Math.max(BUBBLE_R, Math.min(W - BUBBLE_R, s.x));
+        s.vx = -s.vx;
+        g.events.push({t: "steel", x: s.x, y: s.y});
+      }
+      const hit = g.bubbles.find((b) => !b.glow && Math.hypot(bubbleX(b.c) - s.x, bubbleY(b.r) - s.y) < BUBBLE_R * 1.7);
+      if (hit || s.y <= SWARM_TOP + BUBBLE_R) stick(g, s);
+    }
+  }
+  // the balls of a 10 pop when they have glowed
+  const popping = g.bubbles.filter((b) => b.glow !== undefined);
+  if (popping.length > 0) {
+    for (const b of popping) b.glow! -= dt;
+    if (popping.every((b) => b.glow! <= 0)) popTen(g, popping);
+  } else if (g.cannonCheck.length > 0) {
+    // (after the columns have closed up: the balls that moved are looked at again, once they are in their place)
+    g.cannonWait -= dt;
+    if (g.cannonWait <= 0) {
+      const ids = g.cannonCheck;
+      g.cannonCheck = [];
+      for (let i = 0; i < ids.length; i++) {
+        const b = g.bubbles.find((o) => o.id === ids[i]);
+        if (b && findTen(g, b)) {
+          // (the rest are looked at after this one has popped)
+          g.cannonCheck = ids.slice(i + 1);
+          break;
+        }
+      }
+      if (!g.bubbles.some((b) => b.glow !== undefined)) g.cannonChain = 0;
+    }
+  }
+  // the swarm has reached the cannon
+  if (g.bubbles.some((b) => bubbleY(b.r) + BUBBLE_R > SWARM_LIMIT)) endGame(g, "swarm");
+}
+
+/** The ball sticks in the place nearest to it that is free (in the swarm, next to the ball it met, or at the top), and is looked at for a 10. */
+function stick(g: GameState, s: NonNullable<GameState["cannonShot"]>): void {
+  g.cannonShot = null;
+  let best: {c: number; r: number} | null = null;
+  let bd = Infinity;
+  const rows = Math.max(1, ...g.bubbles.map((b) => b.r + 2));
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c < CANNON_COLS; c++) {
+      if (bubbleAt(g, c, r)) continue;
+      // (a free place at the top, or next to a ball)
+      const near = r === 0 || [[0, -1], [-1, 0], [1, 0], [0, 1]].some(([dc, dr]) => bubbleAt(g, c + dc, r + dr));
+      if (!near) continue;
+      const d = Math.hypot(bubbleX(c) - s.x, bubbleY(r) - s.y);
+      if (d < bd) {
+        bd = d;
+        best = {c, r};
+      }
+    }
+  }
+  if (!best) return;
+  const b: Bubble = {id: g.nextId++, c: best.c, r: best.r, v: s.v, dy: 0};
+  g.bubbles.push(b);
+  if (s.kind) {
+    cannonHelper(g, b, s.kind);
+    return;
+  }
+  // (a ball that hangs free closes up its column first: all the balls of a column hang from the top)
+  const moved = closeUp(g);
+  if (!findTen(g, b)) {
+    g.cannonCheck = moved.filter((id) => id !== b.id);
+    g.cannonWait = 0.15;
+  }
+}
+
+/**
+ * Looks for a group of balls that hang together (side by side, or one over the other) with the ball `b` in it, that make exactly 10: the biggest one there is
+ * (of up to six balls). Its balls start to glow; true if there is one.
+ */
+function findTen(g: GameState, b: Bubble): boolean {
+  let best: Bubble[] | null = null;
+  const seen = new Set<string>();
+  const grow = (group: Bubble[], sum: number): void => {
+    // (each group is tried once, whatever order its balls were added in)
+    const key = group.map((x) => x.id).sort((p, q) => p - q).join(",");
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (sum === TARGET) {
+      if (!best || group.length > best.length) best = [...group];
+      return;
+    }
+    if (group.length >= 6) return;
+    for (const m of group) {
+      for (const [dc, dr] of [[0, -1], [-1, 0], [1, 0], [0, 1]]) {
+        const o = bubbleAt(g, m.c + dc, m.r + dr);
+        if (!o || o.glow !== undefined || group.includes(o) || sum + o.v > TARGET) continue;
+        grow([...group, o], sum + o.v);
+      }
+    }
+  };
+  if (b.glow !== undefined || b.v > TARGET) return false;
+  grow([b], b.v);
+  const found = best as Bubble[] | null;
+  if (!found || found.length < 2) return false;
+  for (const m of found) m.glow = CANNON_GLOW;
+  g.cannonChain += 1;
+  g.events.push({t: "tenMade", balls: found.map((m) => ({x: bubbleX(m.c), y: bubbleY(m.r), v: m.v})), chain: g.cannonChain});
+  showSum(g, found.length, found.map((m) => ({x: bubbleX(m.c), y: bubbleY(m.r)})));
+  return true;
+}
+
+/** The balls of a 10 pop: points for each, a perfect 10 in the living cup nearest to them (a golden 10 flies down to it), and the columns close up. */
+function popTen(g: GameState, balls: Bubble[]): void {
+  const x = balls.reduce((s, b) => s + bubbleX(b.c), 0) / balls.length;
+  const y = balls.reduce((s, b) => s + bubbleY(b.r), 0) / balls.length;
+  g.bubbles = g.bubbles.filter((b) => !balls.includes(b));
+  for (const b of balls) {
+    g.score += scaled(g, 2 * g.level * g.cannonChain);
+    g.events.push({t: "bubblePop", x: bubbleX(b.c), y: bubbleY(b.r), v: b.v});
+  }
+  // (there are no cups: the golden 10 flies down to the bar, and the perfect 10 is made at once, as if in a cup of its own)
+  g.cannonFly.push({x, y, tx: W / 2, ty: 618, age: 0, chain: g.cannonChain});
+  const cup = makeCup(g, x);
+  cup.value = TARGET;
+  levelUp(g, cup);
+  g.cannonCheck = [...g.cannonCheck, ...closeUp(g)];
+  g.cannonWait = 0.18;
+}
+
+/** Every column of the swarm closes up: its balls slide up to fill the holes (they all hang from the top). The ids of the ones that moved. */
+function closeUp(g: GameState): number[] {
+  const moved: number[] = [];
+  for (let c = 0; c < CANNON_COLS; c++) {
+    const col = g.bubbles.filter((b) => b.c === c).sort((a, b) => a.r - b.r);
+    col.forEach((b, i) => {
+      if (b.r !== i) {
+        b.dy += (b.r - i) * 2 * BUBBLE_R;
+        b.r = i;
+        moved.push(b.id);
+      }
+    });
+  }
+  return moved;
+}
+
+// ---- Draw to 10 ---------------------------------------------------------------------------
+
+/** Whether Draw to 10 is played. */
+export function lineOn(g: GameState): boolean {
+  return g.variant === "line" || mixNow(g) === "line";
+}
+
+/** The board: how many columns and rows, how big a tile is, and where it starts. */
+export const LINE_COLS = 6;
+export const LINE_ROWS = 8;
+export const TILE = 54;
+export const LINE_TOP = 112;
+/** How many tiles a bolt in a line electrifies. */
+export const LINE_BOLT_HITS = 6;
+/** The seconds at the start, and the most there can be. */
+export const LINE_START_TIME = 60;
+const LINE_MAX_TIME = 90;
+
+export function tileX(c: number): number {
+  return (W - LINE_COLS * TILE) / 2 + TILE / 2 + c * TILE;
+}
+export function tileY(r: number): number {
+  return LINE_TOP + TILE / 2 + r * TILE;
+}
+
+/** A new tile for the board: harder kinds come in with the levels (minus numbers, times and divided by, steel and ice), and now and then a helper. */
+function newTile(g: GameState, c: number, r: number): LineTile {
+  const level = endlessLevel(g);
+  const t: LineTile = {id: g.nextId++, c, r, v: 1, op: "add", ice: 0, dy: 0};
+  // (the helpers: more of them with every "more helpers" perk of the daily ladder)
+  const x = g.rng() / helperFactor(g);
+  if (x < 0.035) t.kind = "clock";
+  else if (x < 0.06) t.kind = "bomb";
+  else if (x < 0.075) t.kind = "star";
+  else if (x < 0.1) t.kind = "bolt";
+  else if (x < 0.12) t.kind = "laser";
+  else if (level >= 4 && x < 0.12 + Math.min(0.08, 0.02 * (level - 3))) t.kind = "steel";
+  if (t.kind) return t;
+  const y = g.rng();
+  if (level >= 3 && y < Math.min(0.14, 0.06 + 0.02 * (level - 3))) {
+    t.op = "mul";
+    t.v = g.rng() < 0.7 ? 2 : 3;
+  } else if (level >= 3 && y < Math.min(0.24, 0.1 + 0.03 * (level - 3))) {
+    t.op = "div";
+    t.v = 2;
+  } else {
+    const v = 1 + Math.floor(g.rng() * Math.min(9, 5 + Math.floor((level - 1) / 2)));
+    t.v = level >= 2 && g.rng() < Math.min(0.3, 0.12 + 0.03 * (level - 2)) ? -v : v;
+  }
+  if (level >= 5 && g.rng() < Math.min(0.15, 0.05 + 0.02 * (level - 5))) t.ice = 1;
+  return t;
+}
+
+/** The board at the start: full, and the clock set. */
+function setUpLine(g: GameState): void {
+  g.tiles = [];
+  for (let r = 0; r < LINE_ROWS; r++) for (let c = 0; c < LINE_COLS; c++) g.tiles.push(newTile(g, c, r));
+  g.lineTime = LINE_START_TIME;
+}
+
+/** The tile under a point (a little inside its edge, so that a line drawn along a diagonal does not catch the tiles beside it). */
+function tileAt(x: number, y: number, tiles: readonly LineTile[], inner = 0.42): LineTile | undefined {
+  return tiles.find((t) => Math.abs(tileX(t.c) - x) < TILE * inner && Math.abs(tileY(t.r) - y) < TILE * inner);
+}
+
+/** Whether a tile can be drawn through (not steel, not in ice). */
+function drawable(t: LineTile): boolean {
+  return t.kind !== "steel" && t.ice === 0;
+}
+
+/** The finger is put down: a line starts at the tile under it. */
+export function lineStart(g: GameState, x: number, y: number): void {
+  if (!lineOn(g) || g.phase !== "play" || g.countdown > 0) return;
+  const t = tileAt(x, y, g.tiles, 0.5);
+  // (a tile in ice: a tap cracks the ice, and then it can be drawn through)
+  if (t && t.ice > 0 && t.kind !== "steel") {
+    t.ice = 0;
+    g.linePath = [];
+    g.events.push({t: "ice", x: tileX(t.c), y: tileY(t.r), broke: true});
+    return;
+  }
+  g.linePath = t && drawable(t) ? [t.id] : [];
+  if (t && drawable(t)) g.events.push({t: "lineStep", n: 1});
+}
+
+/** The finger moves: the line goes on to a tile next to its last one (sideways, up, down or across) that is not in it yet; back onto the one before, it takes its last tile off. */
+export function lineMove(g: GameState, x: number, y: number): void {
+  if (!lineOn(g) || g.linePath.length === 0) return;
+  const t = tileAt(x, y, g.tiles);
+  if (!t) return;
+  const path = g.linePath;
+  if (path.length >= 2 && t.id === path[path.length - 2]) {
+    path.pop();
+    g.events.push({t: "lineStep", n: path.length});
+    return;
+  }
+  if (path.includes(t.id) || !drawable(t)) return;
+  const last = g.tiles.find((o) => o.id === path[path.length - 1]);
+  if (!last || Math.max(Math.abs(last.c - t.c), Math.abs(last.r - t.r)) !== 1) return;
+  path.push(t.id);
+  g.events.push({t: "lineStep", n: path.length});
+}
+
+/**
+ * What a line comes to: its tiles in the order they were drawn, from 0: a number is added (a minus number takes off), a "times" tile times what it is so far, a
+ * "divided by" divides it (it has to come out even: else the line is worth nothing). A clock or a bomb counts as 0; a star, the last in the line, is whatever
+ * number makes it 10 (anywhere else it is 0). Null if it does not come out even.
+ */
+export function lineValue(g: GameState, ids: readonly number[] = g.linePath): number | null {
+  let v = 0;
+  ids.forEach((id, i) => {
+    const t = g.tiles.find((o) => o.id === id);
+    if (!t) return;
+    if (t.kind === "star") {
+      if (i === ids.length - 1) v = TARGET;
+      return;
+    }
+    if (t.kind) return;
+    if (t.op === "add") v += t.v;
+    else if (t.op === "mul") v *= t.v;
+    else {
+      if (v % t.v !== 0) v = NaN;
+      else v = v / t.v;
+    }
+  });
+  return Number.isNaN(v) ? null : v;
+}
+
+/** The finger is let go: a line of at least two tiles that makes exactly 10 pops (points, time back, a perfect 10); one that does not, does nothing. */
+export function lineEnd(g: GameState): boolean {
+  if (!lineOn(g)) return false;
+  const ids = g.linePath;
+  g.linePath = [];
+  if (ids.length < 2) return false;
+  // (a line that comes to minus 10 counts as a 10 too)
+  const value = lineValue(g, ids);
+  if (value !== TARGET && value !== -TARGET) {
+    g.lineFail = 0;
+    g.events.push({t: "lineFail"});
+    return false;
+  }
+  const hit = ids.map((id) => g.tiles.find((t) => t.id === id)!).filter(Boolean);
+  g.events.push({t: "lineTen", pts: hit.map((t) => ({x: tileX(t.c), y: tileY(t.r)}))});
+  showSum(g, hit.length, hit.map((t) => ({x: tileX(t.c), y: tileY(t.r)})));
+  // (a bomb in the line blows up the tiles round it too, steel and all)
+  const gone = new Set(hit);
+  for (const t of hit) if (t.kind === "bomb") for (const o of g.tiles) if (Math.max(Math.abs(o.c - t.c), Math.abs(o.r - t.r)) === 1) gone.add(o);
+  // (a bolt in the line electrifies some tiles of the board, picked at random: they are gone too)
+  for (const t of hit) {
+    if (t.kind !== "bolt") continue;
+    // (only plain numbers: not the helpers, and not steel)
+    const others = g.tiles.filter((o) => !gone.has(o) && !o.kind);
+    const zapped: LineTile[] = [];
+    for (let k = 0; k < LINE_BOLT_HITS && others.length > 0; k++) zapped.push(others.splice(Math.floor(g.rng() * others.length), 1)[0]);
+    for (const o of zapped) gone.add(o);
+    g.events.push({t: "lineBolt", x: tileX(t.c), y: tileY(t.r), hits: zapped.map((o) => ({x: tileX(o.c), y: tileY(o.r)}))});
+  }
+  // (a laser in the line clears its whole row and its whole column: steel too, but not the helpers)
+  for (const t of hit) {
+    if (t.kind !== "laser") continue;
+    for (const o of g.tiles) if ((o.c === t.c || o.r === t.r) && (!o.kind || o.kind === "steel")) gone.add(o);
+    g.shake = Math.max(g.shake, 0.4);
+    g.events.push({t: "laserCross", x: tileX(t.c), y: tileY(t.r)});
+  }
+  if (hit.some((t) => t.kind === "bomb")) {
+    g.shake = Math.max(g.shake, 0.5);
+    for (const t of hit) if (t.kind === "bomb") g.events.push({t: "boom", x: tileX(t.c), y: tileY(t.r), big: true});
+  }
+  // (a 10 next to steel breaks it, and next to ice cracks the ice)
+  for (const t of hit) {
+    for (const o of g.tiles) {
+      if (gone.has(o) || Math.max(Math.abs(o.c - t.c), Math.abs(o.r - t.r)) !== 1) continue;
+      if (o.kind === "steel") {
+        gone.add(o);
+        g.events.push({t: "steel", x: tileX(o.c), y: tileY(o.r)});
+      } else if (o.ice > 0) {
+        o.ice = 0;
+        g.events.push({t: "ice", x: tileX(o.c), y: tileY(o.r), broke: true});
+      }
+    }
+  }
+  const level = endlessLevel(g);
+  // time back: a little for every 10 (less on the higher levels), more for a long line, and 4 seconds for every clock in it
+  const extra = hit.length - 2;
+  const back = Math.max(0.8, 3 - 0.25 * (level - 1)) + 0.7 * extra + 0.15 * extra * extra + 4 * hit.filter((t) => t.kind === "clock").length;
+  g.lineTime = Math.min(LINE_MAX_TIME, g.lineTime + back);
+  g.lineGot = back;
+  g.lineGotT = 0;
+  // points: more for a long line (and the perfect 10 gives its own, more for a combo: see levelUp)
+  g.score += scaled(g, 10 * hit.length * g.level * Math.max(1, g.combo));
+  for (const t of gone) g.events.push({t: "bubblePop", x: tileX(t.c), y: tileY(t.r), v: t.v});
+  g.tiles = g.tiles.filter((t) => !gone.has(t));
+  const fell = fillLine(g);
+  // (a long line: the tiles that fell are looked at for a 10 on their own, a moment later, when they are in their place)
+  if (hit.length >= LINE_CHAIN_FROM) {
+    g.lineChain = 0;
+    g.lineFell = fell;
+    g.lineWait = LINE_CHAIN_WAIT;
+  }
+  // a perfect 10, as if in a cup of its own (on the bar; a new level, and on the daily ladder a new rung, comes as usual)
+  const before = endlessLevel(g);
+  const cup = makeCup(g, tileX(hit[hit.length - 1].c));
+  cup.value = TARGET;
+  levelUp(g, cup);
+  if (endlessLevel(g) > before) g.events.push({t: "lineLevel"});
+  return true;
+}
+
+/** The tiles fall down to fill the holes, and new ones come in from the top. The ids of the ones that fell or came in. */
+function fillLine(g: GameState): number[] {
+  const fell: number[] = [];
+  for (let c = 0; c < LINE_COLS; c++) {
+    const col = g.tiles.filter((t) => t.c === c).sort((a, b) => b.r - a.r);
+    let r = LINE_ROWS - 1;
+    for (const t of col) {
+      if (t.r !== r) {
+        t.dy -= (r - t.r) * TILE;
+        t.r = r;
+        fell.push(t.id);
+      }
+      r--;
+    }
+    for (let k = 0; r >= 0; r--, k++) {
+      const t = newTile(g, c, r);
+      t.dy = -(r + 1 + k) * TILE - 40;
+      g.tiles.push(t);
+      fell.push(t.id);
+    }
+  }
+  return fell;
+}
+
+/** How fast the clock runs: a little faster on every level. */
+function lineClock(g: GameState): number {
+  return (1 + 0.04 * (endlessLevel(g) - 1)) * g.speedMul * (1 + HARD_SPEED * hardTier(g));
+}
+
+/** Draw to 10, every frame: the tiles fall into place, and the clock runs (when it runs out, it is over). */
+function updateLine(g: GameState, dt: number, running: boolean): void {
+  if (g.cups.length > 0) g.cups = []; // (no cups: it goes on time; on the daily ladder too)
+  if (g.tiles.length === 0) setUpLine(g);
+  for (const t of g.tiles) t.dy = Math.abs(t.dy) < 0.5 ? 0 : t.dy * Math.pow(0.0004, dt);
+  g.lineGotT += dt;
+  ageSum(g, dt);
+  g.lineFail += dt;
+  if (g.lineChainFx) {
+    g.lineChainFx.age += dt;
+    if (g.lineChainFx.age > 1.2) g.lineChainFx = null;
+  }
+  // (the chain: the tiles that fell are looked at, once they are in their place)
+  if (g.lineFell.length > 0 && running) {
+    g.lineWait -= dt;
+    if (g.lineWait <= 0) lineChainStep(g);
+  }
+  if (!running) return;
+  const was = g.lineTime;
+  g.lineTime = Math.max(0, g.lineTime - dt * lineClock(g));
+  // (the last ten seconds tick, one tick a second)
+  if (g.lineTime < LINE_LOW && Math.ceil(g.lineTime) !== Math.ceil(was)) g.events.push({t: "lineTick", s: Math.ceil(g.lineTime)});
+  // (on the first levels, when the time is low, a line that makes 10 is shown as a help; it is looked for again when the board has changed)
+  if (endlessLevel(g) <= LINE_HINT_LEVELS && g.lineTime < LINE_LOW) {
+    if (g.lineHint.length === 0 || !g.lineHint.every((id) => g.tiles.some((t) => t.id === id))) g.lineHint = findLineTen(g);
+  } else g.lineHint = [];
+  if (g.lineTime <= 0) {
+    g.linePath = [];
+    endGame(g, "time");
+  }
+}
+
+/** Draw to 10: under this many seconds the time is low (the clock ticks and beats, and on the first levels a 10 is shown). */
+export const LINE_LOW = 10;
+/** On this many first levels a line that makes 10 is shown when the time is low. */
+export const LINE_HINT_LEVELS = 3;
+
+/** A line of the board that makes 10 (the shortest there is, of up to four tiles), or empty if there is none. */
+export function findLineTen(g: GameState): number[] {
+  const byPlace = new Map(g.tiles.map((t) => [t.c + "," + t.r, t] as const));
+  for (let len = 2; len <= 4; len++) {
+    let found: number[] = [];
+    const walk = (path: LineTile[]): boolean => {
+      if (path.length === len) {
+        const v = lineValue(g, path.map((t) => t.id));
+        if (v === TARGET || v === -TARGET) {
+          found = path.map((t) => t.id);
+          return true;
+        }
+        return false;
+      }
+      const last = path[path.length - 1];
+      for (let dc = -1; dc <= 1; dc++) {
+        for (let dr = -1; dr <= 1; dr++) {
+          if (!dc && !dr) continue;
+          const o = byPlace.get(last.c + dc + "," + (last.r + dr));
+          if (!o || !drawable(o) || path.includes(o)) continue;
+          if (walk([...path, o])) return true;
+        }
+      }
+      return false;
+    };
+    for (const t of g.tiles) if (drawable(t) && walk([t])) return found;
+  }
+  return [];
+}
+
+/** How often the next ball of the cannon is a helper (a star, a bolt or a bomb), and how many balls a bolt electrifies. */
+const CANNON_HELP_CHANCE = 0.14;
+export const CANNON_BOLT_HITS = 6;
+
+/** Now and then the next ball is a helper instead of a number. */
+function cannonHelp(g: GameState): CannonHelp | null {
+  if (g.rng() >= CANNON_HELP_CHANCE * helperFactor(g)) return null;
+  const r = g.rng();
+  return r < 0.24 ? "star" : r < 0.44 ? "bolt" : r < 0.6 ? "bomb" : r < 0.8 ? "laser" : "magnet";
+}
+
+/**
+ * A helper has stuck in the swarm. A star becomes the number (1 to 9) that makes the biggest 10 with the balls round it (and that 10 pops). A bolt electrifies
+ * balls of the swarm at random, and a bomb blows up the balls round it (sideways, up, down and across): they are gone (a few points each), the columns close up,
+ * and what touches now is looked at for a 10, a chain.
+ */
+function cannonHelper(g: GameState, b: Bubble, kind: CannonHelp): void {
+  if (kind === "star") {
+    // (its column closes up first, so that it is looked at where it ends up)
+    const moved = closeUp(g);
+    let best = 0;
+    let bestSize = 0;
+    for (let v = 1; v <= 9; v++) {
+      b.v = v;
+      const size = tenSize(g, b);
+      if (size > bestSize) {
+        bestSize = size;
+        best = v;
+      }
+    }
+    b.v = best || 1;
+    g.events.push({t: "pickup", x: bubbleX(b.c), y: bubbleY(b.r), kind: "weapon"});
+    if (!findTen(g, b)) {
+      g.cannonCheck = moved;
+      g.cannonWait = 0.15;
+    }
+    return;
+  }
+  const gone: Bubble[] = [b];
+  if (kind === "bolt") {
+    const others = g.bubbles.filter((o) => o !== b && o.glow === undefined);
+    const hits: Bubble[] = [];
+    for (let k = 0; k < CANNON_BOLT_HITS && others.length > 0; k++) hits.push(others.splice(Math.floor(g.rng() * others.length), 1)[0]);
+    gone.push(...hits);
+    g.events.push({t: "lineBolt", x: bubbleX(b.c), y: bubbleY(b.r), hits: hits.map((o) => ({x: bubbleX(o.c), y: bubbleY(o.r)}))});
+  } else if (kind === "magnet") {
+    cannonMagnet(g, b);
+    return;
+  } else if (kind === "laser") {
+    // (the laser clears the whole row and the whole column it sticks in)
+    for (const o of g.bubbles) if (o !== b && o.glow === undefined && (o.c === b.c || o.r === b.r)) gone.push(o);
+    g.shake = Math.max(g.shake, 0.4);
+    g.events.push({t: "laserCross", x: bubbleX(b.c), y: bubbleY(b.r)});
+  } else {
+    for (const o of g.bubbles) if (o !== b && o.glow === undefined && Math.max(Math.abs(o.c - b.c), Math.abs(o.r - b.r)) === 1) gone.push(o);
+    g.shake = Math.max(g.shake, 0.5);
+    g.events.push({t: "boom", x: bubbleX(b.c), y: bubbleY(b.r), big: true});
+  }
+  for (const o of gone) {
+    if (o !== b) g.score += scaled(g, 2 * g.level);
+    g.events.push({t: "bubblePop", x: bubbleX(o.c), y: bubbleY(o.r), v: o.v});
+  }
+  g.bubbles = g.bubbles.filter((o) => !gone.includes(o));
+  g.cannonCheck = [...g.cannonCheck, ...closeUp(g)];
+  g.cannonWait = 0.2;
+}
+
+/** How big the biggest 10 is that the ball `b` is part of (0 if there is none), without making it glow. */
+function tenSize(g: GameState, b: Bubble): number {
+  const glows = g.bubbles.filter((o) => o.glow !== undefined);
+  const events = g.events.length;
+  const chain = g.cannonChain;
+  if (!findTen(g, b)) return 0;
+  const lit = g.bubbles.filter((o) => o.glow !== undefined && !glows.includes(o));
+  for (const o of lit) o.glow = undefined;
+  g.events.length = events;
+  g.cannonChain = chain;
+  return lit.length;
+}
+
+/** Draw to 10: from how many tiles a line is long enough to start a chain, and how long after the tiles have fallen they are looked at. */
+export const LINE_CHAIN_FROM = 4;
+const LINE_CHAIN_WAIT = 0.35;
+
+/**
+ * Draw to 10, a step of a chain: among the tiles that fell (or came in), two or three plain numbers next to each other in a row or a column that make 10 (or
+ * minus 10) pop on their own: points (more for every step), a little time back, and a perfect 10; then what fell in their place is looked at again. When there
+ * is none, the chain is over.
+ */
+function lineChainStep(g: GameState): void {
+  const fell = new Set(g.lineFell);
+  g.lineFell = [];
+  const at = new Map(g.tiles.map((t) => [t.c + "," + t.r, t] as const));
+  const plain = (t: LineTile | undefined): t is LineTile => !!t && !t.kind && t.ice === 0 && t.op === "add";
+  let found: LineTile[] | null = null;
+  for (const len of [3, 2]) {
+    for (const t of g.tiles) {
+      if (found) break;
+      for (const [dc, dr] of [[1, 0], [0, 1]]) {
+        const run = Array.from({length: len}, (_, k) => at.get(t.c + dc * k + "," + (t.r + dr * k)));
+        if (!run.every(plain)) continue;
+        const sum = run.reduce((s, o) => s + o!.v, 0);
+        if (Math.abs(sum) !== TARGET || !run.some((o) => fell.has(o!.id))) continue;
+        found = run as LineTile[];
+        break;
+      }
+    }
+    if (found) break;
+  }
+  if (!found) {
+    g.lineChain = 0;
+    return;
+  }
+  g.lineChain += 1;
+  const pts = found.map((t) => ({x: tileX(t.c), y: tileY(t.r)}));
+  g.events.push({t: "lineChain", pts, n: g.lineChain});
+  showSum(g, found.length, pts);
+  for (const t of found) g.events.push({t: "bubblePop", x: tileX(t.c), y: tileY(t.r), v: t.v});
+  g.lineChainFx = {x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length, n: g.lineChain + 1, age: 0};
+  g.score += scaled(g, 20 * found.length * g.level * (g.lineChain + 1));
+  g.lineTime = Math.min(LINE_MAX_TIME, g.lineTime + 1);
+  g.tiles = g.tiles.filter((t) => !found!.includes(t));
+  g.lineFell = fillLine(g);
+  g.lineWait = LINE_CHAIN_WAIT;
+  const cup = makeCup(g, pts[0].x);
+  cup.value = TARGET;
+  levelUp(g, cup);
+}
+
+/**
+ * The cannon, a magnet: the balls round it (two columns to each side, and the rows near it) are pulled in and mixed up: their numbers are shuffled among them.
+ * Then all of them are looked at for a 10: a chain, as often as not.
+ */
+function cannonMagnet(g: GameState, b: Bubble): void {
+  g.bubbles = g.bubbles.filter((o) => o !== b);
+  const near = g.bubbles.filter((o) => o.glow === undefined && Math.abs(o.c - b.c) <= 2 && Math.abs(o.r - b.r) <= 3);
+  const values = near.map((o) => o.v);
+  for (let i = values.length - 1; i > 0; i--) {
+    const j = Math.floor(g.rng() * (i + 1));
+    [values[i], values[j]] = [values[j], values[i]];
+  }
+  near.forEach((o, i) => {
+    o.v = values[i];
+    // (they are pulled in a little towards the magnet, and spring back)
+    o.dy += (bubbleY(b.r) - bubbleY(o.r)) * 0.25;
+  });
+  g.events.push({t: "magnet", x: bubbleX(b.c), y: bubbleY(b.r), balls: near.map((o) => ({x: bubbleX(o.c), y: bubbleY(o.r)}))});
+  const moved = closeUp(g);
+  g.cannonCheck = [...g.cannonCheck, ...near.map((o) => o.id), ...moved];
+  g.cannonWait = 0.3;
+}
+
+/** The snake: how many seconds a ghost number keeps its number. */
+export const SNAKE_GHOST_EVERY = 3;
+
+/** Draw to 10: the seconds a "more time" perk gives (now, and on top at the start of every rung after). */
+export const LINE_PERK_TIME = 10;
+
+/** How many times as many helpers come (in the cannon and in Draw to 10): half as many again for every "more helpers" perk. */
+function helperFactor(g: GameState): number {
+  return 1 + 0.5 * perkCount(g, "helpers");
+}
+
+/**
+ * Whether a perk does anything in the match mode the daily ladder is played as. The bonus balls, the special numbers and the help of the endless game are not in
+ * the match modes at all; the perks for the cups need cups (and Sequence 10 has plain cups only); the screen and "fewer numbers" need numbers that fall; "more time"
+ * is for Draw to 10, and "more helpers" for the cannon and Draw to 10. "Slower" and "more points" are for all of them.
+ */
+export function perkFits(g: GameState, p: PerkId): boolean {
+  const m = mixNow(g);
+  if (!m) return p !== "time" && p !== "helpers";
+  const cupless = m === "cannon" || m === "line" || m === "ninja";
+  const falling = m !== "snake" && m !== "cannon" && m !== "line" && m !== "find";
+  if (p === "bonus" || p === "special" || p === "help") return false;
+  if (p === "time") return m === "line";
+  if (p === "helpers") return m === "cannon" || m === "line";
+  if (p === "sparse") return falling;
+  if (p === "cloth") return true; // (the cloth is in every match mode)
+  if (p === "gold" || p === "thermos" || p === "magnet" || p === "big" || p === "laser") return !cupless && m !== "find";
+  if (p === "shield" || p === "life" || p === "remove") return !cupless;
+  return true;
+}
+
+/** Comet belt: how big a moon is, next to a comet of the usual size (smaller than a planet). */
+export const MOON_SCALE = 2;
+
+/** Comet belt: the places beside the columns, where the comets (and the moons) come down. */
+function besideCols(g: GameState): number[] {
+  const c = g.cols;
+  const out = [Math.max(24, c[0] - 40)];
+  for (let k = 1; k < c.length; k++) out.push((c[k - 1] + c[k]) / 2);
+  out.push(Math.min(W - 24, c[c.length - 1] + 40));
+  return out;
+}
+
+/** Fighter jet, the skulls with a shield in front: from which perfect 10 they come, how often, how much the shield and the skull take, how slowly they fall,
+ *  how much of the laser the shield takes, and their points (times the level). */
+export const GUARD_FROM = 10;
+const GUARD_CHANCE = 0.06;
+export const GUARD_HP = 18;
+export const GUARD_LIFE = 1.5;
+const GUARD_SLOW = 0.45;
+const GUARD_LASER = 0.6;
+const GUARD_POINTS = 25;
+
+/** Fighter jet: how long the plasma flame out at the back is, next to the one in front. */
+const FLAME_BACK = 0.7;
+/** Fighter jet: the heavy black missiles of the skulls: from which perfect 10, how many of the missiles are heavy, and how much slower they are. */
+export const HEAVY_FROM = 15;
+const HEAVY_CHANCE = 0.3;
+const HEAVY_SLOW = 0.7;
+
+/** How long the sum of a 10 is shown. */
+export const SUM_SHOWN = 1.6;
+
+/** How many numbers made a 10 is shown over where it was made (a little above the middle of its tiles, and kept on the screen). */
+function showSum(g: GameState, n: number, pts: readonly {x: number; y: number}[]): void {
+  if (n < 3) return; // (two is nothing to tell about)
+  if (pts.length === 0) return;
+  const x = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+  const y = Math.min(...pts.map((p) => p.y)) - 34;
+  g.eqFx = {n, x: Math.max(70, Math.min(W - 70, x)), y: Math.max(90, y), age: 0};
+}
+
+function ageSum(g: GameState, dt: number): void {
+  if (!g.eqFx) return;
+  g.eqFx.age += dt;
+  if (g.eqFx.age > SUM_SHOWN) g.eqFx = null;
+}
+
+
+/** The match modes get a step harder on every tenth level (10, 20, 30 ...): this many steps now (0 before level 10, and outside the match modes). */
+export function hardTier(g: GameState): number {
+  if (!g.variant && !mixNow(g)) return 0;
+  return Math.floor(endlessLevel(g) / 10);
+}
+/** What a step makes harder: how much faster it all goes, and how many more numbers come. */
+export const HARD_SPEED = 0.15;
+const HARD_RATE = 0.12;
+
+// ---- The mine ---------------------------------------------------------------------------
+
+/** Whether the mine is played. */
+export function mineOn(g: GameState): boolean {
+  return g.variant === "mine";
+}
+
+/** The mine: how many columns, how big a block is, and where the view starts on the screen; how many rows of it are shown over the miner. */
+export const MINE_COLS = 7;
+export const MINE_CELL = 50;
+export const MINE_TOP = 100;
+const MINE_ABOVE = 3;
+/** How many rows the lava comes down a second at first, how far a 10 pushes it back, and how far it jumps when the basket tips over. */
+const LAVA_SPEED = 0.28;
+const LAVA_BACK = 1.5;
+const LAVA_JUMP = 1.5;
+
+export function mineX(c: number): number {
+  return (W - MINE_COLS * MINE_CELL) / 2 + MINE_CELL / 2 + c * MINE_CELL;
+}
+/** Where a row is on the screen, with the view where it is now. */
+export function mineY(g: GameState, r: number): number {
+  return MINE_TOP + MINE_CELL / 2 + (r - g.mineCam) * MINE_CELL;
+}
+
+/** A new block of the mine, for row r: harder kinds come in with the levels (minus numbers, "times 2", steel), and now and then a helper. */
+function mineBlock(g: GameState, r: number): MineCell {
+  // (a row of a wall: steel, but for its gates, set in digOut)
+  if (gateRow(r)) return {v: 0, op: "add", kind: "steel", dug: false};
+  const level = endlessLevel(g);
+  const x = g.rng();
+  if (r > 1) {
+    if (x < 0.03) return {v: 0, op: "add", kind: "bomb", dug: false};
+    if (x < 0.045) return {v: 0, op: "add", kind: "star", dug: false};
+    if (x < 0.06) return {v: 0, op: "add", kind: "laser", dug: false};
+    if (x < 0.08) return {v: 0, op: "add", kind: "clock", dug: false};
+    if (x < 0.105) return {v: 0, op: "add", kind: "gem", dug: false};
+    if (level >= 3 && x < 0.08 + Math.min(0.12, 0.04 + 0.01 * (level - 3))) return {v: 0, op: "add", kind: "steel", dug: false};
+  }
+  if (level >= 3 && g.rng() < 0.08) return {v: 2, op: "mul", dug: false};
+  const v = 1 + Math.floor(g.rng() * Math.min(9, 5 + Math.floor((level - 1) / 2)));
+  return {v: level >= 2 && g.rng() < Math.min(0.3, 0.12 + 0.03 * (level - 2)) ? -v : v, op: "add", dug: false};
+}
+
+/** The rows of the mine are made as far down as they are needed (a good way under the miner). */
+function digOut(g: GameState): void {
+  while (g.mine.length < g.miner.r + 16) {
+    const r = g.mine.length;
+    const row = Array.from({length: MINE_COLS}, () => mineBlock(g, r));
+    if (gateRow(r)) {
+      // (two gates in the wall, apart from each other, each with a number: only a basket that makes exactly 10 with it opens it)
+      // (one door in the wall: with one lock, and from the fourth level now and then two, and from the seventh more often)
+      const level = endlessLevel(g);
+      const locks = level >= 7 && g.rng() < 0.6 ? 2 : level >= 4 && g.rng() < 0.35 ? 2 : 1;
+      row[Math.floor(g.rng() * MINE_COLS)] = {v: locks, op: "add", kind: "gate", dug: false};
+    }
+    g.mine.push(row);
+  }
+}
+
+/** The mine at the start: the miner on top, in a hole of his own, and the lava a good way over him. */
+function setUpMine(g: GameState): void {
+  g.mine = [];
+  g.miner = {c: Math.floor(MINE_COLS / 2), r: 0};
+  digOut(g);
+  g.mine[0][g.miner.c].dug = true;
+  g.mineFrom = {c: g.miner.c, r: 0, t: 99};
+  g.mineSum = 0;
+  g.mineLava = -MINE_ABOVE - 1;
+  g.mineCam = -MINE_ABOVE;
+  g.mineDeep = 0;
+}
+
+/** The block at a place of the mine (undefined outside it). */
+function mineAt(g: GameState, c: number, r: number): MineCell | undefined {
+  if (c < 0 || c >= MINE_COLS || r < 0) return undefined;
+  return g.mine[r]?.[c];
+}
+
+/** How fast the lava comes down (rows a second): faster on every level, and a step on every tenth. */
+export function lavaSpeed(g: GameState): number {
+  return LAVA_SPEED * (1 + 0.1 * (endlessLevel(g) - 1)) * (1 + HARD_SPEED * hardTier(g)) * g.speedMul;
+}
+
+/**
+ * A tap in the mine: on a block next to the miner (to the left, to the right, or under him) he digs it: its number goes into the basket (a minus number takes
+ * off, "times 2" doubles it), the block becomes a tunnel he steps into, and he falls down as far as it is dug out under him. A helper does its thing instead.
+ * On a tunnel next to him he only walks there. Exactly 10 (or minus 10) in the basket is a perfect 10: the basket is emptied and the lava pushed back; over 10
+ * the basket tips over (it is emptied, and the lava jumps nearer).
+ */
+export function mineTap(g: GameState, x: number, y: number): boolean {
+  if (!mineOn(g) || g.phase !== "play" || g.countdown > 0) return false;
+  const c = Math.round((x - mineX(0)) / MINE_CELL);
+  const r = Math.round((y - mineY(g, 0)) / MINE_CELL);
+  const m = g.miner;
+  const dc = c - m.c;
+  const dr = r - m.r;
+  // (a tap on the miner himself empties the basket: the lava comes a little nearer for it)
+  if (dc === 0 && dr === 0) {
+    if (g.mineSum === 0) return false;
+    g.mineSum = 0;
+    g.mineLava += LAVA_DUMP;
+    g.events.push({t: "mineTip", x: mineX(c), y: mineY(g, r)});
+    checkStuck(g);
+    return true;
+  }
+  // (only next to him: to a side, over him or under him)
+  if (!((dr === 0 && Math.abs(dc) === 1) || (dc === 0 && Math.abs(dr) === 1))) return false;
+  // (over him only a block can be dug: he cannot climb up into a tunnel)
+  if (dr === -1 && mineAt(g, c, r)?.dug) return false;
+  const cell = mineAt(g, c, r);
+  if (!cell || (cell.kind === "steel" && !cell.dug)) { // (steel that a bomb blew away is a tunnel like any other)
+    if (cell) g.events.push({t: "steel", x: mineX(c), y: mineY(g, r)});
+    return false;
+  }
+  if (!cell.dug) {
+    // (dazed, after the basket tipped over: no digging for a moment)
+    if (g.mineDaze > 0) return false;
+    // (the pick swings that way, and he turns to look there)
+    g.mineSwing = {dc, dr, t: 0};
+    if (dc !== 0) g.mineFace = dc;
+    if (dr === 1) g.shake = Math.max(g.shake, 0.12);
+    // (a locked door needs a key: one is got for every perfect 10)
+    if (cell.kind === "gate" && g.mineKeys < cell.v) {
+      g.events.push({t: "mineHeavy", x: mineX(c), y: mineY(g, r)});
+      return false;
+    }
+    dig(g, c, r, cell);
+  }
+  if (g.phase !== "play") return true;
+  // (a block dug over him stays a hole over his head: he does not climb up)
+  if (dr === -1) {
+    checkStuck(g);
+    return true;
+  }
+  // (where he comes from: he walks (and falls) there, it is not a jump)
+  g.mineFrom = {c: m.c, r: m.r, t: 0};
+  if (dc !== 0) g.mineFace = dc;
+  m.c = c;
+  m.r = r;
+  // (he falls as far as it is dug out under him)
+  while (mineAt(g, m.c, m.r + 1)?.dug) m.r += 1;
+  digOut(g);
+  // (every new depth is worth points)
+  if (m.r > g.mineDeep) {
+    g.score += scaled(g, 5 * (m.r - g.mineDeep) * endlessLevel(g));
+    g.mineDeep = m.r;
+  }
+  checkStuck(g);
+  return true;
+}
+
+/** A block is dug: what is in it goes into the basket (or a helper does its thing). */
+function dig(g: GameState, c: number, r: number, cell: MineCell): void {
+  cell.dug = true;
+  const x = mineX(c);
+  const y = mineY(g, r);
+  g.events.push({t: "mineDig", x, y, v: cell.v});
+  if (cell.kind === "bomb") {
+    // (it blows up the blocks round it, steel too: they are dug out, and nothing goes into the basket)
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      const o = mineAt(g, c + dc, r + dr);
+      if (o && !o.dug) {
+        o.dug = true;
+        g.events.push({t: "bubblePop", x: mineX(c + dc), y: mineY(g, r + dr), v: o.v});
+      }
+    }
+    g.shake = Math.max(g.shake, 0.5);
+    g.events.push({t: "boom", x, y, big: true});
+    return;
+  }
+  if (cell.kind === "laser") {
+    // (it clears its row, and the column under it, a few blocks deep)
+    for (let k = 0; k < MINE_COLS; k++) clearBlock(g, k, r);
+    for (let k = 1; k <= 4; k++) clearBlock(g, c, r + k);
+    g.events.push({t: "laserCross", x, y});
+    return;
+  }
+  if (cell.kind === "gem") {
+    g.score += scaled(g, MINE_GEM_POINTS * endlessLevel(g));
+    g.events.push({t: "mineGem", x, y});
+    return;
+  }
+  if (cell.kind === "clock") {
+    g.mineLava -= 3;
+    g.events.push({t: "pickup", x, y, kind: "fuel"});
+    return;
+  }
+  if (cell.kind === "gate") {
+    // (the keys open the door: they are used up, the door is worth points, and the numbers come back)
+    g.mineKeys -= cell.v;
+    g.score += scaled(g, MINE_GATE_POINTS * cell.v * endlessLevel(g));
+    g.events.push({t: "mineGate", x, y});
+    g.events.push({t: "mineRestore", pts: blockSpots(g)});
+    return;
+  }
+  // (with keys enough for the next door the numbers are blank: he digs freely, down to it)
+  if (mineFree(g) && !cell.kind) return;
+  if (cell.kind === "star") g.mineSum = g.mineSum >= 0 ? TARGET : -TARGET;
+  else if (cell.op === "mul") g.mineSum *= cell.v;
+  else g.mineSum += cell.v;
+  if (Math.abs(g.mineSum) === TARGET) {
+    // a perfect 10: the basket is emptied, the lava pushed back, and it counts on the bar
+    g.mineSum = 0;
+    g.mineKeys += 1;
+    g.mineKeyT = 0;
+    g.mineLava -= LAVA_BACK;
+    g.events.push({t: "mineTen", x, y});
+    // (keys enough for the next door: the numbers are wiped out)
+    if (mineFree(g)) g.events.push({t: "mineErase", pts: blockSpots(g)});
+    const cup = makeCup(g, x);
+    cup.value = TARGET;
+    levelUp(g, cup);
+  } else if (Math.abs(g.mineSum) > TARGET) {
+    // over 10: the basket tips over
+    g.mineOver = g.mineSum;
+    g.mineSum = 0;
+    g.mineLava += LAVA_JUMP;
+    g.mineTip = 0;
+    g.mineDaze = MINE_DAZE;
+    g.shake = Math.max(g.shake, 0.4);
+    g.events.push({t: "mineTip", x, y});
+  }
+}
+
+function clearBlock(g: GameState, c: number, r: number): void {
+  const o = mineAt(g, c, r);
+  if (!o || o.dug) return;
+  o.dug = true;
+  g.events.push({t: "bubblePop", x: mineX(c), y: mineY(g, r), v: o.v});
+}
+
+/** The mine, every frame: the view follows the miner down, and the lava comes on (when it reaches him, it is over). */
+function updateMine(g: GameState, dt: number, running: boolean): void {
+  if (g.mine.length === 0) setUpMine(g);
+  const want = g.miner.r - MINE_ABOVE;
+  g.mineCam += (want - g.mineCam) * Math.min(1, 6 * dt);
+  g.mineTip += dt;
+  g.mineDaze = Math.max(0, g.mineDaze - dt);
+  g.mineKeyT += dt;
+  g.mineSwing.t += dt;
+  g.mineFrom.t += dt;
+  if (!running) return;
+  // (far over the view it hurries to catch up, so that it is nearly always to be seen at the top)
+  const behind = g.miner.r - MINE_ABOVE - 1.5 - g.mineLava;
+  g.mineLava += lavaSpeed(g) * (behind > 2 ? 1 + Math.min(4, behind - 2) : 1) * dt;
+  if (g.mineLava >= g.miner.r + 0.35) endGame(g, "lava");
+}
+
+/** The mine: every this many rows there is a wall of steel with two gates in it (the first one a few rows down). */
+const MINE_GATE_EVERY = 7;
+/** Whether a row of the mine is a wall. */
+export function gateRow(r: number): boolean {
+  return r >= 4 && (r - 4) % MINE_GATE_EVERY === MINE_GATE_EVERY - 1;
+}
+/** The points of a gate that is opened (times the level), and how long the miner is dazed when the basket tips over. */
+const MINE_GATE_POINTS = 30;
+const MINE_DAZE = 1.6;
+
+/** The mine: how much nearer the lava comes when the basket is emptied by hand, and the points of a gem (times the level). */
+const LAVA_DUMP = 0.75;
+const MINE_GEM_POINTS = 40;
+
+/** Whether the miner could dig the block at (c, r) from where he stands, the basket as it is (a gate needs exactly 10; down, it must hold). */
+export function canDig(g: GameState, c: number, r: number, down: boolean): boolean {
+  const cell = mineAt(g, c, r);
+  if (!cell || cell.dug || cell.kind === "steel") return false;
+  if (cell.kind === "gate") return g.mineKeys >= cell.v;
+  void down;
+  return true;
+}
+
+/**
+ * Whether there is anything the miner can still do: he walks along the tunnels he can get to (sideways, falling down through what is dug out), and from every
+ * place he can stand on, a block beside him, over him or under him that he could dig. (Emptying the basket is always there, while there is something in it,
+ * and with an empty basket the gates still need a number dug first.)
+ */
+export function mineStuck(g: GameState): boolean {
+  const seen = new Set<string>();
+  const todo = [{c: g.miner.c, r: g.miner.r}];
+  while (todo.length > 0) {
+    const p = todo.pop()!;
+    const key = p.c + "," + p.r;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (canDig(g, p.c - 1, p.r, false) || canDig(g, p.c + 1, p.r, false) || canDig(g, p.c, p.r - 1, false) || canDig(g, p.c, p.r + 1, true)) return false;
+    for (const dc of [-1, 1]) {
+      const n = mineAt(g, p.c + dc, p.r);
+      if (!n?.dug) continue;
+      let r = p.r;
+      while (mineAt(g, p.c + dc, r + 1)?.dug) r++;
+      todo.push({c: p.c + dc, r});
+    }
+    // (and he can always fall down)
+    if (mineAt(g, p.c, p.r + 1)?.dug) todo.push({c: p.c, r: p.r + 1});
+  }
+  return true;
+}
+
+/** No way on at all: it is over (rather than waiting for the lava). */
+function checkStuck(g: GameState): void {
+  if (g.phase === "play" && mineStuck(g)) endGame(g, "stuck");
+}
+
+/** The mine: how many locks the next door down has (the door in the first wall under the miner, or the one he is standing at). */
+export function nextLocks(g: GameState): number {
+  for (let r = g.miner.r; r < g.mine.length; r++) {
+    if (!gateRow(r)) continue;
+    const door = g.mine[r].find((cell) => cell.kind === "gate" && !cell.dug);
+    if (door) return door.v;
+  }
+  return 1;
+}
+
+/** The mine: whether the miner has keys enough for the next door (then the numbers are blank, and he digs freely down to it). */
+export function mineFree(g: GameState): boolean {
+  return g.mineKeys >= nextLocks(g);
+}
+
+/** Where the blocks with numbers in view are (for the effects when the numbers are wiped out, or come back). */
+function blockSpots(g: GameState): {x: number; y: number}[] {
+  const pts: {x: number; y: number}[] = [];
+  for (let r = Math.max(0, g.miner.r - 4); r < Math.min(g.mine.length, g.miner.r + 9); r++) {
+    for (let c = 0; c < MINE_COLS; c++) {
+      const cell = g.mine[r][c];
+      if (!cell.dug && !cell.kind) pts.push({x: mineX(c), y: mineY(g, r)});
+    }
+  }
+  return pts;
+}
+
+
+/** Whether the cloth (or the eraser) can be used: in the endless game and the book once it has come in, and always in the match modes and the daily ladder. */
+export function toolsOn(g: GameState, f: "screen" | "eraser"): boolean {
+  if (g.mode === "tutorial") return false;
+  if (g.variant || mixNow(g)) return true;
+  return featureAge(g, f) >= 0;
+}
+
+/** The cloth in the modes where there is nothing falling for it to wipe away: it does something of its own there. */
+function clothWipe(g: GameState): void {
+  const m = g.variant ?? mixNow(g);
+  if (m === "cannon") {
+    // (the cannon: the lowest three rows of the swarm are wiped away)
+    for (let k = 0; k < 3 && g.bubbles.length > 0; k++) {
+      const low = Math.max(...g.bubbles.map((b) => b.r));
+      for (const b of g.bubbles) if (b.r === low) g.events.push({t: "bubblePop", x: bubbleX(b.c), y: bubbleY(b.r), v: b.v});
+      g.bubbles = g.bubbles.filter((b) => b.r !== low);
+    }
+  } else if (m === "line") {
+    // (Draw to 10: a whole new board, and a few seconds more)
+    for (const t of g.tiles) g.events.push({t: "bubblePop", x: tileX(t.c), y: tileY(t.r), v: t.v});
+    g.tiles = [];
+    fillLine(g);
+    g.lineTime += 5;
+  } else if (m === "ninja") {
+    // (ninja: everything in the air is wiped away, bombs too)
+    for (const b of g.ninjaBalls) g.events.push({t: "pop", x: b.x, y: b.y});
+    g.ninjaBalls = [];
+  } else if (m === "mine") {
+    // (the mine: the lava is wiped well back up)
+    g.mineLava = Math.min(g.mineLava, g.miner.r - 6);
+  }
+}
+
+/**
+ * A tap with the eraser on, in the modes where it is not a falling number that is tapped: what is under the finger pops (and is gone) without counting.
+ * A skull or a comet of the jet and the ship, a number of the snake's train (not its head), a ball of the cannon's swarm, a tile of Draw to 10, a block of the
+ * mine (not steel, nor a door). False when there is nothing (or it is a mode where the tap does it as it is).
+ */
+function eraseTap(g: GameState, x: number, y: number): boolean {
+  const pop = (px: number, py: number) => g.events.push({t: "pop", x: px, y: py});
+  if (jetOn(g) || cometOn(g) || snakeOn(g)) {
+    let hit: NumberTile | undefined;
+    let best = 34;
+    for (const n of g.numbers) {
+      if (n.done || n.bonus || n.snakeHead || n.state !== "fall") continue;
+      const d = Math.hypot(n.x - x, n.y - y);
+      if (d < best) {
+        best = d;
+        hit = n;
+      }
+    }
+    if (!hit) return false;
+    hit.done = true;
+    for (const m of g.numbers) {
+      if (m.chain === hit.id) m.chain = null;
+      if (m.chain2 === hit.id) m.chain2 = null;
+    }
+    g.numbers = g.numbers.filter((m) => m !== hit);
+    pop(hit.x, hit.y);
+    return true;
+  }
+  if (cannonOn(g)) {
+    const b = g.bubbles.find((o) => Math.hypot(bubbleX(o.c) - x, bubbleY(o.r) - y) < BUBBLE_R + 4);
+    if (!b) return false;
+    g.bubbles = g.bubbles.filter((o) => o !== b);
+    g.events.push({t: "bubblePop", x: bubbleX(b.c), y: bubbleY(b.r), v: b.v});
+    g.cannonCheck = closeUp(g);
+    return true;
+  }
+  if (lineOn(g)) {
+    const t = g.tiles.find((o) => Math.hypot(tileX(o.c) - x, tileY(o.r) - y) < TILE / 2);
+    if (!t) return false;
+    g.tiles = g.tiles.filter((o) => o !== t);
+    g.events.push({t: "bubblePop", x: tileX(t.c), y: tileY(t.r), v: t.v});
+    fillLine(g);
+    return true;
+  }
+  if (ninjaOn(g)) {
+    const b = g.ninjaBalls.find((o) => Math.hypot(o.x - x, o.y - y) < NINJA_R + 6);
+    if (!b) return false;
+    g.ninjaBalls = g.ninjaBalls.filter((o) => o !== b);
+    pop(b.x, b.y);
+    return true;
+  }
+  if (mineOn(g)) {
+    const c = Math.round((x - mineX(0)) / MINE_CELL);
+    const r = Math.round((y - mineY(g, 0)) / MINE_CELL);
+    const cell = mineAt(g, c, r);
+    if (!cell || cell.dug || cell.kind === "steel" || cell.kind === "gate") return false;
+    clearBlock(g, c, r);
+    // (the miner falls if it was under him)
+    while (mineAt(g, g.miner.c, g.miner.r + 1)?.dug) g.miner.r += 1;
+    digOut(g);
+    return true;
+  }
+  return false;
+}
+
+// ---- Ninja -------------------------------------------------------------------------------
+
+/** Whether Ninja is played. */
+export function ninjaOn(g: GameState): boolean {
+  return g.variant === "ninja" || mixNow(g) === "ninja";
+}
+
+/** Ninja: how big a ball is, the pull down, how many crosses end it, how long the clock (slow motion) and the ice (freeze) last. */
+export const NINJA_R = 26;
+const NINJA_GRAVITY = 820;
+export const NINJA_STRIKES = 3;
+const NINJA_SLOW = 5;
+const NINJA_FREEZE = 2.5;
+/** How fast the balls fly (1: as thrown), for a little more time to cut them. */
+const NINJA_PACE = 0.82;
+/** How long time is slowed down when the combo goes up a step. */
+const COMBO_SLOW = 1.3;
+/** From which level numbers come in ice, and in steel. */
+export const NINJA_ICE_FROM = 6;
+export const NINJA_STEEL_FROM = 9;
+/** How long the star rain lasts, and how often a throw comes in it. */
+export const NINJA_FRENZY = 6;
+const FRENZY_EVERY = 0.32;
+
+/** How often a throw comes, and how many balls are in it, at a level. */
+function ninjaEvery(g: GameState): number {
+  return Math.max(0.75, 1.7 - 0.06 * (endlessLevel(g) - 1)) / ((1 + HARD_RATE * hardTier(g)) * g.speedMul);
+}
+
+/** A throw: balls up from the bottom in arcs. Often two of them make 10 together (so there is always something to cut), now and then a helper, and from the
+ *  second level bombs. */
+function ninjaToss(g: GameState): void {
+  const level = endlessLevel(g);
+  const n = Math.min(5, 1 + Math.floor(g.rng() * Math.min(4, 2 + level / 3)));
+  const vals: number[] = [];
+  if (n >= 2 && g.rng() < 0.75) {
+    const a = 1 + Math.floor(g.rng() * 9);
+    vals.push(a, TARGET - a === 0 ? 5 : TARGET - a);
+  }
+  while (vals.length < n) vals.push(1 + Math.floor(g.rng() * Math.min(9, 4 + level)));
+  const speed = (1 + 0.04 * Math.min(15, level - 1)) * (1 + HARD_SPEED * hardTier(g));
+  // (from the second level one of the numbers now and then is golden: it must not be missed)
+  const must = level >= 2 && g.rng() < Math.min(0.35, 0.15 + 0.02 * level) ? Math.floor(g.rng() * vals.length) : -1;
+  for (const [i, v] of vals.entries()) {
+    const x = 50 + g.rng() * (W - 100);
+    const b: NinjaBall = {id: ++g.ninjaId, x, y: 690, vx: (W / 2 - x) * (0.25 + g.rng() * 0.5) + (g.rng() - 0.5) * 80, vy: -(760 + g.rng() * 180) * Math.sqrt(speed), v, cut: false, spin: (g.rng() - 0.5) * 6, must: i === must || undefined};
+    // (later on, a shell: ice from the sixth level, steel from the ninth; more of them further on)
+    if (i !== must && level >= NINJA_ICE_FROM) {
+      const x2 = g.rng();
+      if (level >= NINJA_STEEL_FROM && x2 < Math.min(0.25, 0.1 + 0.015 * (level - NINJA_STEEL_FROM))) b.shell = "steel";
+      else if (x2 < Math.min(0.45, 0.15 + 0.02 * (level - NINJA_ICE_FROM))) b.shell = "ice";
+    }
+    g.ninjaBalls.push(b);
+  }
+  // a bomb now and then (more of them later), and a helper
+  if (level >= 2 && g.rng() < Math.min(0.4, 0.12 + 0.03 * level)) {
+    const x = 70 + g.rng() * (W - 140);
+    g.ninjaBalls.push({id: ++g.ninjaId, x, y: 690, vx: (W / 2 - x) * 0.4, vy: -(800 + g.rng() * 150) * Math.sqrt(speed), v: 0, kind: "bomb", cut: false, spin: 2});
+  }
+  // (with crosses, now and then a heart: cut it, and a cross is gone)
+  if (g.ninjaStrikes > 0 && !g.ninjaBalls.some((o) => o.kind === "heart") && g.rng() < 0.12 + 0.08 * g.ninjaStrikes) {
+    const x = 80 + g.rng() * (W - 160);
+    g.ninjaBalls.push({id: ++g.ninjaId, x, y: 690, vx: (W / 2 - x) * 0.35, vy: -(800 + g.rng() * 120), v: 0, kind: "heart", cut: false, spin: 0});
+  }
+  if (g.rng() < 0.1) {
+    const kinds: NinjaBall["kind"][] = ["star", "clock", "freeze"];
+    const x = 70 + g.rng() * (W - 140);
+    g.ninjaBalls.push({id: ++g.ninjaId, x, y: 690, vx: (W / 2 - x) * 0.4, vy: -(820 + g.rng() * 120), v: 0, kind: kinds[Math.floor(g.rng() * 3)], cut: false, spin: 1});
+  }
+  g.events.push({t: "ninjaToss"});
+}
+
+/** A throw of the star rain: two or three 10s (more than half the time), or two numbers that make 10, from the sides and the bottom, close together so that one swipe takes both (no bombs). */
+function frenzyToss(g: GameState): void {
+  const a = 1 + Math.floor(g.rng() * 9);
+  const fromLeft = g.rng() < 0.5;
+  const x0 = fromLeft ? 40 + g.rng() * 120 : W - 40 - g.rng() * 120;
+  // (more than half the throws are 10s: one cut each is a perfect 10)
+  const tens = g.rng() < 0.6 ? 2 + Math.floor(g.rng() * 2) : 0;
+  const vals = tens ? Array.from({length: tens}, () => TARGET) : [a, TARGET - a];
+  for (const [i, v] of vals.entries()) {
+    const x = x0 + (i - 0.5) * 50;
+    g.ninjaBalls.push({id: ++g.ninjaId, x, y: 690, vx: (W / 2 - x) * 0.5 + (fromLeft ? 40 : -40), vy: -(820 + g.rng() * 120), v, cut: false, spin: 2});
+  }
+  g.events.push({t: "ninjaToss"});
+}
+
+/** The finger goes down: a new stroke. */
+export function ninjaStart(g: GameState, x: number, y: number): void {
+  if (!ninjaOn(g)) return;
+  g.ninjaLast = {x, y};
+  g.ninjaStroke += 1;
+  g.ninjaTrail.push({x, y, age: 0});
+  g.ninjaSum = 0;
+  g.ninjaCount = 0;
+  g.ninjaPts = [];
+}
+
+/** The finger moves: every ball the stroke goes through is cut, and its number counts in the stroke. */
+export function ninjaMove(g: GameState, x: number, y: number): void {
+  if (!ninjaOn(g) || !g.ninjaLast) return;
+  const a = g.ninjaLast;
+  g.ninjaLast = {x, y};
+  g.ninjaTrail.push({x, y, age: 0});
+  if (g.phase !== "play" || g.countdown > 0) return;
+  const len = Math.hypot(x - a.x, y - a.y);
+  if (len < 2) return;
+  for (const b of [...g.ninjaBalls]) {
+    if (b.cut || b.hitBy === g.ninjaStroke) continue;
+    // (how near the stroke comes to the ball)
+    const u = Math.max(0, Math.min(1, ((b.x - a.x) * (x - a.x) + (b.y - a.y) * (y - a.y)) / (len * len)));
+    const d = Math.hypot(a.x + (x - a.x) * u - b.x, a.y + (y - a.y) * u - b.y);
+    if (d > NINJA_R + 4) continue;
+    // (a shell: this cut takes it off, and the next stroke cuts the number)
+    if (b.shell) {
+      g.events.push(b.shell === "steel" ? {t: "steel", x: b.x, y: b.y} : {t: "pop", x: b.x, y: b.y});
+      for (let k = 0; k < 8; k++) {
+        const an = g.rng() * Math.PI * 2;
+        g.ninjaSplats.push({x: b.x, y: b.y, vx: Math.cos(an) * 200, vy: Math.sin(an) * 200 - 60, age: 0, color: b.shell === "steel" ? "#c8ccd4" : "#d8f4ff", r: 2 + g.rng() * 3});
+      }
+      b.shell = undefined;
+      b.hitBy = g.ninjaStroke;
+      b.vy = Math.min(b.vy, 0) * 0.6;
+      continue;
+    }
+    // (where across the ball the stroke went: the side of the line its middle is on, and how far)
+    const side = ((b.x - a.x) * -(y - a.y) + (b.y - a.y) * (x - a.x)) / len;
+    cutBall(g, b, Math.atan2(y - a.y, x - a.x), Math.max(-NINJA_R * 0.8, Math.min(NINJA_R * 0.8, side)));
+    if (g.phase !== "play") return;
+  }
+}
+
+/** The finger lets go: a stroke that did not get to 10 is just gone. */
+export function ninjaEnd(g: GameState): void {
+  g.ninjaLast = null;
+  g.ninjaSum = 0;
+  g.ninjaCount = 0;
+  g.ninjaPts = [];
+}
+
+/** A ball is cut: it falls apart in two halves, juice splashes, and what it is does its thing. */
+function cutBall(g: GameState, b: NinjaBall, angle: number, off = 0): void {
+  b.cut = true;
+  g.ninjaBalls = g.ninjaBalls.filter((o) => o !== b);
+  for (const side of [-1, 1]) {
+    const nx = -Math.sin(angle) * side;
+    const ny = Math.cos(angle) * side;
+    // (the smaller piece flies off faster)
+    const share = side < 0 ? (NINJA_R - off) / (2 * NINJA_R) : (NINJA_R + off) / (2 * NINJA_R);
+    const push = 100 + 120 * (1 - share);
+    g.ninjaHalves.push({x: b.x, y: b.y, vx: b.vx * 0.5 + nx * push, vy: Math.min(b.vy, 0) * 0.3 + ny * push - 80, rot: 0, vr: side * (3 + g.rng() * 4), v: b.v, side, kind: b.kind, must: b.must, angle, off, age: 0});
+  }
+  const color = b.kind === "bomb" ? "#444" : b.kind ? "#ffd54a" : NINJA_JUICE[(b.v - 1) % NINJA_JUICE.length];
+  for (let k = 0; k < 10; k++) {
+    const an = g.rng() * Math.PI * 2;
+    const sp = 80 + g.rng() * 260;
+    g.ninjaSplats.push({x: b.x, y: b.y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp - 100, age: 0, color, r: 3 + g.rng() * 5});
+  }
+  if (b.kind === "bomb") {
+    // a bomb: a big bang and a cross; the stroke is over
+    g.shake = Math.max(g.shake, 0.8);
+    g.events.push({t: "boom", x: b.x, y: b.y, big: true});
+    g.ninjaWord = {s: "bomb", x: b.x, y: b.y, age: 0};
+    strike(g);
+    g.ninjaSum = 0;
+    g.ninjaCount = 0;
+    g.ninjaPts = [];
+    g.ninjaLast = null;
+    return;
+  }
+  if (b.kind === "clock") {
+    g.ninjaSlow = NINJA_SLOW;
+    g.events.push({t: "pickup", x: b.x, y: b.y, kind: "fuel"});
+    return;
+  }
+  if (b.kind === "heart") {
+    // a heart: a cross is gone
+    g.ninjaStrikes = Math.max(0, g.ninjaStrikes - 1);
+    g.ninjaWord = {s: "life", x: b.x, y: b.y, age: 0};
+    g.events.push({t: "pickup", x: b.x, y: b.y, kind: "heart"});
+    return;
+  }
+  if (b.kind === "freeze") {
+    g.ninjaFreeze = NINJA_FREEZE;
+    g.events.push({t: "pickup", x: b.x, y: b.y, kind: "shield"});
+    return;
+  }
+  if (b.kind === "star") {
+    // a star: the star rain (numbers thick and fast for a while, and no bombs)
+    g.ninjaFrenzy = NINJA_FRENZY;
+    g.ninjaTimer = 0.3;
+    g.events.push({t: "pickup", x: b.x, y: b.y, kind: "weapon"});
+    return;
+  }
+  g.ninjaPts.push({x: b.x, y: b.y});
+  g.ninjaCount += 1;
+  g.ninjaSum += b.v;
+  g.events.push({t: "ninjaCut", x: b.x, y: b.y, v: b.v, n: g.ninjaCount});
+  if (g.ninjaSum === TARGET) {
+    // exactly 10: a perfect 10, at once (the stroke can go on, from 0 again)
+    const before = ninjaMult(g);
+    g.ninjaCombo += 1;
+    if (ninjaMult(g) > before) g.ninjaComboT = 0;
+    g.score += scaled(g, 15 * g.ninjaCount * endlessLevel(g) * ninjaMult(g));
+    showSum(g, g.ninjaCount, g.ninjaPts);
+    g.ninjaWord = {s: "ten", x: b.x, y: b.y, age: 0};
+    g.events.push({t: "mineTen", x: b.x, y: b.y});
+    const cup = makeCup(g, b.x);
+    cup.value = TARGET;
+    levelUp(g, cup);
+    g.ninjaSum = 0;
+    g.ninjaCount = 0;
+    g.ninjaPts = [];
+  } else if (g.ninjaSum > TARGET) {
+    // over 10: a cross
+    g.ninjaWord = {s: "too", x: b.x, y: b.y, age: 0};
+    g.shake = Math.max(g.shake, 0.4);
+    g.events.push({t: "mineTip", x: b.x, y: b.y});
+    strike(g);
+    g.ninjaSum = 0;
+    g.ninjaCount = 0;
+    g.ninjaPts = [];
+    g.ninjaLast = null;
+  }
+}
+
+/** Ninja: the points are worth this many times as much: one step up for every three perfect 10s in a row without a cross (at most ×5). */
+export function ninjaMult(g: GameState): number {
+  return Math.min(5, 1 + Math.floor(g.ninjaCombo / 3));
+}
+
+/** The colours of the juice, by the number. */
+export const NINJA_JUICE = ["#ff5a5a", "#ff9a3c", "#ffd54a", "#8ad04a", "#3ac0a0", "#4aa8ff", "#7a6aff", "#d06aff", "#ff6ab0"];
+
+function strike(g: GameState): void {
+  g.ninjaStrikes += 1;
+  g.ninjaCombo = 0;
+  if (g.ninjaStrikes >= NINJA_STRIKES) endGame(g, "ninja");
+}
+
+/** Ninja, every frame: the throws, the balls flying (slower with the clock, still with the ice), the halves and the juice falling. */
+function updateNinja(g: GameState, dt: number, running: boolean): void {
+  if (g.cups.length > 0) g.cups = []; // (no cups: on the daily ladder too)
+  g.ninjaComboT += dt;
+  for (const p of g.ninjaTrail) p.age += dt;
+  g.ninjaTrail = g.ninjaTrail.filter((p) => p.age < 0.2);
+  if (g.ninjaWord) {
+    g.ninjaWord.age += dt;
+    if (g.ninjaWord.age > 1.2) g.ninjaWord = null;
+  }
+  for (const h of g.ninjaHalves) {
+    h.age += dt;
+    h.vy += NINJA_GRAVITY * dt;
+    h.x += h.vx * dt;
+    h.y += h.vy * dt;
+    h.rot += h.vr * dt;
+  }
+  g.ninjaHalves = g.ninjaHalves.filter((h) => h.y < 760 && h.age < 3);
+  for (const s of g.ninjaSplats) {
+    s.age += dt;
+    s.vy += 600 * dt;
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+  }
+  g.ninjaSplats = g.ninjaSplats.filter((s) => s.age < 0.7);
+  if (!running) return;
+  g.ninjaSlow = Math.max(0, g.ninjaSlow - dt);
+  if (g.ninjaFreeze > 0) {
+    g.ninjaFreeze = Math.max(0, g.ninjaFreeze - dt);
+    return;
+  }
+  // (a step up of the combo stops time for a moment: it slows right down and comes back up smoothly)
+  const combo = g.ninjaComboT < COMBO_SLOW ? 0.25 + 0.75 * Math.pow(g.ninjaComboT / COMBO_SLOW, 2) : 1;
+  const k = (g.ninjaSlow > 0 ? 0.4 : 1) * combo;
+  g.ninjaFrenzy = Math.max(0, g.ninjaFrenzy - dt);
+  g.ninjaTimer -= dt * k;
+  if (g.ninjaTimer <= 0) {
+    if (g.ninjaFrenzy > 0) {
+      frenzyToss(g);
+      g.ninjaTimer = FRENZY_EVERY;
+    } else {
+      ninjaToss(g);
+      g.ninjaTimer = ninjaEvery(g);
+    }
+  }
+  // (the balls fly a little slower than real time: the same arcs, but more time to cut them)
+  const m = k * NINJA_PACE;
+  for (const b of g.ninjaBalls) {
+    b.vy += NINJA_GRAVITY * dt * m;
+    b.x += b.vx * dt * m;
+    b.y += b.vy * dt * m;
+    if (b.x < NINJA_R && b.vx < 0) b.vx = -b.vx;
+    if (b.x > W - NINJA_R && b.vx > 0) b.vx = -b.vx;
+  }
+  // (a ball that falls out at the bottom is just gone; a golden one is a cross)
+  const out = g.ninjaBalls.filter((b) => b.vy > 0 && b.y > 700);
+  g.ninjaBalls = g.ninjaBalls.filter((b) => !out.includes(b));
+  for (const b of out) {
+    if (!b.must || g.phase !== "play") continue;
+    g.ninjaWord = {s: "miss", x: b.x, y: 600, age: 0};
+    g.shake = Math.max(g.shake, 0.4);
+    g.events.push({t: "mineTip", x: b.x, y: 620});
+    strike(g);
+  }
+}
+

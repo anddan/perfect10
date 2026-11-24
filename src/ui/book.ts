@@ -18,6 +18,10 @@ import {roomOfMode, type Room} from "./background";
 import {drawShopCup} from "./cupArt";
 import {drawComet, drawJet, drawShip} from "./craftArt";
 import {drawSnakeBody, drawSnakeHead} from "./snakeArt";
+import {drawAimLine, drawCannon, drawTenGlow} from "./cannonArt";
+import {drawLinePath} from "./lineArt";
+import {drawEarth, drawLava, drawMiner, drawTunnel} from "./mineArt";
+import {drawBlade, drawHalf} from "./ninjaArt";
 import {applyTint} from "./tint";
 import {type Key, t} from "./i18n";
 import {playerName} from "./profile";
@@ -55,10 +59,10 @@ const HOLE_R = 4.6;
 export const BOOK = {x: 14, y: 62, w: 332, h: 514};
 
 /** What each page of the book is: the games, and after them the daily challenge (the ladder) and the shop. */
-export type Page = Mode | "cover" | "contents" | "daily" | "shop" | "looks" | "buy" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake" | "online" | "back";
-export const PAGES: Page[] = ["cover", "contents", "tutorial", "daily", "plus", "minus", "mixed", "times", "divide", "space", "endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "online", "shop", "looks", "buy", "back"];
+export type Page = Mode | "cover" | "contents" | "daily" | "shop" | "looks" | "buy" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake" | "cannon" | "line" | "mine" | "ninja" | "online" | "back";
+export const PAGES: Page[] = ["cover", "contents", "tutorial", "daily", "plus", "minus", "mixed", "times", "divide", "space", "endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "cannon", "line", "mine", "ninja", "online", "shop", "looks", "buy", "back"];
 /** The pages of the match modes (they are kept together, under a line of their own, in the contents). */
-export const MATCH_PAGES: readonly Page[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "online"];
+export const MATCH_PAGES: readonly Page[] = ["endless", "save", "sixeight", "defend", "ice", "fast", "find", "shield", "jet", "comet", "snake", "cannon", "line", "mine", "ninja", "online"];
 /** The pages of the daily challenge and the shop. */
 /** The front cover is the first thing in the book (it has no page number); the contents is page 1. */
 export const CONTENTS_PAGE = PAGES.indexOf("contents");
@@ -161,7 +165,7 @@ export const CHAPTER_STARS = 3 * STAGES;
 /** How many stars, all chapters added together (180 at most), open the endless game. */
 export const STARS_FOR_ENDLESS = 120;
 /** The stars that open the match modes (without buying them for coins, or Premium): Save the cup and Even numbers. */
-export const STARS_FOR_VARIANT: Record<Variant, number> = {save: 130, sixeight: 140, defend: 150, ice: 160, fast: 170, find: 180, shield: 190, jet: 200, comet: 205, snake: 210};
+export const STARS_FOR_VARIANT: Record<Variant, number> = {save: 125, sixeight: 130, defend: 135, ice: 140, fast: 145, find: 150, shield: 155, jet: 160, comet: 165, snake: 170, cannon: 175, line: 180, mine: 185, ninja: 190};
 
 /** The stars got in a level (the points of its best try): none until it has been cleared. */
 export function starsOfLevel(b: Book, mode: Mode, stage: number): number {
@@ -211,7 +215,7 @@ export function openNextGame(b: Book, mode: Mode, stage: number): {mode: Mode; s
 /** The room behind a page of the book. */
 export function roomOfPage(page: number): Room {
   const p = PAGES[Math.min(LAST, Math.max(0, page))];
-  return p === "daily" || p === "save" || p === "sixeight" || p === "defend" || p === "ice" || p === "fast" || p === "find" || p === "shield" || p === "jet" || p === "comet" || p === "snake" || p === "online" ? "terrace" : p === "shop" ? "bakery" : p === "looks" || p === "contents" || p === "cover" ? "classroom" : p === "buy" || p === "back" ? "cafe" : roomOfMode(p);
+  return p === "daily" || p === "save" || p === "sixeight" || p === "defend" || p === "ice" || p === "fast" || p === "find" || p === "shield" || p === "jet" || p === "comet" || p === "snake" || p === "cannon" || p === "line" || p === "mine" || p === "ninja" || p === "online" ? "terrace" : p === "shop" ? "bakery" : p === "looks" || p === "contents" || p === "cover" ? "classroom" : p === "buy" || p === "back" ? "cafe" : roomOfMode(p);
 }
 
 /** The game that follows another in the book: level after level, then the next page, ending in the endless game. */
@@ -1058,6 +1062,14 @@ function pageName(page: Page): string {
       return t("cometName");
     case "snake":
       return t("snakeName");
+    case "cannon":
+      return t("cannonName");
+    case "line":
+      return t("lineName");
+    case "mine":
+      return t("mineName");
+    case "ninja":
+      return t("ninjaName");
     case "online":
       return t("onlineName");
     case "shop":
@@ -1179,7 +1191,7 @@ function drawContentsPage(ctx: CanvasRenderingContext2D, b: Book): void {
     registerHit(ctx, id, {x, y: y0, w: rw, h: rowH});
     const y = y0 + (ui.pressed === id ? 2 : 0);
     const chapter = isChapter(page as Mode);
-    const locked = chapter ? !isUnlocked(b, page as Mode, 1) : page === "endless" ? !isUnlocked(b, "endless", 0) : page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "snake" || page === "online" ? !variantOpen(b, page) : false;
+    const locked = chapter ? !isUnlocked(b, page as Mode, 1) : page === "endless" ? !isUnlocked(b, "endless", 0) : page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "snake" || page === "cannon" || page === "line" || page === "mine" || page === "ninja" || page === "online" ? !variantOpen(b, page) : false;
     softCard(ctx, x, y, rw, rowH, 10, "cream");
     // The left and the right edge of the line have the colour of their group (the same as the tab and the page number).
     ctx.save();
@@ -1320,6 +1332,10 @@ const VARIANT_KEYS: Record<Variant, {name: Key; sub: Key; rules: Key}> = {
   jet: {name: "jetName", sub: "jetSub", rules: "jetRules"},
   comet: {name: "cometName", sub: "cometSub", rules: "cometRules"},
   snake: {name: "snakeName", sub: "snakeSub", rules: "snakeRules"},
+  cannon: {name: "cannonName", sub: "cannonSub", rules: "cannonRules"},
+  line: {name: "lineName", sub: "lineSub", rules: "lineRules"},
+  mine: {name: "mineName", sub: "mineSub", rules: "mineRules"},
+  ninja: {name: "ninjaName", sub: "ninjaSub", rules: "ninjaRules"},
 };
 
 /** The picture in the middle of the page of a match mode. */
@@ -1352,6 +1368,69 @@ function drawVariantArt(ctx: CanvasRenderingContext2D, mode: Variant, cx: number
     ctx.translate(jx, jy);
     ctx.scale(0.8, 0.8);
     drawJet(ctx, 0, 0, time, {missiles: 1});
+    ctx.restore();
+    return;
+  }
+  if (mode === "ninja") {
+    // A 4 and a 6 in the air, a blade cutting through the 6 (its halves flying apart), and a 3 coming up.
+    const u = (time * 0.7) % 1;
+    drawBall(ctx, cx - 60, cy - 30 + Math.sin(time * 2) * 6, 4, 1.4, time, 1);
+    drawBall(ctx, cx + 70, cy + 40 - u * 40, 3, 1.2, time, 3);
+    const apart = Math.min(1, u * 2) * 18;
+    for (const side of [-1, 1]) drawHalf(ctx, {x: cx + 10 + side * apart * 0.3, y: cy - 10 + side * apart, rot: side * u * 0.6, v: 6, side, angle: -0.5, age: 0}, 25, 1.4, "#8ad04a", time);
+    const pts = Array.from({length: 8}, (_, k) => ({x: cx - 40 + k * 14, y: cy + 30 - k * 12, age: k < 7 ? (7 - k) * 0.02 : 0}));
+    drawBlade(ctx, pts);
+    return;
+  }
+  if (mode === "mine") {
+    // A few rows of earth with numbers, a tunnel dug down through them, the miner in it, and the lava glowing over it all.
+    const size = 34;
+    const x0 = cx - 2 * size;
+    const y0 = cy - 40;
+    const tunnel = [[2, 0], [2, 1], [3, 1], [3, 2]];
+    const vals = [3, 5, 1, 4, 2, 6, 2, 7, 4, 1, 3, 5, 2, 8, 4, 6, 1, 3, 5, 2];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++) {
+      const x = x0 + c * size;
+      const y = y0 + r * size;
+      if (tunnel.some(([tc, tr]) => tc === c && tr === r)) drawTunnel(ctx, x, y, size);
+      else {
+        drawEarth(ctx, x, y, size, r * 10, r * 5 + c);
+        drawBall(ctx, x, y, vals[r * 5 + c], 0.62, time, r * 5 + c, "add");
+      }
+    }
+    drawMiner(ctx, x0 + 3 * size, y0 + 2 * size + 2, time, 9);
+    drawLava(ctx, y0 - 26, y0 - 20 + Math.sin(time) * 2, BOOK.w, time);
+    return;
+  }
+  if (mode === "line") {
+    // A board of numbers, and a line drawn through three of them that make 10 (3, then ×2, then +4), glowing gold, with "= 10!" by its end.
+    const vals: [number, "add" | "mul" | "div"][] = [[5, "add"], [3, "add"], [2, "mul"], [6, "add"], [4, "add"], [1, "add"], [2, "add"], [7, "add"], [2, "div"], [4, "add"], [8, "add"], [3, "add"]];
+    const at = (k: number) => ({x: cx + ((k % 4) - 1.5) * 44, y: cy - 58 + Math.floor(k / 4) * 44});
+    vals.forEach(([v, op], k) => drawBall(ctx, at(k).x, at(k).y, v, 1.05, time, k, op));
+    const draw = Math.min(3, Math.floor((time * 1.2) % 4.5));
+    if (draw >= 1) {
+      const ids = [1, 2, 6].slice(0, draw);
+      const value = [3, 6, 8][draw - 1];
+      drawLinePath(ctx, ids.map(at), draw === 3 ? 10 : value, time);
+    }
+    return;
+  }
+  if (mode === "cannon") {
+    // A swarm of number balls at the top, the cannon at the bottom aiming at it with its dotted line, and two balls that glow gold (they make 10).
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) {
+      const bx = cx + (c - 2) * 32;
+      const by = cy - 50 + r * 28;
+      const v = [3, 6, 2, 5, 1, 4, 7, 3, 2, 6, 5, 2, 8, 1, 4][r * 5 + c]; // (the two that glow make 10)
+      if (r === 2 && c === 1) drawTenGlow(ctx, bx, by, 14, 0.5 + 0.5 * Math.sin(time * 6), time);
+      if (r === 2 && c === 2) drawTenGlow(ctx, bx, by, 14, 0.5 + 0.5 * Math.sin(time * 6), time);
+      drawBall(ctx, bx, by, v, 0.8, time, r * 5 + c, "add");
+    }
+    const a = -Math.PI / 2 + Math.sin(time * 1.2) * 0.35;
+    drawAimLine(ctx, [{x: cx, y: cy + 30}, {x: cx + Math.cos(a) * 80, y: cy + 30 + Math.sin(a) * 80}], time);
+    ctx.save();
+    ctx.translate(cx, cy + 56);
+    ctx.scale(0.7, 0.7);
+    drawCannon(ctx, 0, 0, a, time);
     ctx.restore();
     return;
   }
@@ -2453,7 +2532,7 @@ function paintPage(ctx: CanvasRenderingContext2D, index: number, b: Book, _g: Ga
   else if (mode === "shop") drawShopPage(ctx);
   else if (mode === "looks") drawLooksPage(ctx);
   else if (mode === "buy") drawBuyPage(ctx);
-  else if (mode === "save" || mode === "sixeight" || mode === "defend" || mode === "ice" || mode === "fast" || mode === "find" || mode === "shield" || mode === "jet" || mode === "comet" || mode === "snake") drawVariantPage(ctx, b, mode, time);
+  else if (mode === "save" || mode === "sixeight" || mode === "defend" || mode === "ice" || mode === "fast" || mode === "find" || mode === "shield" || mode === "jet" || mode === "comet" || mode === "snake" || mode === "cannon" || mode === "line" || mode === "mine" || mode === "ninja") drawVariantPage(ctx, b, mode, time);
   else if (mode === "online") drawOnlinePage(ctx, b, time);
   else if (isChapter(mode)) drawLevelsPage(ctx, b, mode);
   else drawEndlessPage(ctx, b, time);
@@ -2666,6 +2745,10 @@ const SUB_ICON: Partial<Record<Page, string>> = {
   jet: "M12 2l2 6v4l7 4v2l-7-2v4l2 2v1l-4-1-4 1v-1l2-2v-4l-7 2v-2l7-4V8z",
   comet: "M15 9a3 3 0 1 0 0 .1M13 11L3 21M12 8L5 15M16 12l-7 7",
   snake: "M3 6h13a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h10M18 16l3 2-3 2",
+  cannon: "M7 15l9-9 3 3-9 9zM5 20a3 3 0 1 0 6 0 3 3 0 0 0-6 0M18 4l2-2M20 7h2M15 2V0",
+  line: "M5 5h3v3H5zM10.5 10.5h3v3h-3zM16 5h3v3h-3zM6.5 6.5l5.5 5.5 5.5-5.5M4 19h16",
+  mine: "M4 9l8-5 8 5M7 7.2V20M17 7.2V20M7 20h10M12 10v6M9.5 13h5",
+  ninja: "M21 3c-2.5 1-8 5.5-11.5 9M8 10.5l5.5 5.5M7.2 14.8L3.5 18.5M2.8 19.2l2 2",
   find: "M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM16 16l5 5M7.5 10.5h6M10.5 7.5v6",
   fast: "M9 11V5.5a1.5 1.5 0 0 1 3 0V11M12 10V4.5a1.5 1.5 0 0 1 3 0V11M15 10.5V6a1.5 1.5 0 0 1 3 0v7c0 4-2.5 7-6.5 7-3 0-4.5-1.5-6-4L4 12.5a1.5 1.5 0 0 1 2.5-1.5L9 13.5M2 4l2 2M2 9h2M5 1.5l.8 2.5",
   online: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3.2 3 3.2 15 0 18M12 3c-3.2 3-3.2 15 0 18",
@@ -2677,7 +2760,7 @@ const SUB_ICON: Partial<Record<Page, string>> = {
 /** Whether a page of the arc is shut (the match modes that have not been opened yet). */
 function subLocked(b: Book, page: Page): boolean {
   if (page === "endless") return !isUnlocked(b, "endless", 0);
-  if (page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "snake" || page === "online") return !variantOpen(b, page);
+  if (page === "save" || page === "sixeight" || page === "defend" || page === "ice" || page === "fast" || page === "find" || page === "shield" || page === "jet" || page === "comet" || page === "snake" || page === "cannon" || page === "line" || page === "mine" || page === "ninja" || page === "online") return !variantOpen(b, page);
   return false;
 }
 

@@ -17,7 +17,7 @@ export type Feature = "screen" | "cups" | "zero" | "ten" | "points" | "life" | "
  * The match modes, which are the endless game with rules of their own: "save" (Save the cup: one of the four cups is dead from the start, only 1s fall, and a 1
  * that gets into the dead cup is the end; it gets faster and faster) and "sixeight" (Even numbers: only 2s, 4s, 8s, times 2 and divided by 2 fall).
  */
-export type Variant = "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake";
+export type Variant = "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake" | "cannon" | "line" | "mine" | "ninja";
 
 export type Mode = "tutorial" | "plus" | "minus" | "mixed" | "times" | "divide" | "space" | "endless";
 
@@ -32,7 +32,7 @@ export type Op = "add" | "mul" | "div" | "zero" | "ten" | "dim" | "steel" | "sku
 export type Bonus = "life" | "points" | "slow" | "pause" | "bomb" | "cloth" | "shield" | "star" | "diamond" | "wand" | "reverse";
 
 /** The perks of the daily challenge: "slow" (the numbers fall slower), "shield" (a shield on a cup), "cloth" (one more pull-down screen), "life" (a dead cup is back), "bonus" (more bonus balls), "help" (more numbers that finish a cup), "remove" (a dead cup is taken away), or a cup with a property (it replaces an ordinary cup). */
-export type PerkId = "slow" | "shield" | "cloth" | "life" | "bonus" | "help" | "remove" | "gold" | "thermos" | "magnet" | "big" | "laser" | "sparse" | "special" | "points";
+export type PerkId = "slow" | "shield" | "cloth" | "life" | "bonus" | "help" | "remove" | "gold" | "thermos" | "magnet" | "big" | "laser" | "sparse" | "special" | "points" | "time" | "helpers";
 
 /** What the guide says in the tutorial after something happened: "good" when it went right, "retry" when it has to be done again. */
 export type TutorialNote = "" | "good" | "retry";
@@ -40,7 +40,7 @@ export type TutorialNote = "" | "good" | "retry";
 /** The kinds of cup: an ordinary one, and the four of the shop (gold: double points; thermos: starts with a shield; magnet: takes a number that would have killed another cup; big: does not die until it is over 12; laser: a double tap clears its column). */
 export type CupKind = "plain" | "gold" | "thermos" | "magnet" | "big" | "laser";
 
-export type GameOverReason = "deadCup" | "allDead" | "crash";
+export type GameOverReason = "deadCup" | "allDead" | "crash" | "swarm" | "time" | "lava" | "stuck" | "ninja";
 
 export interface Cup {
   id: number;
@@ -119,10 +119,16 @@ export interface NumberTile {
   gold?: boolean;
   /** The snake: it is sliding up to close a gap in the train (when it gets there, it may melt together with the one in front). */
   closing?: boolean;
+  /** The snake: a ghost number: the seconds until it turns into another number. */
+  shift?: number;
   /** The snake: a bomb that another bomb has set off: the seconds until it goes off too. */
   fuse?: number;
   /** Comet belt: a giant planet (it is as wide as two columns, and falls slowly). */
   planet?: boolean;
+  /** Fighter jet: a skull with a shield in front (towards the jet): the shield (it wears down, and breaks), and the little life the skull has behind it. */
+  guard?: {hp: number; max: number; life: number};
+  /** Comet belt: a moon (smaller than a planet, bigger than a comet; it falls slowly too). */
+  moon?: boolean;
   /** Thin ice (Ice world): it looks like any ice, but one tap breaks all of it. */
   thin?: boolean;
   /** "fall": drifting down on its own. "dive": tapped, on its way into a cup. */
@@ -176,7 +182,32 @@ export type GameEvent =
   | {t: "weaponDown"; x: number; y: number; empty: boolean}
   | {t: "hurt"; x: number; y: number; hp: number}
   | {t: "snakeFaster"; x: number; y: number}
-  | {t: "bombChain"; x: number; y: number; fromX: number; fromY: number};
+  | {t: "bombChain"; x: number; y: number; fromX: number; fromY: number}
+  | {t: "tenMade"; balls: {x: number; y: number; v: number}[]; chain: number}
+  | {t: "bubblePop"; x: number; y: number; v: number}
+  | {t: "swarmDown"}
+  | {t: "lineTen"; pts: {x: number; y: number}[]}
+  | {t: "lineFail"}
+  | {t: "mineDig"; x: number; y: number; v: number}
+  | {t: "mineTen"; x: number; y: number}
+  | {t: "ninjaCut"; x: number; y: number; v: number; n: number}
+  | {t: "ninjaToss"}
+  | {t: "mineTip"; x: number; y: number}
+  | {t: "mineHeavy"; x: number; y: number}
+  | {t: "mineGate"; x: number; y: number}
+  | {t: "mineGem"; x: number; y: number}
+  | {t: "mineErase"; pts: {x: number; y: number}[]}
+  | {t: "mineRestore"; pts: {x: number; y: number}[]}
+  | {t: "guardHit"; x: number; y: number}
+  | {t: "guardBreak"; x: number; y: number}
+  | {t: "magnet"; x: number; y: number; balls: {x: number; y: number}[]}
+  | {t: "lineChain"; pts: {x: number; y: number}[]; n: number}
+  | {t: "ghostShift"; x: number; y: number}
+  | {t: "laserCross"; x: number; y: number}
+  | {t: "lineTick"; s: number}
+  | {t: "lineBolt"; x: number; y: number; hits: {x: number; y: number}[]}
+  | {t: "lineStep"; n: number}
+  | {t: "lineLevel"};
 
 /** What the fighter jet can pick up: faster and more guns, missiles from its wings, or a shield (and the ship of the comet belt: a shield, or a full tank of fuel). */
 export type Pickup = "weapon" | "shield" | "fuel" | "heart" | "back" | "slow";
@@ -281,7 +312,7 @@ export interface GameState {
   fuel: number;
   fuelOut: boolean;
   /** Fighter jet: the slow missiles the skulls shoot back at the jet (from level 10). */
-  enemyShots: {x: number; y: number; vx: number; vy: number; age: number}[];
+  enemyShots: {x: number; y: number; vx: number; vy: number; age: number; heavy?: boolean}[];
   /** The jet and the ship: where the craft is flying to on its own (the finger was put down somewhere else), and the trail of light it leaves on the way. */
   craftTo: {x: number; y: number} | null;
   craftTrail: {x: number; y: number; age: number}[];
@@ -302,6 +333,84 @@ export interface GameState {
   snakeStun: number;
   /** The snake: how many hearts have come this round (at most SNAKE_HEARTS_MAX). */
   snakeHearts: number;
+  /** The cannon: the swarm of number balls (in columns hanging from the top), the ball on its way, the one in the cannon and the next, where the finger aims,
+   *  the seconds to the next row of the swarm, the balls to look at again for a 10 (after the columns have closed up), and the golden 10s flying down to the cups. */
+  bubbles: Bubble[];
+  cannonShot: {x: number; y: number; vx: number; vy: number; v: number; kind?: CannonHelp} | null;
+  cannonNow: number;
+  cannonNext: number;
+  /** The cannon: whether the ball in it, and the next one, is a helper instead of a number. */
+  cannonNowKind: CannonHelp | null;
+  cannonNextKind: CannonHelp | null;
+  cannonAim: {x: number; y: number} | null;
+  cannonRow: number;
+  cannonCheck: number[];
+  cannonWait: number;
+  cannonFly: {x: number; y: number; tx: number; ty: number; age: number; chain: number}[];
+  cannonChain: number;
+  /** Draw to 10: the numbers lying on the board, the line that is being drawn (the ids of its tiles, in the order they were drawn), the seconds left,
+   *  how many seconds the last 10 gave back (and how long ago), and how long ago a line that did not make 10 was let go. */
+  tiles: LineTile[];
+  linePath: number[];
+  lineTime: number;
+  lineGot: number;
+  lineGotT: number;
+  lineFail: number;
+  /** Draw to 10: a line that makes 10, shown as a help on the first levels when the time is low (the ids of its tiles), or empty. */
+  lineHint: number[];
+  /** Draw to 10 and the cannon: how many numbers made the last 10, where it is shown, and how long ago it was made. */
+  eqFx: {n: number; x: number; y: number; age: number} | null;
+  /** The mine: its rows (row 0 is at the top; more are dug out as the miner goes down), where the miner is, what is in the basket, how far down the lava has come
+   *  (in rows), how far down the view is (in rows, it follows the miner), the deepest row so far, and how long ago the basket tipped over. */
+  mine: MineCell[][];
+  miner: {c: number; r: number};
+  mineSum: number;
+  mineLava: number;
+  mineCam: number;
+  mineDeep: number;
+  mineTip: number;
+  /** The mine: the seconds the miner is still dazed after the basket tipped over (he cannot dig). */
+  mineDaze: number;
+  /** The mine: the keys the miner has (one for every perfect 10): a key opens a locked door. */
+  mineKeys: number;
+  /** The mine: how long ago a key was got (for its "+1 key"). */
+  mineKeyT: number;
+  /** Ninja: the balls in the air (thrown up from the bottom), the halves of the ones that were cut, the juice that splashed, the trail of the finger, where it
+   *  was last, what the stroke has cut so far (its sum, how many, and where), the crosses (three is the end), the seconds of slow motion and of the freeze,
+   *  the seconds to the next throw, the next id, the last word shown ("Too much!", "Bomb!") and how long ago. */
+  ninjaBalls: NinjaBall[];
+  ninjaHalves: {x: number; y: number; vx: number; vy: number; rot: number; vr: number; v: number; side: number; kind?: NinjaBall["kind"]; must?: boolean; angle: number; off: number; age: number}[];
+  /** Ninja: the strokes so far (a shell hit by a stroke is not hit again by it). */
+  ninjaStroke: number;
+  /** Ninja: the perfect 10s in a row without a cross (every three of them is one step up of the points: ×2, ×3 ...), and how long ago the step went up. */
+  ninjaCombo: number;
+  ninjaComboT: number;
+  ninjaSplats: {x: number; y: number; vx: number; vy: number; age: number; color: string; r: number}[];
+  ninjaTrail: {x: number; y: number; age: number}[];
+  ninjaLast: {x: number; y: number} | null;
+  ninjaSum: number;
+  ninjaCount: number;
+  ninjaPts: {x: number; y: number}[];
+  ninjaStrikes: number;
+  ninjaSlow: number;
+  ninjaFreeze: number;
+  /** Ninja: the seconds of the star rain still left (a star was cut: numbers come thick and fast, and no bombs). */
+  ninjaFrenzy: number;
+  ninjaTimer: number;
+  ninjaId: number;
+  ninjaWord: {s: "too" | "bomb" | "ten" | "miss" | "life"; x: number; y: number; age: number} | null;
+  /** The mine: the last swing of the pick (which way, and how long ago), where the miner last came from (and how long ago, for him to walk and fall there), and which way he looks (1 right, -1 left). */
+  mineSwing: {dc: number; dr: number; t: number};
+  mineFrom: {c: number; r: number; t: number};
+  mineFace: number;
+  /** The mine: what the basket came to when it went over 10 (shown with "Too much!"). */
+  mineOver: number;
+  /** Draw to 10: after a long line, the tiles that fell are looked at for a 10 on their own (a chain): the ids to look at, the seconds until then, how far the chain
+   *  has gone, and the last chain shown (where, how far, and how long ago). */
+  lineFell: number[];
+  lineWait: number;
+  lineChain: number;
+  lineChainFx: {x: number; y: number; n: number; age: number} | null;
   /** The daily challenge: the seconds the title with the match mode of the day is still shown (it comes when the ladder starts). */
   dailyIntro: number;
   /** The snake: how many perfect 10s have faded off the bar on this level (each makes it faster), and the seconds since the last one did (for the effect). */
@@ -366,3 +475,64 @@ export interface GameState {
   /** The ones the player has asked not to be shown again (remembered by the screen, not by the rules). */
   hideIntros: Set<Feature>;
 }
+
+/** The cannon: a number ball of the swarm, in column c, row r (0 is the top row); dy is how far it is still sliding to its place, and glow the seconds
+ *  until it pops when it is part of a 10. */
+export interface Bubble {
+  id: number;
+  c: number;
+  r: number;
+  v: number;
+  dy: number;
+  glow?: number;
+}
+
+/** Draw to 10: a tile of the board, in column c, row r (0 is the top row). Its number is added (a minus number takes off), or it times or divides what the line
+ *  is so far; or it is a helper (a clock gives time, a bomb blows up the tiles round it, a star is whatever number is needed), or a block of steel (it cannot
+ *  be drawn through, only broken by a 10 next to it). Ice must be broken (by a 10 next to it) before the tile can be drawn through. dy: how far it is still falling. */
+export interface LineTile {
+  id: number;
+  c: number;
+  r: number;
+  v: number;
+  op: "add" | "mul" | "div";
+  kind?: "clock" | "bomb" | "star" | "bolt" | "laser" | "steel";
+  ice: number;
+  dy: number;
+}
+
+/** The helpers the cannon can fire: a star (it becomes the number that makes the biggest 10 where it sticks), a bolt (it electrifies balls of the swarm at
+ *  random: they are gone) and a bomb (it blows up the balls round it). */
+export type CannonHelp = "star" | "bolt" | "bomb" | "laser" | "magnet";
+
+/** The mine: a block of earth with a number (added to the basket, or a minus number taken off, or "times" it), a block of steel (it cannot be dug), or a
+ *  helper (a bomb blows up the blocks round it, a star fills the basket up to 10, a laser clears its row and the column under it, a clock pushes the lava back).
+ *  dug: it has been dug out (a tunnel). */
+export interface MineCell {
+  v: number;
+  op: "add" | "mul";
+  kind?: "steel" | "bomb" | "star" | "laser" | "clock" | "gate" | "gem";
+  dug: boolean;
+}
+
+
+
+/** Ninja: a ball thrown up into the air, with a number (or a bomb, a star, a clock, ice). */
+export interface NinjaBall {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  v: number;
+  kind?: "bomb" | "star" | "clock" | "freeze" | "heart";
+  /** It has been cut in this stroke already (so it is not cut twice). */
+  cut: boolean;
+  /** A golden number that must not be missed: one that falls out uncut is a cross. */
+  must?: boolean;
+  spin: number;
+  /** A shell round the number: steel (it clinks the first time it is cut, the second cut cuts it) or ice (the first cut breaks the ice off), and the stroke that last hit it. */
+  shell?: "steel" | "ice";
+  hitBy?: number;
+}
+

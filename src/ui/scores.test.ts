@@ -52,8 +52,8 @@ describe("the connection to the project", () => {
 
 describe("a top list for every game", () => {
   it("has its own collection for the endless game and for each match mode, and a board for each", () => {
-    expect(COLLECTION).toEqual({endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight", defend: "highscores_defend", ice: "highscores_ice", fast: "highscores_fast", find: "highscores_find", shield: "highscores_shield", jet: "highscores_jet", comet: "highscores_comet", snake: "highscores_snake"});
-    expect(new Set(SCORE_MODES.map((m) => COLLECTION[m])).size).toBe(11);
+    expect(COLLECTION).toEqual({endless: "highscores", save: "highscores_save", sixeight: "highscores_sixeight", defend: "highscores_defend", ice: "highscores_ice", fast: "highscores_fast", find: "highscores_find", shield: "highscores_shield", jet: "highscores_jet", comet: "highscores_comet", snake: "highscores_snake", cannon: "highscores_cannon", line: "highscores_line", mine: "highscores_mine", ninja: "highscores_ninja"});
+    expect(new Set(SCORE_MODES.map((m) => COLLECTION[m])).size).toBe(15);
     expect(boards.endless).toBe(board);
     expect(boards.save).not.toBe(boards.endless);
     expect(boards.save.rows).toEqual([]);

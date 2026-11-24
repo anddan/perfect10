@@ -790,8 +790,12 @@ export function drawTrail(ctx: CanvasRenderingContext2D, trail: readonly {x: num
 }
 
 /** The missiles the skulls shoot back at the jet: small and red, glowing, pointing the way they fly, with a puff of smoke behind. */
-export function drawEnemyShots(ctx: CanvasRenderingContext2D, shots: readonly {x: number; y: number; vx: number; vy: number}[], time: number): void {
+export function drawEnemyShots(ctx: CanvasRenderingContext2D, shots: readonly {x: number; y: number; vx: number; vy: number; heavy?: boolean}[], time: number): void {
   for (const e of shots) {
+    if (e.heavy) {
+      drawHeavyMissile(ctx, e, time);
+      continue;
+    }
     const a = Math.atan2(e.vy, e.vx);
     ctx.save();
     ctx.translate(e.x, e.y);
@@ -924,5 +928,147 @@ export function drawPlanet(ctx: CanvasRenderingContext2D, n: NumberTile, time: n
   ctx.arc(0, 0, r, 0, TAU);
   ctx.stroke();
   ring(true);
+  ctx.restore();
+}
+
+/** Comet belt: a moon, smaller than a planet: a grey ball with craters, a light on its upper left and a dark side, and a soft glow round it. It turns slowly. */
+export function drawMoon(ctx: CanvasRenderingContext2D, n: NumberTile, time: number): void {
+  const r = 15 * (n.scale || 1);
+  ctx.save();
+  ctx.translate(n.x, n.y);
+  const glow = ctx.createRadialGradient(0, 0, r * 0.9, 0, 0, r * 1.3);
+  glow.addColorStop(0, "rgba(220,230,255,0.3)");
+  glow.addColorStop(1, "rgba(220,230,255,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 1.3, 0, TAU);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, TAU);
+  ctx.save();
+  ctx.clip();
+  const body = ctx.createRadialGradient(-r * 0.4, -r * 0.45, r * 0.1, 0, 0, r * 1.1);
+  body.addColorStop(0, "#f2f2f4");
+  body.addColorStop(0.55, "#a8aab4");
+  body.addColorStop(1, "#4a4c58");
+  ctx.fillStyle = body;
+  ctx.fillRect(-r, -r, r * 2, r * 2);
+  const turn = (time * 5) % (r * 2);
+  for (const [cx, cy, cr] of [
+    [-0.35, -0.2, 0.22],
+    [0.3, 0.3, 0.17],
+    [0.25, -0.45, 0.1],
+    [-0.2, 0.5, 0.12],
+    [0.6, -0.05, 0.08],
+  ] as const) {
+    const x = ((cx * r + turn + r) % (r * 2)) - r;
+    ctx.fillStyle = "rgba(60,60,72,0.35)";
+    ctx.beginPath();
+    ctx.arc(x, cy * r, cr * r, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(x, cy * r, cr * r, Math.PI * 1.1, Math.PI * 1.8);
+    ctx.stroke();
+  }
+  const night = ctx.createLinearGradient(-r, -r, r, r);
+  night.addColorStop(0.5, "rgba(0,0,0,0)");
+  night.addColorStop(1, "rgba(10,8,24,0.6)");
+  ctx.fillStyle = night;
+  ctx.fillRect(-r, -r, r * 2, r * 2);
+  ctx.restore();
+  ctx.strokeStyle = "rgba(240,240,255,0.45)";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Fighter jet: the shield of a guarded skull, an arc of blue light under it (towards the jet), that dims and cracks as it wears down (u: 1 whole, 0 gone), and the
+ * little life of the skull as a bar over it.
+ */
+export function drawGuard(ctx: CanvasRenderingContext2D, x: number, y: number, u: number, life: number, time: number): void {
+  ctx.save();
+  ctx.translate(x, y);
+  if (u > 0) {
+    ctx.lineCap = "round";
+    const flick = 0.85 + 0.15 * Math.sin(time * 12);
+    ctx.strokeStyle = `rgba(90,190,255,${(0.35 + 0.5 * u) * flick})`;
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.arc(0, -6, 34, Math.PI * 0.18, Math.PI * 0.82);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(230,248,255,${0.5 + 0.5 * u})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, -6, 34, Math.PI * 0.18, Math.PI * 0.82);
+    ctx.stroke();
+    // cracks, more of them the more it is worn
+    const cracks = Math.floor((1 - u) * 6);
+    ctx.strokeStyle = "rgba(20,40,70,0.8)";
+    ctx.lineWidth = 1.5;
+    for (let k = 0; k < cracks; k++) {
+      const a = Math.PI * (0.25 + 0.1 * k);
+      const px = Math.cos(a) * 34;
+      const py = -6 + Math.sin(a) * 34;
+      ctx.beginPath();
+      ctx.moveTo(px - 4, py - 4);
+      ctx.lineTo(px + 1, py);
+      ctx.lineTo(px - 2, py + 5);
+      ctx.stroke();
+    }
+  }
+  // the life of the skull: a small red bar over it
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(-16, -34, 32, 6);
+  ctx.fillStyle = "#ff4a3a";
+  ctx.fillRect(-15, -33, 30 * Math.max(0, Math.min(1, life)), 4);
+  ctx.restore();
+}
+
+/** A heavy missile of the skulls: big and black, with a dull red glow and a red nose, fins, and a thick trail of dark smoke. It cannot be shot down. */
+function drawHeavyMissile(ctx: CanvasRenderingContext2D, e: {x: number; y: number; vx: number; vy: number}, time: number): void {
+  ctx.save();
+  ctx.translate(e.x, e.y);
+  ctx.rotate(Math.atan2(e.vy, e.vx) - Math.PI / 2);
+  // dark smoke behind it
+  ctx.fillStyle = "rgba(40,30,40,0.45)";
+  for (let k = 0; k < 4; k++) {
+    ctx.beginPath();
+    ctx.arc(Math.sin(time * 9 + k) * 2, -18 - k * 7, 5 + k * 1.5, 0, TAU);
+    ctx.fill();
+  }
+  // the flame
+  ctx.fillStyle = `rgba(255,120,40,${0.7 + 0.3 * Math.sin(time * 30)})`;
+  ctx.beginPath();
+  ctx.moveTo(-4, -11);
+  ctx.lineTo(0, -20);
+  ctx.lineTo(4, -11);
+  ctx.fill();
+  // the red glow round it
+  ctx.shadowColor = "rgba(255,30,30,0.9)";
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = "#16141a";
+  roundRect(ctx, -6, -12, 12, 26, 6);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  // fins
+  ctx.fillStyle = "#2a262e";
+  ctx.beginPath();
+  ctx.moveTo(-6, -8);
+  ctx.lineTo(-11, -14);
+  ctx.lineTo(-6, -2);
+  ctx.moveTo(6, -8);
+  ctx.lineTo(11, -14);
+  ctx.lineTo(6, -2);
+  ctx.fill();
+  // a red nose, and a band
+  ctx.fillStyle = "#d4261c";
+  ctx.beginPath();
+  ctx.arc(0, 12, 6, 0, Math.PI);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,80,60,0.6)";
+  ctx.fillRect(-6, 2, 12, 2.5);
   ctx.restore();
 }

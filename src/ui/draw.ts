@@ -366,7 +366,7 @@ export const ui = {
   settingsOpen: false,
   /** The top list of a game is open, and which game's it is. */
   scoresOpen: false,
-  scoresMode: "endless" as "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake",
+  scoresMode: "endless" as "endless" | "save" | "sixeight" | "defend" | "ice" | "fast" | "find" | "shield" | "jet" | "comet" | "snake" | "cannon" | "line" | "mine" | "ninja",
   /** The match modes that have been bought, the best score of every game, and whether the match modes are open in the contents. */
   modes: [] as string[],
   bests: {endless: 0, save: 0, sixeight: 0, defend: 0, ice: 0, fast: 0, find: 0, shield: 0} as Record<string, number>,
@@ -509,7 +509,6 @@ export function drawButton(
   const look = LOOKS[kind];
   const pressed = ui.pressed === id;
   const r = kind === "round" ? Math.min(b.w, b.h) / 2 : Math.min(b.h / 2, 26);
-  const dy = pressed ? DEPTH - 1 : 0;
   const breathe = opts.pulse === undefined || pressed ? 1 : 1 + 0.025 * Math.sin(opts.pulse * 4);
 
   registerHit(ctx, id, b);
@@ -520,45 +519,49 @@ export function drawButton(
   ctx.scale(breathe, breathe);
   ctx.translate(-b.w / 2, -b.h / 2);
 
-  // The lip, which is all that is left of the button's side when it is pressed.
+  // The lip, which is all that is left of the button's side when it is pressed (thinner under a round button, so that it reads as its edge, not a shadow).
+  const depth = kind === "round" ? 3 : DEPTH;
+  const fy = pressed ? depth - 1 : 0;
   ctx.fillStyle = look.lip;
-  roundRect(ctx, 0, DEPTH, b.w, b.h, r);
+  roundRect(ctx, 0, depth, b.w, b.h, r);
   ctx.fill();
-  // The face: light at the top, its own colour through the middle, a little deeper at the bottom.
-  const face = ctx.createLinearGradient(0, dy, 0, dy + b.h);
+  // The face: light at the top and its own colour at the bottom (never the colour of the lip, so the two do not run together), with a clear edge.
+  const face = ctx.createLinearGradient(0, fy, 0, fy + b.h);
   face.addColorStop(0, look.top);
-  face.addColorStop(0.55, look.bottom);
-  face.addColorStop(1, look.lip);
+  face.addColorStop(1, look.bottom);
   ctx.fillStyle = face;
-  roundRect(ctx, 0, dy, b.w, b.h, r);
+  roundRect(ctx, 0, fy, b.w, b.h, r);
   ctx.fill();
-  // (the colour of the face again over most of it, so that only the lowest edge is deeper)
-  const body = ctx.createLinearGradient(0, dy, 0, dy + b.h);
-  body.addColorStop(0, look.top);
-  body.addColorStop(0.7, look.bottom);
-  body.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = body;
-  ctx.fill();
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = look.lip;
+  ctx.stroke();
+  if (kind === "round") {
+    // (a thin light ring just inside the edge of a round button)
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1.2;
+    roundRect(ctx, 1.5, fy + 1.5, b.w - 3, b.h - 3, Math.max(2, r - 1.5));
+    ctx.stroke();
+  }
   ctx.save();
-  roundRect(ctx, 0, dy, b.w, b.h, r);
+  roundRect(ctx, 0, fy, b.w, b.h, r);
   ctx.clip();
   // The gloss: a soft band of light over the top half, inset from the edges, like a lacquered surface.
   const inset = Math.min(8, b.w * 0.06);
   const gh = b.h * 0.42;
-  const gloss = ctx.createLinearGradient(0, dy + 3, 0, dy + 3 + gh);
+  const gloss = ctx.createLinearGradient(0, fy + 3, 0, fy + 3 + gh);
   gloss.addColorStop(0, "rgba(255,255,255,0.55)");
   gloss.addColorStop(1, "rgba(255,255,255,0.04)");
   ctx.fillStyle = gloss;
-  roundRect(ctx, inset, dy + 3, b.w - inset * 2, gh, Math.min(gh / 2, Math.max(2, r - inset)));
+  roundRect(ctx, inset, fy + 3, b.w - inset * 2, gh, Math.min(gh / 2, Math.max(2, r - inset)));
   ctx.fill();
   // (a small bright spot near the top left)
   ctx.fillStyle = "rgba(255,255,255,0.5)";
   ctx.beginPath();
-  ctx.ellipse(inset + Math.min(r, 14), dy + 6, Math.min(r * 0.45, 8), 2.2, 0, 0, TAU);
+  ctx.ellipse(inset + Math.min(r, 14), fy + 6, Math.min(r * 0.45, 8), 2.2, 0, 0, TAU);
   ctx.fill();
   ctx.restore();
 
-  if (opts.draw) opts.draw(ctx, b.w / 2, dy + b.h / 2, look.ink);
+  if (opts.draw) opts.draw(ctx, b.w / 2, fy + b.h / 2, look.ink);
   if (label && opts.ad) {
     // A button that plays an ad: a little video camera with a play triangle in front of the words, so that it is seen that there is an ad to watch.
     const size = opts.size ?? 20;
@@ -567,9 +570,9 @@ export function drawButton(
     const gap = 7;
     const tw = ctx.measureText(label).width;
     const left = b.w / 2 - (iw + gap + tw) / 2;
-    drawAdIcon(ctx, left + iw / 2, dy + b.h / 2 + 0.5, iw, look.ink, look.bottom);
-    text(ctx, label, left + iw + gap + tw / 2, dy + b.h / 2 + 1, size, look.ink, "center", look.outline);
-  } else if (label) text(ctx, label, b.w / 2, dy + b.h / 2 + 1, opts.size ?? 20, look.ink, "center", look.outline);
+    drawAdIcon(ctx, left + iw / 2, fy + b.h / 2 + 0.5, iw, look.ink, look.bottom);
+    text(ctx, label, left + iw + gap + tw / 2, fy + b.h / 2 + 1, size, look.ink, "center", look.outline);
+  } else if (label) text(ctx, label, b.w / 2, fy + b.h / 2 + 1, opts.size ?? 20, look.ink, "center", look.outline);
   ctx.restore();
 }
 

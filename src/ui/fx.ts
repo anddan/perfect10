@@ -141,6 +141,10 @@ export class Fx {
   private celebration: {t: number; stars: number; burst: boolean[]; fireworks: boolean[]} | null = null;
   private party: Spark[] = [];
   private rings: Ring[] = [];
+  /** Bolts of lightning (Draw to 10): from (x0, y0) to (x1, y1), jagged, flickering. */
+  bolts: {x0: number; y0: number; x1: number; y1: number; age: number; life: number; seed: number}[] = [];
+  /** The crosses of light of the laser of the cannon. */
+  crosses: {x: number; y: number; age: number; life: number}[] = [];
   private flash = 0;
   /** The lightning of a diamond at work: where it hangs, the numbers it strikes (and when), and how long it has been going on. */
   private zaps: {x: number; y: number; hits: {x: number; y: number; at: number; ten: boolean}[]; age: number}[] = [];
@@ -468,6 +472,190 @@ export class Fx {
           const s = 60 + rnd() * 160;
           this.confetti.push({x: e.x, y: e.y - 10, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, rot: rnd() * 6, vr: (rnd() - 0.5) * 12, age: 0, life: 0.4 + rnd() * 0.4, color: C[Math.floor(rnd() * C.length)]});
         }
+        break;
+      }
+      case "magnet": {
+        // A magnet in the swarm: a red ring that shrinks in on it, and sparks that fly from every ball it pulls to the magnet.
+        this.rings.push({x: e.x, y: e.y, age: 0, life: 0.4, max: 70, color: "#ff6a6a"});
+        for (const b of e.balls) {
+          for (let k = 0; k < 3; k++) {
+            this.confetti.push({x: b.x, y: b.y, vx: (e.x - b.x) * 2.5 + (rnd() - 0.5) * 30, vy: (e.y - b.y) * 2.5 + (rnd() - 0.5) * 30, rot: rnd() * 6, vr: (rnd() - 0.5) * 12, age: -k * 0.04, life: 0.35, color: k % 2 ? "#ffffff" : "#ff7a7a"});
+          }
+        }
+        break;
+      }
+      case "lineChain": {
+        // A chain in Draw to 10: the tiles burst in orange and gold, bigger with every step.
+        const C = ["#ffe27a", "#ff9a3c", "#ffffff", "#ff6a2a"];
+        for (const p of e.pts) {
+          this.rings.push({x: p.x, y: p.y, age: 0, life: 0.4, max: 30 + 6 * e.n, color: "#ff9a3c"});
+          for (let k = 0; k < 8 + 2 * e.n; k++) {
+            const a = rnd() * Math.PI * 2;
+            const s = 90 + rnd() * 160;
+            this.confetti.push({x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 30, rot: rnd() * 6, vr: (rnd() - 0.5) * 14, age: 0, life: 0.4 + rnd() * 0.3, color: C[k % C.length]});
+          }
+        }
+        break;
+      }
+      case "ghostShift": {
+        // A ghost number of the snake changes: a puff of purple.
+        for (let k = 0; k < 10; k++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 40 + rnd() * 70;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 10, age: 0, life: 0.35, color: k % 2 ? "#e6d6ff" : "#a878ff"});
+        }
+        break;
+      }
+      case "guardHit": {
+        // A shot meets the shield: a few blue sparks.
+        for (let k = 0; k < 6; k++) {
+          const a = Math.PI * (0.2 + rnd() * 0.6);
+          const s = 60 + rnd() * 90;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s * (rnd() < 0.5 ? -1 : 1), vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 12, age: 0, life: 0.25, color: k % 2 ? "#ffffff" : "#7ad0ff"});
+        }
+        break;
+      }
+      case "guardBreak": {
+        // The shield breaks: shards of blue glass fly off, and a ring.
+        this.rings.push({x: e.x, y: e.y, age: 0, life: 0.4, max: 50, color: "#7ad0ff"});
+        for (let k = 0; k < 26; k++) {
+          const a = rnd() * Math.PI * 2;
+          const s = 100 + rnd() * 200;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 18, age: 0, life: 0.45 + rnd() * 0.3, color: k % 3 ? "#bfe8ff" : "#ffffff"});
+        }
+        break;
+      }
+      case "mineDig": {
+        // A block is dug: crumbs of earth fly off it.
+        const C = ["#8a5a32", "#a8743e", "#5a3a20", "#d8b080"];
+        for (let k = 0; k < 12; k++) {
+          const an = rnd() * Math.PI * 2;
+          const s = 60 + rnd() * 130;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(an) * s, vy: Math.sin(an) * s - 40, rot: rnd() * 6, vr: (rnd() - 0.5) * 14, age: 0, life: 0.35 + rnd() * 0.25, color: C[k % C.length]});
+        }
+        break;
+      }
+      case "mineHeavy": {
+        // Too heavy (or a gate that the basket does not open): a few grey sparks and a little ring.
+        this.rings.push({x: e.x, y: e.y, age: 0, life: 0.25, max: 26, color: "#c8c8d0"});
+        break;
+      }
+      case "mineGate": {
+        // A gate opens: a burst of gold and green.
+        this.rings.push({x: e.x, y: e.y, age: 0, life: 0.5, max: 70, color: "#9cf0a8"});
+        for (let k = 0; k < 24; k++) {
+          const an = rnd() * Math.PI * 2;
+          const s = 100 + rnd() * 180;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(an) * s, vy: Math.sin(an) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.5, color: k % 2 ? "#9cf0a8" : "#ffd54a"});
+        }
+        break;
+      }
+      case "mineGem": {
+        // A gem: bright sparkles in all colours.
+        const C = ["#ff9aa8", "#9ad6ff", "#9cf0a8", "#e0b0ff", "#ffffff"];
+        for (let k = 0; k < 20; k++) {
+          const an = rnd() * Math.PI * 2;
+          const s = 80 + rnd() * 160;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(an) * s, vy: Math.sin(an) * s - 50, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.5, color: C[k % C.length]});
+        }
+        break;
+      }
+      case "mineErase": {
+        // The numbers are wiped out: a puff of white chalk dust off every ball, one after the other.
+        e.pts.forEach((p, i) => {
+          for (let k = 0; k < 4; k++) {
+            const an = rnd() * Math.PI * 2;
+            const s = 20 + rnd() * 50;
+            this.confetti.push({x: p.x, y: p.y, vx: Math.cos(an) * s, vy: Math.sin(an) * s - 20, rot: rnd() * 6, vr: (rnd() - 0.5) * 8, age: -i * 0.012, life: 0.5, color: k % 2 ? "#ffffff" : "#e8e8f0"});
+          }
+        });
+        break;
+      }
+      case "mineRestore": {
+        // The numbers come back: a gold sparkle on every ball.
+        e.pts.forEach((p, i) => {
+          this.rings.push({x: p.x, y: p.y, age: -i * 0.012, life: 0.3, max: 22, color: "#ffe27a"});
+        });
+        break;
+      }
+      case "mineTen": {
+        // A perfect 10 in the mine: a burst of gold, and a ring.
+        this.rings.push({x: e.x, y: e.y, age: 0, life: 0.45, max: 60, color: "#ffe27a"});
+        for (let k = 0; k < 30; k++) {
+          const an = rnd() * Math.PI * 2;
+          const s = 100 + rnd() * 200;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(an) * s, vy: Math.sin(an) * s - 60, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.5 + rnd() * 0.4, color: k % 3 ? "#ffd54a" : "#ffffff"});
+        }
+        break;
+      }
+      case "mineTip": {
+        // The basket tips over: grey stones spill out.
+        for (let k = 0; k < 16; k++) {
+          const an = Math.PI * (1.1 + rnd() * 0.8);
+          const s = 80 + rnd() * 120;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(an) * s, vy: Math.sin(an) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 14, age: 0, life: 0.5, color: k % 2 ? "#8a8a96" : "#5a5a66"});
+        }
+        break;
+      }
+      case "laserCross": {
+        // The laser of the cannon: a beam across the swarm and one up and down it, purple with a white core, and sparks all along them.
+        this.crosses.push({x: e.x, y: e.y, age: 0, life: 0.45});
+        for (let i = 0; i < 30; i++) {
+          const across = i % 2 === 0;
+          const u = rnd();
+          this.confetti.push({x: across ? u * W : e.x, y: across ? e.y : u * H, vx: (rnd() - 0.5) * 120, vy: (rnd() - 0.5) * 120, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.3 + rnd() * 0.3, color: i % 3 ? "#f0a8ff" : "#ffffff"});
+        }
+        break;
+      }
+      case "lineBolt": {
+        // A bolt goes off: crackling lightning jumps from it to every tile it electrifies, with a flash and sparks there.
+        for (const h of e.hits) {
+          this.bolts.push({x0: e.x, y0: e.y, x1: h.x, y1: h.y, age: 0, life: 0.35, seed: rnd() * 1000});
+          this.rings.push({x: h.x, y: h.y, age: 0, life: 0.3, max: 34, color: "#c9a8ff"});
+          for (let k = 0; k < 10; k++) {
+            const a = rnd() * Math.PI * 2;
+            const s = 80 + rnd() * 150;
+            this.confetti.push({x: h.x, y: h.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.3 + rnd() * 0.25, color: k % 2 ? "#fff6a0" : "#b88cff"});
+          }
+        }
+        break;
+      }
+      case "lineTen": {
+        // A line makes 10: gold sparks fly from every tile of it, a ring swells round each, and a stream of light runs along it.
+        const G = ["#fff6c4", "#ffe27a", "#ffc83a", "#ffffff"];
+        e.pts.forEach((p, i) => {
+          this.rings.push({x: p.x, y: p.y, age: -i * 0.04, life: 0.4, max: 36, color: "#ffe27a"});
+          for (let k = 0; k < 10; k++) {
+            const a = rnd() * Math.PI * 2;
+            const s = 80 + rnd() * 160;
+            this.confetti.push({x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, rot: rnd() * 6, vr: (rnd() - 0.5) * 14, age: -i * 0.04, life: 0.45 + rnd() * 0.3, color: G[k % G.length]});
+          }
+        });
+        break;
+      }
+      case "tenMade": {
+        // Balls of the swarm make 10: a thread of gold sparks runs from ball to ball, and a gold ring swells round each of them.
+        const G = ["#fff6c4", "#ffe27a", "#ffc83a", "#ffffff"];
+        e.balls.forEach((b, i) => {
+          this.rings.push({x: b.x, y: b.y, age: -i * 0.05, life: 0.35, max: 30, color: "#ffe27a"});
+          const n = e.balls[i + 1];
+          if (!n) return;
+          for (let k = 0; k < 8; k++) {
+            const u = k / 7;
+            this.confetti.push({x: b.x + (n.x - b.x) * u, y: b.y + (n.y - b.y) * u, vx: (rnd() - 0.5) * 40, vy: (rnd() - 0.5) * 40, rot: rnd() * 6, vr: (rnd() - 0.5) * 10, age: -i * 0.05 - u * 0.05, life: 0.3, color: G[k % G.length]});
+          }
+        });
+        break;
+      }
+      case "bubblePop": {
+        // A ball of the swarm pops: it bursts into bright bits and a quick ring.
+        const C = ["#ffffff", "#ffe27a", "#ff9ad0", "#8fe0ff", "#9cf0a8"];
+        for (let i = 0; i < 16; i++) {
+          const a = rnd() * Math.PI * 2;
+          const sp = 90 + rnd() * 170;
+          this.confetti.push({x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: rnd() * 6, vr: (rnd() - 0.5) * 16, age: 0, life: 0.3 + rnd() * 0.3, color: C[Math.floor(rnd() * C.length)]});
+        }
+        this.rings.push({x: e.x, y: e.y, age: 0, life: 0.25, max: 28, color: "#ffffff"});
         break;
       }
       case "bombChain": {
@@ -841,6 +1029,10 @@ export class Fx {
     }
     this.party = this.party.filter((p) => p.age < p.life);
     for (const r of this.rings) r.age += dt;
+    for (const b of this.bolts) b.age += dt;
+    for (const c of this.crosses) c.age += dt;
+    this.crosses = this.crosses.filter((c) => c.age < c.life);
+    this.bolts = this.bolts.filter((b) => b.age < b.life);
     this.rings = this.rings.filter((r) => r.age < r.life);
   }
 
@@ -870,6 +1062,42 @@ export class Fx {
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(255,248,220,${this.flash * 0.6})`;
       ctx.fillRect(0, -ui.extra, W, H + ui.extra);
+    }
+    // (the cross of the laser: a wide purple glow and a white core, that narrows as it fades)
+    for (const c of this.crosses) {
+      const k = c.age / c.life;
+      for (const [w, col] of [[22 * (1 - k) + 4, "rgba(200,90,255,0.45)"], [5 * (1 - k) + 1.5, "rgba(255,255,255,0.95)"]] as const) {
+        ctx.globalAlpha = 1 - k;
+        ctx.fillStyle = col;
+        ctx.fillRect(0, c.y - w / 2, W, w);
+        ctx.fillRect(c.x - w / 2, -ui.extra, w, H + ui.extra);
+      }
+    }
+    // (the bolts of lightning: a jagged line that jumps about, purple with a white core)
+    for (const b of this.bolts) {
+      const k = b.age / b.life;
+      const pts: {x: number; y: number}[] = [{x: b.x0, y: b.y0}];
+      const n = 7;
+      const jump = Math.floor(b.age * 30);
+      const nx = -(b.y1 - b.y0);
+      const ny = b.x1 - b.x0;
+      const len = Math.hypot(nx, ny) || 1;
+      for (let i = 1; i < n; i++) {
+        const u = i / n;
+        const off = Math.sin(b.seed + i * 12.9898 + jump * 78.233) * 14;
+        pts.push({x: b.x0 + (b.x1 - b.x0) * u + (nx / len) * off, y: b.y0 + (b.y1 - b.y0) * u + (ny / len) * off});
+      }
+      pts.push({x: b.x1, y: b.y1});
+      for (const [w, c] of [[7, "rgba(170,120,255,0.55)"], [2.5, "rgba(255,255,255,0.95)"]] as const) {
+        ctx.globalAlpha = 1 - k;
+        ctx.strokeStyle = c;
+        ctx.lineWidth = w;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (const p of pts.slice(1)) ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      }
     }
     for (const r of this.rings) {
       if (r.age < 0) continue;

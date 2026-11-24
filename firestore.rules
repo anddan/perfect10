@@ -218,6 +218,85 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /highscores_cannon/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_line/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+    match /highscores_mine/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+
+    match /highscores_ninja/{device} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow update: if request.resource.data.keys().hasOnly(['device', 'name', 'score', 'at'])
+        && request.resource.data.device == resource.data.device
+        && validName(request.resource.data.name)
+        && request.resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= 1000000000000
+        && request.resource.data.at is number;
+      allow delete: if false;
+    }
+
+
+
     // What players write on the back cover of the book (see src/ui/feedback.ts): a question, an idea or a problem. Anyone can add one (size-bounded);
     // nobody can read, change or delete them from the game: they are read in the console.
     match /feedback/{id} {
